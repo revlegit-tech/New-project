@@ -1,0 +1,181 @@
+name: Weekly data repair
+
+on:
+  workflow_dispatch:
+    inputs:
+      repair_date:
+        description: "Repair through this date, YYYY-MM-DD. Leave blank for yesterday."
+        required: false
+        default: ""
+      include_savant:
+        description: "Include heavier Savant/BvP sync. Use true only when needed."
+        required: false
+        default: "false"
+
+  schedule:
+    # GitHub cron is UTC.
+    # Sunday 09:00 UTC = early Sunday morning ET.
+    # This is intentionally separate from fast daily grading.
+    - cron: "0 9 * * 0"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          fi
+
+      - name: Determine repair date
+        id: repair_date
+        shell: bash
+        run: |
+          INPUT_DATE="${{ github.event.inputs.repair_date }}"
+
+          if [ -n "$INPUT_DATE" ]; then
+            REPAIR_DATE="$INPUT_DATE"
+          else
+            REPAIR_DATE=$(TZ=America/New_York date -d "yesterday" +"%Y-%m-%d")
+          fi
+
+          echo "repair_date=$REPAIR_DATE" >> "$GITHUB_OUTPUT"
+          echo "Repair date: $REPAIR_DATE"
+
+      - name: Compile check
+        run: |
+          python -m py_compile app.py playerboard.py playerboard_backtest.py model_audit.py ml_export.py season_auto_collector.py
+
+      - name: Run full catch-up repair
+        shell: bash
+        env:
+          PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
+        run: |
+          REPAIR_DATE="${{ steps.repair_date.outputs.repair_date }}"
+          INCLUDE_SAVANT="${{ github.event.inputs.include_savant }}"
+
+          if [ "$INCLUDE_SAVANT" = "true" ]; then
+            python season_auto_collector.py snapshot --run-type midnight --date "$REPAIR_DATE" --include-savant
+          else
+            python season_auto_collector.py snapshot --run-type midnight --date "$REPAIR_DATE"
+          fi
+
+      - name: Run smoke tests after repair
+        run: |
+          python -m unittest discover -s tests -p "test_smoke.py" -v
+
+      - name: Build repair summary
+        if: always()
+        shell: bash
+        run: |
+          REPAIR_DATE="${{ steps.repair_date.outputs.repair_date }}"
+
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          repair_date = "${{ steps.repair_date.outputs.repair_date }}"
+          season = int(repair_date[:4])
+
+          summary = {
+              "checkedAt": datetime.now(timezone.utc).isoformat(),
+              "date": repair_date,
+              "season": season,
+              "workflow": "weekly-data-repair",
+              "ok": True,
+              "files": {},
+              "warnings": [],
+          }
+
+          paths = [
+              f"data/warehouse/season_logs/batter_game_logs_{season}.csv",
+              f"data/warehouse/season_logs/pitcher_game_logs_{season}.csv",
+              f"data/warehouse/season_logs/team_game_logs_{season}.csv",
+              f"data/cloud/season_logs/batter_game_logs_{season}.csv",
+              f"data/cloud/season_logs/pitcher_game_logs_{season}.csv",
+              f"data/cloud/season_logs/team_game_logs_{season}.csv",
+              f"data/backtests/playerboard_backtest_{season}.csv",
+              f"data/ml/playerboard_training_{season}.csv",
+          ]
+
+          for item in paths:
+              path = Path(item)
+              summary["files"][item] = {
+                  "exists": path.exists(),
+                  "size": path.stat().st_size if path.exists() else 0,
+              }
+              if not path.exists():
+                  summary["warnings"].append(f"Missing expected file: {item}")
+
+          out_dir = Path("data/health")
+          out_dir.mkdir(parents=True, exist_ok=True)
+
+          out_path = out_dir / f"weekly_repair_{repair_date}.json"
+          latest_path = out_dir / "latest_weekly_repair.json"
+
+          text = json.dumps(summary, indent=2, sort_keys=True)
+          out_path.write_text(text + "\n", encoding="utf-8")
+          latest_path.write_text(text + "\n", encoding="utf-8")
+
+          print(text)
+          PY
+
+      - name: Commit repair outputs
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          # Stage all generated repair outputs that this workflow may touch.
+          git add data/backtests || true
+          git add data/ml || true
+          git add data/audit || true
+          git add data/cloud || true
+          git add data/warehouse || true
+          git add data/health || true
+          git add data/cache/incremental_stats || true
+          git add data/cache/season_stats || true
+          git add data/cache/weather || true
+          git add data/cache/savant || true
+          git add data/cache/odds_movement || true
+          git add data/playerboard || true
+
+          # Ignore local-only/debug backup files if they appear in the runner.
+          git reset -- .local_backups || true
+          git reset -- launcher-*.err || true
+          git reset -- "data/cache/odds_movement/debug_"*.json || true
+          git reset -- "data/cache/odds_movement/"*.before_*.csv || true
+          git reset -- "data/playerboard/"*.before_*.csv || true
+
+          if git diff --cached --quiet; then
+            echo "No repair changes to commit."
+            exit 0
+          fi
+
+          git status --short
+          git commit -m "Update weekly data repair outputs"
+
+          # main may move during this long repair run. Autostash prevents
+          # rebase from failing if generators leave harmless unstaged changes.
+          git pull --rebase --autostash origin main
+
+          git push origin main

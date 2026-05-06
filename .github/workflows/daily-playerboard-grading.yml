@@ -1,0 +1,194 @@
+name: Daily playerboard grading
+
+on:
+  workflow_dispatch:
+    inputs:
+      grade_date:
+        description: "Date to grade, YYYY-MM-DD. Leave blank to grade yesterday."
+        required: false
+        default: ""
+
+  schedule:
+    # GitHub cron is UTC.
+    # Backup runs are intentional because MLB final data can lag.
+    # During US Eastern daylight time:
+    # 08:00 UTC = 4:00 AM ET
+    # 12:00 UTC = 8:00 AM ET
+    # 16:00 UTC = 12:00 PM ET
+    - cron: "0 8 * * *"
+    - cron: "0 12 * * *"
+    - cron: "0 16 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  grade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          fi
+
+      - name: Determine grade date
+        id: grade_date
+        shell: bash
+        run: |
+          INPUT_DATE="${{ github.event.inputs.grade_date }}"
+
+          if [ -n "$INPUT_DATE" ]; then
+            GRADE_DATE="$INPUT_DATE"
+          else
+            GRADE_DATE=$(TZ=America/New_York date -d "yesterday" +"%Y-%m-%d")
+          fi
+
+          echo "grade_date=$GRADE_DATE" >> "$GITHUB_OUTPUT"
+          echo "Grade date: $GRADE_DATE"
+
+      - name: Compile check
+        run: |
+          python -m py_compile app.py playerboard.py playerboard_backtest.py model_audit.py ml_export.py season_auto_collector.py train_all_supported_markets.py
+
+      - name: Pull final logs and sync warehouse
+        shell: bash
+        env:
+          PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
+        run: |
+          GRADE_DATE="${{ steps.grade_date.outputs.grade_date }}"
+          python -u season_auto_collector.py snapshot --run-type grading --date "$GRADE_DATE"
+
+      - name: Verify collector grading completed
+        shell: bash
+        run: |
+          echo "season_auto_collector.py already runs Playerboard, backtest, model audit, and ML export for the grade date."
+          echo "Skipping duplicate grading scripts to keep the workflow fast."
+
+      - name: Build grading summary
+        if: always()
+        shell: bash
+        run: |
+          GRADE_DATE="${{ steps.grade_date.outputs.grade_date }}"
+
+          python - <<'PY'
+          import csv
+          import json
+          from collections import Counter
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          grade_date = "${{ steps.grade_date.outputs.grade_date }}"
+          season = int(grade_date[:4])
+
+          summary = {
+              "checkedAt": datetime.now(timezone.utc).isoformat(),
+              "date": grade_date,
+              "season": season,
+              "ok": True,
+              "files": {},
+              "counts": {},
+              "warnings": [],
+              "errors": [],
+          }
+
+          def read_rows(path):
+              p = Path(path)
+              summary["files"][path] = {
+                  "exists": p.exists(),
+                  "size": p.stat().st_size if p.exists() else 0,
+              }
+              if not p.exists():
+                  return []
+              with p.open("r", encoding="utf-8-sig", newline="") as handle:
+                  return list(csv.DictReader(handle))
+
+          backtest_path = f"data/backtests/playerboard_backtest_{season}.csv"
+          ml_path = f"data/ml/playerboard_training_{season}.csv"
+
+          backtest = read_rows(backtest_path)
+          ml_rows = read_rows(ml_path)
+
+          date_backtest = [r for r in backtest if str(r.get("date", "")).strip() == grade_date]
+          date_ml = [r for r in ml_rows if str(r.get("date", "")).strip() == grade_date]
+
+          bt_results = Counter(str(r.get("result", "")).strip() or "blank" for r in date_backtest)
+          ml_results = Counter(str(r.get("result", "")).strip() or "blank" for r in date_ml)
+
+          summary["counts"]["backtestRowsForDate"] = len(date_backtest)
+          summary["counts"]["backtestResultsForDate"] = dict(sorted(bt_results.items()))
+          summary["counts"]["mlRowsForDate"] = len(date_ml)
+          summary["counts"]["mlResultsForDate"] = dict(sorted(ml_results.items()))
+
+          graded_backtest = sum(count for result, count in bt_results.items() if result not in {"ungraded", "blank", ""})
+          graded_ml = sum(count for result, count in ml_results.items() if result not in {"ungraded", "blank", ""})
+
+          summary["counts"]["gradedBacktestRowsForDate"] = graded_backtest
+          summary["counts"]["gradedMlRowsForDate"] = graded_ml
+
+          if date_backtest and graded_backtest <= 0:
+              summary["warnings"].append("Backtest rows exist for date but none are graded yet.")
+
+          if date_ml and graded_ml <= 0:
+              summary["warnings"].append("ML export rows exist for date but none are graded yet.")
+
+          out_dir = Path("data/health")
+          out_dir.mkdir(parents=True, exist_ok=True)
+          out_path = out_dir / f"grading_summary_{grade_date}.json"
+          latest_path = out_dir / "latest_grading_summary.json"
+
+          text = json.dumps(summary, indent=2, sort_keys=True)
+          out_path.write_text(text + "\n", encoding="utf-8")
+          latest_path.write_text(text + "\n", encoding="utf-8")
+
+          print(text)
+          PY
+
+      - name: Rebuild and train supported market models
+        if: always()
+        shell: bash
+        run: |
+          GRADE_DATE="${{ steps.grade_date.outputs.grade_date }}"
+          SEASON="${GRADE_DATE:0:4}"
+          python -u train_all_supported_markets.py --season "$SEASON"
+
+      - name: Commit grading outputs
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          # Get latest main before creating the generated-data commit.
+          git fetch origin main
+          git reset --mixed origin/main
+
+          git add data/backtests || true
+          git add data/ml || true
+          git add data/audit || true
+          git add data/cloud || true
+          git add data/warehouse || true
+          git add data/health || true
+          git add -f data/training/train_all_supported_markets_summary_*.json || true
+          git add -f data/training/latest_train_all_supported_markets_summary.json || true
+
+          if git diff --cached --quiet; then
+            echo "No grading changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Update daily playerboard grading"
+          git push origin HEAD:main

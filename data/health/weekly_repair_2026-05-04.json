@@ -1,0 +1,42 @@
+{
+  "checkedAt": "2026-05-05T05:21:21.550324+00:00",
+  "date": "2026-05-04",
+  "files": {
+    "data/backtests/playerboard_backtest_2026.csv": {
+      "exists": true,
+      "size": 528669
+    },
+    "data/cloud/season_logs/batter_game_logs_2026.csv": {
+      "exists": true,
+      "size": 181
+    },
+    "data/cloud/season_logs/pitcher_game_logs_2026.csv": {
+      "exists": true,
+      "size": 182
+    },
+    "data/cloud/season_logs/team_game_logs_2026.csv": {
+      "exists": true,
+      "size": 191
+    },
+    "data/ml/playerboard_training_2026.csv": {
+      "exists": true,
+      "size": 467328
+    },
+    "data/warehouse/season_logs/batter_game_logs_2026.csv": {
+      "exists": true,
+      "size": 182
+    },
+    "data/warehouse/season_logs/pitcher_game_logs_2026.csv": {
+      "exists": true,
+      "size": 183
+    },
+    "data/warehouse/season_logs/team_game_logs_2026.csv": {
+      "exists": true,
+      "size": 192
+    }
+  },
+  "ok": true,
+  "season": 2026,
+  "warnings": [],
+  "workflow": "weekly-data-repair"
+}

@@ -1,0 +1,17 @@
+# MLB StatsAPI wrappers used by the live-data and batch analysis integrations.
+python-mlb-statsapi==0.7.2
+MLB-StatsAPI
+
+# Optional screenshot OCR support for image_data_importer.py.
+pillow
+pytesseract
+
+# Free machine-learning model support.
+pandas
+numpy
+scikit-learn
+joblib
+propline
+
+pybaseball
+requests

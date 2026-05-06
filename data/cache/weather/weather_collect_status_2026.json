@@ -1,0 +1,16 @@
+{
+  "season": 2026,
+  "phase": "regular",
+  "rowsCollected": 0,
+  "skippedExisting": 0,
+  "upsert": {
+    "inputRows": 0,
+    "beforeRows": 0,
+    "afterRows": 0,
+    "netNewRows": 0
+  },
+  "errors": [],
+  "errorCount": 0,
+  "weatherFile": "/home/runner/work/New-project/New-project/data/cache/weather/game_weather_2026.csv",
+  "updatedAt": "2026-05-05T04:38:43.393684+00:00"
+}

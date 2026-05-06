@@ -1,0 +1,6 @@
+runId,date,runType,startedAt,finishedAt,success,includeSavant,propCount,mlbGames,finalGames,boxscoresSaved,batterRowsUpserted,pitcherRowsUpserted,teamRowsUpserted,cloudExportedCount,logPath
+20260505T072338Z,2026-05-05,grading,2026-05-05T07:23:38.394985+00:00,2026-05-05T07:23:43.018876+00:00,True,False,,15,0,0,0,0,0,5,C:\Users\RevLe\New-project\data\warehouse\logs\season_collector_grading_2026-05-05_20260505T072338Z.json
+20260505T082721Z,2026-05-04,grading,2026-05-05T08:27:21.137524+00:00,2026-05-05T08:27:26.906794+00:00,True,False,,12,12,0,0,0,0,6,C:\Users\RevLe\New-project\data\warehouse\logs\season_collector_grading_2026-05-04_20260505T082721Z.json
+20260505T082729Z,2026-05-05,grading,2026-05-05T08:27:29.001606+00:00,2026-05-05T08:27:34.402168+00:00,True,False,,15,0,0,0,0,0,6,C:\Users\RevLe\New-project\data\warehouse\logs\season_collector_grading_2026-05-05_20260505T082729Z.json
+20260505T083429Z,2026-05-05,grading,2026-05-05T08:34:29.625461+00:00,2026-05-05T08:34:34.610604+00:00,True,False,,15,0,0,0,0,0,6,C:\Users\RevLe\New-project\data\warehouse\logs\season_collector_grading_2026-05-05_20260505T083429Z.json
+20260505T084054Z,2026-05-05,manual,2026-05-05T08:40:54.804933+00:00,2026-05-05T08:41:00.148099+00:00,True,False,,15,0,0,0,0,0,6,C:\Users\RevLe\New-project\data\warehouse\logs\season_collector_manual_2026-05-05_20260505T084054Z.json

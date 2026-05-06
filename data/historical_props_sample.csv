@@ -1,0 +1,5 @@
+player,market,line,american_odds,actual,recent_rate,season_rate,opponent_rate,park_factor
+Aaron Judge,total_bases,1.5,-110,2,0.58,0.54,0.51,1.05
+Aaron Judge,total_bases,1.5,-115,0,0.55,0.53,0.49,0.98
+Gerrit Cole,pitcher_strikeouts,5.5,-105,7,0.62,0.59,0.56,1.00
+Gerrit Cole,pitcher_strikeouts,6.5,120,5,0.60,0.58,0.52,1.00

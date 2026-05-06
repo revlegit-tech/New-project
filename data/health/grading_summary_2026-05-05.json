@@ -1,0 +1,26 @@
+{
+  "checkedAt": "2026-05-05T07:23:08.565858+00:00",
+  "counts": {
+    "backtestResultsForDate": {},
+    "backtestRowsForDate": 0,
+    "gradedBacktestRowsForDate": 0,
+    "gradedMlRowsForDate": 0,
+    "mlResultsForDate": {},
+    "mlRowsForDate": 0
+  },
+  "date": "2026-05-05",
+  "errors": [],
+  "files": {
+    "data/backtests/playerboard_backtest_2026.csv": {
+      "exists": true,
+      "size": 527146
+    },
+    "data/ml/playerboard_training_2026.csv": {
+      "exists": true,
+      "size": 465918
+    }
+  },
+  "ok": true,
+  "season": 2026,
+  "warnings": []
+}

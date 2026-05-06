@@ -1,0 +1,42 @@
+{
+  "season": 2026,
+  "updatedAt": "2026-05-06T01:18:15.445870+00:00",
+  "source": "/home/runner/work/New-project/New-project/data/backtests/playerboard_backtest_2026.csv",
+  "trainingFile": "/home/runner/work/New-project/New-project/data/ml/playerboard_training_2026.csv",
+  "summaryFile": "/home/runner/work/New-project/New-project/data/ml/playerboard_training_summary_2026.json",
+  "rows": 1739,
+  "graded": 1286,
+  "ungraded": 453,
+  "wins": 334,
+  "losses": 952,
+  "pushes": 0,
+  "profitUnits": -538.2523,
+  "winRate": 25.97,
+  "roiPercent": -41.85,
+  "byMarket": {
+    "batter_hits": 475,
+    "batter_hits_alt": 175,
+    "batter_home_runs": 226,
+    "batter_home_runs_alt": 50,
+    "batter_total_bases": 297,
+    "batter_total_bases_alt": 211,
+    "pitcher_earned_runs": 31,
+    "pitcher_hits_allowed": 35,
+    "pitcher_strikeouts": 84,
+    "team_first_to_score": 12,
+    "team_total_runs": 143
+  },
+  "byResult": {
+    "loss": 952,
+    "ungraded": 453,
+    "win": 334
+  },
+  "byEdgeBucket": {
+    "0-2%": 398,
+    "2-4%": 287,
+    "4-6%": 165,
+    "6-8%": 62,
+    "8%+": 156,
+    "<0%": 671
+  }
+}

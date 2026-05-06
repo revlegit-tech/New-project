@@ -1,0 +1,99 @@
+{
+  "season": 2026,
+  "startDate": "2026-03-01",
+  "endDate": "2026-05-04",
+  "force": false,
+  "seasonPhase": "regular",
+  "regularSeasonStart": "2026-03-25",
+  "maxDates": 0,
+  "processedDates": 41,
+  "gamesSeen": 531,
+  "finalGamesSeen": 525,
+  "skippedFinalCached": 0,
+  "boxscoresRead": 525,
+  "liveFeedsRead": 525,
+  "upserts": {
+    "games": {
+      "inputRows": 531,
+      "netNewRows": 525
+    },
+    "batters": {
+      "inputRows": 11015,
+      "netNewRows": 11015
+    },
+    "pitchers": {
+      "inputRows": 4484,
+      "netNewRows": 4484
+    },
+    "teams": {
+      "inputRows": 1050,
+      "netNewRows": 1050
+    },
+    "bvp": {
+      "inputRows": 0,
+      "netNewRows": 0
+    }
+  },
+  "indexes": {
+    "players": 1021,
+    "teams": 30,
+    "playerIndex": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/player_index_2026.csv",
+    "teamIndex": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/team_index_2026.csv"
+  },
+  "featureBuild": {
+    "season": 2026,
+    "phase": "regular",
+    "regularSeasonStart": "2026-03-25",
+    "inputRows": {
+      "batters": 11015,
+      "pitchers": 4484,
+      "teams": 1050,
+      "bvp": 0
+    },
+    "outputRows": {
+      "batterTotals": 491,
+      "pitcherTotals": 564,
+      "teamTotals": 30,
+      "bvpTotals": 0,
+      "batterRecent": 491,
+      "pitcherRecent": 564
+    },
+    "files": {
+      "batters": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/batter_game_logs_2026.csv",
+      "pitchers": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/pitcher_game_logs_2026.csv",
+      "teams": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/team_game_logs_2026.csv",
+      "bvp": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/batter_vs_pitcher_pa_2026.csv",
+      "batterTotals": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/batter_totals_2026.csv",
+      "pitcherTotals": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/pitcher_totals_2026.csv",
+      "teamTotals": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/team_totals_2026.csv",
+      "bvpTotals": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/bvp_totals_2026.csv",
+      "batterRecent": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/batter_recent_2026.csv",
+      "pitcherRecent": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/pitcher_recent_2026.csv",
+      "status": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/feature_status_2026.json"
+    },
+    "updatedAt": "2026-05-05T05:21:15.066261+00:00"
+  },
+  "rowCounts": {
+    "games": 525,
+    "batters": 11015,
+    "pitchers": 4484,
+    "teams": 1050,
+    "bvp": 0,
+    "players": 1021,
+    "teamIndex": 30
+  },
+  "files": {
+    "games": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/games_2026.csv",
+    "batters": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/batter_game_logs_2026.csv",
+    "pitchers": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/pitcher_game_logs_2026.csv",
+    "teams": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/team_game_logs_2026.csv",
+    "bvp": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/batter_vs_pitcher_pa_2026.csv",
+    "players": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/player_index_2026.csv",
+    "teamIndex": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/team_index_2026.csv",
+    "status": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/status_2026.json"
+  },
+  "errors": [],
+  "errorCount": 0,
+  "updatedAt": "2026-05-05T05:21:15.132674+00:00",
+  "inProgress": false
+}

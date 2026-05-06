@@ -1,0 +1,167 @@
+name: Daily health check
+
+on:
+  workflow_dispatch:
+    inputs:
+      health_date:
+        description: "Date to check, YYYY-MM-DD. Leave blank for latest/yesterday behavior."
+        required: false
+        default: ""
+
+  schedule:
+    # GitHub cron is UTC. 11:00 UTC is 7 AM ET during daylight time.
+    - cron: "0 11 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          fi
+
+      - name: Determine health date
+        id: health_date
+        shell: bash
+        run: |
+          INPUT_DATE="${{ github.event.inputs.health_date }}"
+
+          if [ -n "$INPUT_DATE" ]; then
+            HEALTH_DATE="$INPUT_DATE"
+          else
+            HEALTH_DATE=$(TZ=America/New_York date -d "yesterday" +"%Y-%m-%d")
+          fi
+
+          echo "health_date=$HEALTH_DATE" >> "$GITHUB_OUTPUT"
+          echo "Health date: $HEALTH_DATE"
+
+      - name: Run smoke tests
+        run: |
+          python -m py_compile app.py playerboard.py tests/test_smoke.py
+          python -m unittest discover -s tests -p "test_smoke.py" -v
+
+      - name: Build health summary
+        shell: bash
+        run: |
+          HEALTH_DATE="${{ steps.health_date.outputs.health_date }}"
+
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          import app
+
+          health_date = "${{ steps.health_date.outputs.health_date }}"
+          season = int(health_date[:4]) if health_date else 2026
+
+          summary = {
+              "checkedAt": datetime.now(timezone.utc).isoformat(),
+              "date": health_date,
+              "season": season,
+              "ok": True,
+              "checks": {},
+              "warnings": [],
+              "errors": [],
+          }
+
+          try:
+              playerboard = app.playerboard_health_payload({
+                  "season": [str(season)],
+                  "date": [health_date],
+              })
+
+              # If yesterday/today has no rows, check latest saved Playerboard date too.
+              if (playerboard.get("rowsLoaded") or 0) <= 0 and playerboard.get("latestAvailableDate"):
+                  latest = app.playerboard_health_payload({
+                      "season": [str(season)],
+                      "date": [playerboard["latestAvailableDate"]],
+                  })
+                  latest["requestedDate"] = health_date
+                  latest["usedLatestAvailableDate"] = True
+                  playerboard = latest
+
+              summary["checks"]["playerboard"] = playerboard
+
+              if not playerboard.get("schemaOk"):
+                  summary["ok"] = False
+                  summary["errors"].append(f"Playerboard schema issue: {playerboard.get('schemaIssue') or 'unknown'}")
+
+              if (playerboard.get("badShiftedRows") or 0) > 0:
+                  summary["ok"] = False
+                  summary["errors"].append(f"Playerboard shifted rows: {playerboard.get('badShiftedRows')}")
+
+              if (playerboard.get("missingMarketDisplayRows") or 0) > 0:
+                  summary["warnings"].append(f"Playerboard missing marketDisplay rows: {playerboard.get('missingMarketDisplayRows')}")
+
+              if (playerboard.get("rowsLoaded") or 0) <= 0:
+                  summary["warnings"].append("No Playerboard rows found for requested/latest date.")
+
+          except Exception as error:
+              summary["ok"] = False
+              summary["errors"].append(f"Playerboard health failed: {error}")
+
+          try:
+              data_health = app.data_health_query_payload({"date": [health_date]})
+              summary["checks"]["dataHealth"] = data_health
+
+              if not data_health.get("ok", True):
+                  summary["warnings"].append("Data health returned warnings.")
+
+              for warning in data_health.get("warnings", []) or []:
+                  summary["warnings"].append(f"Data health: {warning}")
+
+          except Exception as error:
+              summary["warnings"].append(f"Data health check skipped/failed: {error}")
+
+          output_dir = Path("data/health")
+          output_dir.mkdir(parents=True, exist_ok=True)
+          output_path = output_dir / f"daily_health_{health_date}.json"
+          latest_path = output_dir / "latest_daily_health.json"
+
+          text = json.dumps(summary, indent=2, sort_keys=True)
+          output_path.write_text(text + "\n", encoding="utf-8")
+          latest_path.write_text(text + "\n", encoding="utf-8")
+
+          print(text)
+
+          if not summary["ok"]:
+              raise SystemExit(1)
+          PY
+
+      - name: Commit health summary
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add data/health || true
+
+          if git diff --cached --quiet; then
+            echo "No health summary changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Update daily health summary"
+
+          git pull --rebase origin main
+          git push origin main

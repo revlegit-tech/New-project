@@ -1,0 +1,180 @@
+name: Baseball data collector
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_type:
+        description: "Run type"
+        required: true
+        default: "manual"
+        type: choice
+        options:
+          - manual
+          - morning
+          - midday
+          - midnight
+      include_savant:
+        description: "Include Savant/pybaseball sync"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+  schedule:
+    # GitHub cron uses UTC.
+    # During US Eastern daylight time:
+    # 06:00 ET = 10:00 UTC
+    # 12:00 ET = 16:00 UTC
+    # 00:00 ET = 04:00 UTC
+    - cron: "0 10 * * *"
+    - cron: "0 16 * * *"
+    - cron: "0 4 * * *"
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Determine run mode
+        id: mode
+        shell: bash
+        run: |
+          RUN_TYPE="${{ github.event.inputs.run_type }}"
+          INCLUDE_SAVANT="${{ github.event.inputs.include_savant }}"
+
+          if [ -z "$RUN_TYPE" ]; then
+            HOUR_ET=$(TZ=America/New_York date +"%H")
+
+            if [ "$HOUR_ET" = "06" ]; then
+              RUN_TYPE="morning"
+              INCLUDE_SAVANT="false"
+            elif [ "$HOUR_ET" = "12" ]; then
+              RUN_TYPE="midday"
+              INCLUDE_SAVANT="false"
+            elif [ "$HOUR_ET" = "00" ]; then
+              RUN_TYPE="midnight"
+              INCLUDE_SAVANT="true"
+            else
+              RUN_TYPE="manual"
+              INCLUDE_SAVANT="false"
+            fi
+          fi
+
+          echo "run_type=$RUN_TYPE" >> "$GITHUB_OUTPUT"
+          echo "include_savant=$INCLUDE_SAVANT" >> "$GITHUB_OUTPUT"
+
+      - name: Run collector
+        env:
+          PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
+        shell: bash
+        run: |
+          RUN_TYPE="${{ steps.mode.outputs.run_type }}"
+          INCLUDE_SAVANT="${{ steps.mode.outputs.include_savant }}"
+
+          if [ "$RUN_TYPE" = "midnight" ]; then
+            CMD="python season_auto_collector.py snapshot --run-type midnight --date-offset -1"
+          else
+            CMD="python season_auto_collector.py snapshot --run-type $RUN_TYPE"
+          fi
+
+          if [ "$INCLUDE_SAVANT" = "true" ]; then
+            CMD="$CMD --include-savant"
+          fi
+
+          echo "$CMD"
+          eval "$CMD"
+
+      - name: Run current-day OddsPapi team props
+        env:
+          ODDSPAPI_KEY: ${{ secrets.ODDSPAPI_KEY }}
+        shell: bash
+        run: |
+          if [ -z "$ODDSPAPI_KEY" ]; then
+            echo "ODDSPAPI_KEY is not configured; skipping OddsPapi team props."
+            exit 0
+          fi
+
+          TODAY=$(TZ=America/New_York date +"%Y-%m-%d")
+          TOMORROW=$(TZ=America/New_York date -d "$TODAY + 1 day" +"%Y-%m-%d")
+
+          echo "Pulling OddsPapi team props for $TODAY to $TOMORROW"
+          python oddspapi_team_backfill.py --from-date "$TODAY" --to-date "$TOMORROW" --max-fixtures 20 || {
+            echo "OddsPapi team prop pull failed; continuing collector."
+            exit 0
+          }
+
+          echo "Flattening current-day OddsPapi game markets"
+          python oddspapi_current_game_markets_latest.py --from-date "$TODAY" --to-date "$TOMORROW" || {
+            echo "OddsPapi game market flattening failed; continuing collector."
+          }
+
+          echo "Rebuilding current-day team/game Playerboard markets from OddsPapi"
+          python playerboard.py --season 2026 --date "$TODAY" --market moneyline --limit 5000 || true
+          python playerboard.py --season 2026 --date "$TODAY" --market run_line --limit 5000 || true
+          python playerboard.py --season 2026 --date "$TODAY" --market game_total_runs --limit 5000 || true
+          python playerboard.py --season 2026 --date "$TODAY" --market first_five_total_runs --limit 5000 || true
+          python playerboard.py --season 2026 --date "$TODAY" --market first_inning_total_runs --limit 5000 || true
+          python playerboard.py --season 2026 --date "$TODAY" --market team_total_runs --limit 5000 || true
+          python playerboard.py --season 2026 --date "$TODAY" --market team_first_to_score --limit 5000 || true
+
+      - name: Commit compact cloud data
+        shell: bash
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          # Start from latest main before creating the generated-data commit.
+          # This avoids pull/rebase failures after local generated files are created.
+          git fetch origin main
+          git reset --mixed origin/main
+
+          # Keep large/local warehouse files out of Git.
+          # Commit cloud-safe compact exports plus compact model feature outputs.
+          git add data/cloud || true
+          git add data/cache/savant/savant_batter_quality_*.csv || true
+          git add data/cache/savant/savant_pitcher_quality_*.csv || true
+          git add data/cache/savant/savant_status_*.json || true
+          git add data/cache/savant/savant_collect_status_*.json || true
+          git add data/cache/odds_movement/prop_snapshots_*.csv || true
+          git add data/cache/odds_movement/prop_movement_*.csv || true
+          git add data/cache/odds_movement/status_*.json || true
+          git add data/cache/odds_movement/snapshot_status_*.json || true
+          git add data/playerboard/playerboard_*.csv || true
+          git add data/backtests/playerboard_backtest_*.csv || true
+          git add data/backtests/playerboard_backtest_summary_*.json || true
+          git add data/audit/model_audit_*.csv || true
+          git add data/audit/model_audit_*.json || true
+          git add data/ml/playerboard_training_*.csv || true
+          git add data/ml/playerboard_training_summary_*.json || true
+          git add -f data/training/train_all_supported_markets_summary_*.json || true
+          git add -f data/training/latest_train_all_supported_markets_summary.json || true
+
+          if git diff --cached --quiet; then
+            echo "No compact data changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Update autonomous baseball data"
+          git push origin HEAD:main

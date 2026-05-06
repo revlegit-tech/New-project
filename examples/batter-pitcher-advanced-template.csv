@@ -1,0 +1,2 @@
+Batter,Batter-additional,Pitcher,Pitcher-additional,PitcherTeam,PA,AB,H,HR,BB,SO,BA,OBP,SLG,OPS,wOBA,xwOBA,xBA,xSLG,EV,LA,HardH%,Barrel%,Whiff%,Chase%
+Example Batter,battex01,Example Pitcher,pitchex01,ATL,18,16,5,1,2,4,.313,.389,.563,.951,.405,.382,.291,.521,91.2,14.8,44.4%,11.1%,26.5%,31.0%

@@ -1,0 +1,526 @@
+season,seasonPhase,date,gamePk,gameDate,status,codedGameState,away,home,awayName,homeName,awayScore,homeScore,awayProbablePitcher,homeProbablePitcher,venue,final
+2026,regular,2026-03-25,823244,2026-03-26T00:05:00Z,Final,F,NYY,SFG,New York Yankees,San Francisco Giants,7,,Max Fried,Logan Webb,Oracle Park,True
+2026,regular,2026-03-26,823649,2026-03-26T17:15:00Z,Final,F,PIT,NYM,Pittsburgh Pirates,New York Mets,7,11,Paul Skenes,Freddy Peralta,Citi Field,True
+2026,regular,2026-03-26,823812,2026-03-26T18:10:00Z,Final,F,CHW,MIL,Chicago White Sox,Milwaukee Brewers,2,14,Shane Smith,Jacob Misiorowski,American Family Field,True
+2026,regular,2026-03-26,824704,2026-03-26T18:20:00Z,Final,F,WSN,CHC,Washington Nationals,Chicago Cubs,10,4,Cade Cavalli,Matthew Boyd,Wrigley Field,True
+2026,regular,2026-03-26,824865,2026-03-26T19:05:00Z,Final,F,MIN,BAL,Minnesota Twins,Baltimore Orioles,1,2,Joe Ryan,Trevor Rogers,Oriole Park at Camden Yards,True
+2026,regular,2026-03-26,824541,2026-03-26T20:10:00Z,Final,F,BOS,CIN,Boston Red Sox,Cincinnati Reds,3,,Garrett Crochet,Andrew Abbott,Great American Ball Park,True
+2026,regular,2026-03-26,824218,2026-03-26T20:10:00Z,Final,F,LAA,HOU,Los Angeles Angels,Houston Astros,3,,José Soriano,Hunter Brown,Daikin Park,True
+2026,regular,2026-03-26,823325,2026-03-26T20:10:00Z,Final,F,DET,SDP,Detroit Tigers,San Diego Padres,8,2,Tarik Skubal,Nick Pivetta,Petco Park,True
+2026,regular,2026-03-26,823081,2026-03-26T20:15:00Z,Final,F,TBR,STL,Tampa Bay Rays,St. Louis Cardinals,7,9,Drew Rasmussen,Matthew Liberatore,Busch Stadium,True
+2026,regular,2026-03-26,823486,2026-03-26T20:15:00Z,Final,F,TEX,PHI,Texas Rangers,Philadelphia Phillies,3,5,Nathan Eovaldi,Cristopher Sánchez,Citizens Bank Park,True
+2026,regular,2026-03-26,823974,2026-03-27T00:30:00Z,Final,F,ARI,LAD,Arizona Diamondbacks,Los Angeles Dodgers,2,8,Zac Gallen,Yoshinobu Yamamoto,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-03-26,823163,2026-03-27T02:10:00Z,Final,F,CLE,SEA,Cleveland Guardians,Seattle Mariners,6,4,Tanner Bibee,Logan Gilbert,T-Mobile Park,True
+2026,regular,2026-03-27,823243,2026-03-27T20:35:00Z,Final,F,NYY,SFG,New York Yankees,San Francisco Giants,3,,Cam Schlittler,Robbie Ray,Oracle Park,True
+2026,regular,2026-03-27,822839,2026-03-27T23:07:00Z,Final,F,ATH,TOR,Athletics,Toronto Blue Jays,2,3,Luis Severino,Kevin Gausman,Rogers Centre,True
+2026,regular,2026-03-27,823893,2026-03-27T23:10:00Z,Final,F,COL,MIA,Colorado Rockies,Miami Marlins,1,2,Kyle Freeland,Sandy Alcantara,loanDepot park,True
+2026,regular,2026-03-27,824946,2026-03-27T23:15:00Z,Final,F,KCR,ATL,Kansas City Royals,Atlanta Braves,,6,Cole Ragans,Chris Sale,Truist Park,True
+2026,regular,2026-03-27,824216,2026-03-28T00:15:00Z,Final,F,LAA,HOU,Los Angeles Angels,Houston Astros,6,2,Yusei Kikuchi,Mike Burrows,Daikin Park,True
+2026,regular,2026-03-27,823324,2026-03-28T01:40:00Z,Final,F,DET,SDP,Detroit Tigers,San Diego Padres,5,2,Framber Valdez,Michael King,Petco Park,True
+2026,regular,2026-03-27,823162,2026-03-28T01:45:00Z,Final,F,CLE,SEA,Cleveland Guardians,Seattle Mariners,1,5,Gavin Williams,George Kirby,T-Mobile Park,True
+2026,regular,2026-03-27,823971,2026-03-28T02:10:00Z,Final,F,ARI,LAD,Arizona Diamondbacks,Los Angeles Dodgers,4,5,Ryne Nelson,Emmet Sheehan,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-03-28,823082,2026-03-28T18:15:00Z,Final,F,TBR,STL,Tampa Bay Rays,St. Louis Cardinals,5,6,Joe Boyle,Michael McGreevy,Busch Stadium,True
+2026,regular,2026-03-28,824701,2026-03-28T18:20:00Z,Final,F,WSN,CHC,Washington Nationals,Chicago Cubs,2,10,Miles Mikolas,Cade Horton,Wrigley Field,True
+2026,regular,2026-03-28,822838,2026-03-28T19:07:00Z,Final,F,ATH,TOR,Athletics,Toronto Blue Jays,7,8,Jeffrey Springs,Dylan Cease,Rogers Centre,True
+2026,regular,2026-03-28,824862,2026-03-28T20:05:00Z,Final,F,MIN,BAL,Minnesota Twins,Baltimore Orioles,4,1,Taj Bradley,Kyle Bradish,Oriole Park at Camden Yards,True
+2026,regular,2026-03-28,823488,2026-03-28T20:05:00Z,Final,F,TEX,PHI,Texas Rangers,Philadelphia Phillies,5,4,Jacob Latz,Aaron Nola,Citizens Bank Park,True
+2026,regular,2026-03-28,824540,2026-03-28T20:10:00Z,Final,F,BOS,CIN,Boston Red Sox,Cincinnati Reds,5,6,Sonny Gray,Brady Singer,Great American Ball Park,True
+2026,regular,2026-03-28,823651,2026-03-28T20:10:00Z,Final,F,PIT,NYM,Pittsburgh Pirates,New York Mets,2,4,Mitch Keller,David Peterson,Citi Field,True
+2026,regular,2026-03-28,823892,2026-03-28T20:10:00Z,Final,F,COL,MIA,Colorado Rockies,Miami Marlins,3,4,Michael Lorenzen,Eury Pérez,loanDepot park,True
+2026,regular,2026-03-28,824213,2026-03-28T23:10:00Z,Final,F,LAA,HOU,Los Angeles Angels,Houston Astros,9,11,Reid Detmers,Cristian Javier,Daikin Park,True
+2026,regular,2026-03-28,823811,2026-03-28T23:10:00Z,Final,F,CHW,MIL,Chicago White Sox,Milwaukee Brewers,1,6,Sean Burke,Chad Patrick,American Family Field,True
+2026,regular,2026-03-28,824945,2026-03-28T23:15:00Z,Final,F,KCR,ATL,Kansas City Royals,Atlanta Braves,2,6,Michael Wacha,Reynaldo López,Truist Park,True
+2026,regular,2026-03-28,823241,2026-03-28T23:15:00Z,Final,F,NYY,SFG,New York Yankees,San Francisco Giants,3,1,Will Warren,Tyler Mahle,Oracle Park,True
+2026,regular,2026-03-28,823323,2026-03-29T00:40:00Z,Final,F,DET,SDP,Detroit Tigers,San Diego Padres,,3,Jack Flaherty,Randy Vásquez,Petco Park,True
+2026,regular,2026-03-28,823973,2026-03-29T01:10:00Z,Final,F,ARI,LAD,Arizona Diamondbacks,Los Angeles Dodgers,2,3,Eduardo Rodriguez,Tyler Glasnow,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-03-28,823161,2026-03-29T01:40:00Z,Final,F,CLE,SEA,Cleveland Guardians,Seattle Mariners,6,5,Joey Cantillo,Bryan Woo,T-Mobile Park,True
+2026,regular,2026-03-29,824864,2026-03-29T17:35:00Z,Final,F,MIN,BAL,Minnesota Twins,Baltimore Orioles,6,8,Bailey Ober,Shane Baz,Oriole Park at Camden Yards,True
+2026,regular,2026-03-29,823487,2026-03-29T17:35:00Z,Final,F,TEX,PHI,Texas Rangers,Philadelphia Phillies,8,3,MacKenzie Gore,Jesús Luzardo,Citizens Bank Park,True
+2026,regular,2026-03-29,824944,2026-03-29T17:35:00Z,Final,F,KCR,ATL,Kansas City Royals,Atlanta Braves,4,1,Seth Lugo,Grant Holmes,Truist Park,True
+2026,regular,2026-03-29,822837,2026-03-29T17:37:00Z,Final,F,ATH,TOR,Athletics,Toronto Blue Jays,2,5,Luis Morales,Eric Lauer,Rogers Centre,True
+2026,regular,2026-03-29,824538,2026-03-29T17:40:00Z,Final,F,BOS,CIN,Boston Red Sox,Cincinnati Reds,2,3,Connelly Early,Rhett Lowder,Great American Ball Park,True
+2026,regular,2026-03-29,823647,2026-03-29T17:40:00Z,Final,F,PIT,NYM,Pittsburgh Pirates,New York Mets,4,3,Carmen Mlodzinski,Nolan McLean,Citi Field,True
+2026,regular,2026-03-29,823891,2026-03-29T17:40:00Z,Final,F,COL,MIA,Colorado Rockies,Miami Marlins,3,4,Jose Quintana,Max Meyer,loanDepot park,True
+2026,regular,2026-03-29,824215,2026-03-29T18:10:00Z,Final,F,LAA,HOU,Los Angeles Angels,Houston Astros,7,9,Jack Kochanowicz,Tatsuya Imai,Daikin Park,True
+2026,regular,2026-03-29,823810,2026-03-29T18:10:00Z,Final,F,CHW,MIL,Chicago White Sox,Milwaukee Brewers,7,9,Anthony Kay,Brandon Sproat,American Family Field,True
+2026,regular,2026-03-29,823079,2026-03-29T18:15:00Z,Final,F,TBR,STL,Tampa Bay Rays,St. Louis Cardinals,11,7,Steven Matz,Dustin May,Busch Stadium,True
+2026,regular,2026-03-29,824700,2026-03-29T18:20:00Z,Final,F,WSN,CHC,Washington Nationals,Chicago Cubs,6,3,Jake Irvin,Shota Imanaga,Wrigley Field,True
+2026,regular,2026-03-29,823160,2026-03-29T23:20:00Z,Final,F,CLE,SEA,Cleveland Guardians,Seattle Mariners,,8,Slade Cecconi,Emerson Hancock,T-Mobile Park,True
+2026,regular,2026-03-30,824135,2026-03-30T20:10:00Z,Final,F,MIN,KCR,Minnesota Twins,Kansas City Royals,1,3,Simeon Woods Richardson,Kris Bubic,Kauffman Stadium,True
+2026,regular,2026-03-30,824863,2026-03-30T22:35:00Z,Final,F,TEX,BAL,Texas Rangers,Baltimore Orioles,5,2,Jack Leiter,Chris Bassitt,Oriole Park at Camden Yards,True
+2026,regular,2026-03-30,824539,2026-03-30T22:40:00Z,Final,F,PIT,CIN,Pittsburgh Pirates,Cincinnati Reds,,2,Braxton Ashcraft,Chase Burns,Great American Ball Park,True
+2026,regular,2026-03-30,823484,2026-03-30T22:40:00Z,Final,F,WSN,PHI,Washington Nationals,Philadelphia Phillies,13,2,Foster Griffin,Taijuan Walker,Citizens Bank Park,True
+2026,regular,2026-03-30,823890,2026-03-30T22:40:00Z,Final,F,CHW,MIA,Chicago White Sox,Miami Marlins,9,4,Davis Martin,Chris Paddack,loanDepot park,True
+2026,regular,2026-03-30,822834,2026-03-30T23:07:00Z,Final,F,COL,TOR,Colorado Rockies,Toronto Blue Jays,14,5,Tomoyuki Sugano,Cody Ponce,Rogers Centre,True
+2026,regular,2026-03-30,824943,2026-03-30T23:15:00Z,Final,F,ATH,ATL,Athletics,Atlanta Braves,,4,Jacob Lopez,Bryce Elder,Truist Park,True
+2026,regular,2026-03-30,824702,2026-03-30T23:40:00Z,Final,F,LAA,CHC,Los Angeles Angels,Chicago Cubs,2,7,Ryan Johnson,Edward Cabrera,Wrigley Field,True
+2026,regular,2026-03-30,823809,2026-03-30T23:40:00Z,Final,F,TBR,MIL,Tampa Bay Rays,Milwaukee Brewers,3,2,Nick Martinez,Kyle Harrison,American Family Field,True
+2026,regular,2026-03-30,823080,2026-03-30T23:45:00Z,Final,F,NYM,STL,New York Mets,St. Louis Cardinals,4,2,Clay Holmes,Kyle Leahy,Busch Stadium,True
+2026,regular,2026-03-30,824214,2026-03-31T00:10:00Z,Final,F,BOS,HOU,Boston Red Sox,Houston Astros,1,8,Ranger Suarez,Lance McCullers Jr.,Daikin Park,True
+2026,regular,2026-03-30,823320,2026-03-31T01:40:00Z,Final,F,SFG,SDP,San Francisco Giants,San Diego Padres,3,2,Landen Roupp,Walker Buehler,Petco Park,True
+2026,regular,2026-03-30,823159,2026-03-31T01:40:00Z,Final,F,NYY,SEA,New York Yankees,Seattle Mariners,1,2,Ryan Weathers,Luis Castillo,T-Mobile Park,True
+2026,regular,2026-03-30,825108,2026-03-31T02:10:00Z,Final,F,DET,ARI,Detroit Tigers,Arizona Diamondbacks,6,9,Justin Verlander,Michael Soroka,Chase Field,True
+2026,regular,2026-03-30,823972,2026-03-31T02:10:00Z,Final,F,CLE,LAD,Cleveland Guardians,Los Angeles Dodgers,4,2,Parker Messick,Roki Sasaki,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-03-31,824861,2026-03-31T22:35:00Z,Final,F,TEX,BAL,Texas Rangers,Baltimore Orioles,8,5,Jacob deGrom,Zach Eflin,Oriole Park at Camden Yards,True
+2026,regular,2026-03-31,824537,2026-03-31T22:40:00Z,Final,F,PIT,CIN,Pittsburgh Pirates,Cincinnati Reds,8,3,Bubba Chandler,Brandon Williamson,Great American Ball Park,True
+2026,regular,2026-03-31,823485,2026-03-31T22:40:00Z,Final,F,WSN,PHI,Washington Nationals,Philadelphia Phillies,2,3,PJ Poulin,Andrew Painter,Citizens Bank Park,True
+2026,regular,2026-03-31,823888,2026-03-31T22:40:00Z,Final,F,CHW,MIA,Chicago White Sox,Miami Marlins,2,9,Erick Fedde,Janson Junk,loanDepot park,True
+2026,regular,2026-03-31,822836,2026-03-31T23:07:00Z,Final,F,COL,TOR,Colorado Rockies,Toronto Blue Jays,1,5,Ryan Feltner,Max Scherzer,Rogers Centre,True
+2026,regular,2026-03-31,824942,2026-03-31T23:15:00Z,Final,F,ATH,ATL,Athletics,Atlanta Braves,5,2,Aaron Civale,José Suarez,Truist Park,True
+2026,regular,2026-03-31,824699,2026-03-31T23:40:00Z,Final,F,LAA,CHC,Los Angeles Angels,Chicago Cubs,2,,José Soriano,Jameson Taillon,Wrigley Field,True
+2026,regular,2026-03-31,823807,2026-03-31T23:40:00Z,Final,F,TBR,MIL,Tampa Bay Rays,Milwaukee Brewers,2,6,Shane McClanahan,Brandon Woodruff,American Family Field,True
+2026,regular,2026-03-31,823077,2026-03-31T23:45:00Z,Final,F,NYM,STL,New York Mets,St. Louis Cardinals,,3,Kodai Senga,Andre Pallante,Busch Stadium,True
+2026,regular,2026-03-31,824212,2026-04-01T00:10:00Z,Final,F,BOS,HOU,Boston Red Sox,Houston Astros,2,9,Brayan Bello,Hunter Brown,Daikin Park,True
+2026,regular,2026-03-31,825107,2026-04-01T01:40:00Z,Final,F,DET,ARI,Detroit Tigers,Arizona Diamondbacks,5,7,Casey Mize,Brandon Pfaadt,Chase Field,True
+2026,regular,2026-03-31,823322,2026-04-01T01:40:00Z,Final,F,SFG,SDP,San Francisco Giants,San Diego Padres,9,3,Logan Webb,Germán Márquez,Petco Park,True
+2026,regular,2026-03-31,823158,2026-04-01T01:40:00Z,Final,F,NYY,SEA,New York Yankees,Seattle Mariners,5,,Max Fried,Logan Gilbert,T-Mobile Park,True
+2026,regular,2026-03-31,823969,2026-04-01T02:10:00Z,Final,F,CLE,LAD,Cleveland Guardians,Los Angeles Dodgers,1,4,Tanner Bibee,Shohei Ohtani,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-01,824940,2026-04-01T16:15:00Z,Final,F,ATH,ATL,Athletics,Atlanta Braves,1,5,Luis Severino,Chris Sale,Truist Park,True
+2026,regular,2026-04-01,824860,2026-04-01T16:35:00Z,Final,F,TEX,BAL,Texas Rangers,Baltimore Orioles,3,8,Nathan Eovaldi,Trevor Rogers,Oriole Park at Camden Yards,True
+2026,regular,2026-04-01,824536,2026-04-01T16:40:00Z,Final,F,PIT,CIN,Pittsburgh Pirates,Cincinnati Reds,8,3,Paul Skenes,Andrew Abbott,Great American Ball Park,True
+2026,regular,2026-04-01,823483,2026-04-01T17:05:00Z,Final,F,WSN,PHI,Washington Nationals,Philadelphia Phillies,5,6,Cade Cavalli,Cristopher Sánchez,Citizens Bank Park,True
+2026,regular,2026-04-01,822835,2026-04-01T17:07:00Z,Final,F,COL,TOR,Colorado Rockies,Toronto Blue Jays,2,1,Kyle Freeland,Kevin Gausman,Rogers Centre,True
+2026,regular,2026-04-01,823889,2026-04-01T17:10:00Z,Final,F,CHW,MIA,Chicago White Sox,Miami Marlins,,10,Shane Smith,Sandy Alcantara,loanDepot park,True
+2026,regular,2026-04-01,823078,2026-04-01T17:15:00Z,Final,F,NYM,STL,New York Mets,St. Louis Cardinals,1,2,Freddy Peralta,Matthew Liberatore,Busch Stadium,True
+2026,regular,2026-04-01,823806,2026-04-01T17:40:00Z,Final,F,TBR,MIL,Tampa Bay Rays,Milwaukee Brewers,2,8,Drew Rasmussen,Jacob Misiorowski,American Family Field,True
+2026,regular,2026-04-01,824211,2026-04-01T18:10:00Z,Final,F,BOS,HOU,Boston Red Sox,Houston Astros,4,6,Garrett Crochet,Mike Burrows,Daikin Park,True
+2026,regular,2026-04-01,824698,2026-04-01T18:20:00Z,Final,F,LAA,CHC,Los Angeles Angels,Chicago Cubs,2,6,Yusei Kikuchi,Matthew Boyd,Wrigley Field,True
+2026,regular,2026-04-01,825106,2026-04-01T19:40:00Z,Final,F,DET,ARI,Detroit Tigers,Arizona Diamondbacks,,1,Tarik Skubal,Zac Gallen,Chase Field,True
+2026,regular,2026-04-01,823321,2026-04-01T20:10:00Z,Final,F,SFG,SDP,San Francisco Giants,San Diego Padres,1,7,Adrian Houser,Nick Pivetta,Petco Park,True
+2026,regular,2026-04-01,823157,2026-04-01T20:10:00Z,Final,F,NYY,SEA,New York Yankees,Seattle Mariners,5,3,Cam Schlittler,George Kirby,T-Mobile Park,True
+2026,regular,2026-04-01,824136,2026-04-01T23:40:00Z,Final,F,MIN,KCR,Minnesota Twins,Kansas City Royals,9,13,Joe Ryan,Noah Cameron,Kauffman Stadium,True
+2026,regular,2026-04-01,823970,2026-04-02T00:20:00Z,Final,F,CLE,LAD,Cleveland Guardians,Los Angeles Dodgers,4,1,Gavin Williams,Yoshinobu Yamamoto,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-02,824133,2026-04-02T18:10:00Z,Final,F,MIN,KCR,Minnesota Twins,Kansas City Royals,5,1,Taj Bradley,Cole Ragans,Kauffman Stadium,True
+2026,regular,2026-04-02,825105,2026-04-03T01:40:00Z,Final,F,ATL,ARI,Atlanta Braves,Arizona Diamondbacks,17,2,Reynaldo López,Ryne Nelson,Chase Field,True
+2026,regular,2026-04-02,823242,2026-04-03T01:45:00Z,Final,F,NYM,SFG,New York Mets,San Francisco Giants,2,7,David Peterson,Robbie Ray,Oracle Park,True
+2026,regular,2026-04-03,824621,2026-04-03T18:10:00Z,Final,F,TOR,CHW,Toronto Blue Jays,Chicago White Sox,4,5,Dylan Cease,Grant Taylor,Rate Field,True
+2026,regular,2026-04-03,822758,2026-04-03T17:05:00Z,Final,F,LAD,WSN,Los Angeles Dodgers,Washington Nationals,13,6,Emmet Sheehan,Miles Mikolas,Nationals Park,True
+2026,regular,2026-04-03,824299,2026-04-03T17:10:00Z,Final,F,STL,DET,St. Louis Cardinals,Detroit Tigers,,4,Michael McGreevy,Framber Valdez,Comerica Park,True
+2026,regular,2026-04-03,823568,2026-04-03T17:35:00Z,Final,F,MIA,NYY,Miami Marlins,New York Yankees,2,8,Eury Pérez,Will Warren,Yankee Stadium,True
+2026,regular,2026-04-03,824786,2026-04-03T18:10:00Z,Final,F,SDP,BOS,San Diego Padres,Boston Red Sox,2,5,Michael King,Sonny Gray,Fenway Park,True
+2026,regular,2026-04-03,822919,2026-04-03T20:05:00Z,Final,F,CIN,TEX,Cincinnati Reds,Texas Rangers,5,3,Brady Singer,MacKenzie Gore,Globe Life Field,True
+2026,regular,2026-04-03,824458,2026-04-03T20:10:00Z,Final,F,CHC,CLE,Chicago Cubs,Cleveland Guardians,1,4,Cade Horton,Joey Cantillo,Progressive Field,True
+2026,regular,2026-04-03,823732,2026-04-03T20:10:00Z,Final,F,TBR,MIN,Tampa Bay Rays,Minnesota Twins,4,10,Joe Boyle,Bailey Ober,Target Field,True
+2026,regular,2026-04-03,824377,2026-04-03T20:10:00Z,Final,F,PHI,COL,Philadelphia Phillies,Colorado Rockies,10,1,Aaron Nola,Michael Lorenzen,Coors Field,True
+2026,regular,2026-04-03,823406,2026-04-03T20:12:00Z,Final,F,BAL,PIT,Baltimore Orioles,Pittsburgh Pirates,4,5,Kyle Bradish,Mitch Keller,PNC Park,True
+2026,regular,2026-04-03,824056,2026-04-04T01:38:00Z,Final,F,SEA,LAA,Seattle Mariners,Los Angeles Angels,3,1,Bryan Woo,Reid Detmers,Angel Stadium,True
+2026,regular,2026-04-03,825026,2026-04-04T01:40:00Z,Final,F,HOU,ATH,Houston Astros,Athletics,4,11,Cristian Javier,Jeffrey Springs,Sutter Health Park,True
+2026,regular,2026-04-03,825103,2026-04-04T01:45:00Z,Final,F,ATL,ARI,Atlanta Braves,Arizona Diamondbacks,2,,Grant Holmes,Eduardo Rodriguez,Chase Field,True
+2026,regular,2026-04-03,823240,2026-04-04T02:15:00Z,Final,F,NYM,SFG,New York Mets,San Francisco Giants,10,3,Nolan McLean,Tyler Mahle,Oracle Park,True
+2026,regular,2026-04-04,824134,2026-04-04T23:10:00Z,Final,F,MIL,KCR,Milwaukee Brewers,Kansas City Royals,2,8,Logan Henderson,Seth Lugo,Kauffman Stadium,True
+2026,regular,2026-04-04,824295,2026-04-04T17:10:00Z,Completed Early,F,STL,DET,St. Louis Cardinals,Detroit Tigers,6,11,Dustin May,Jack Flaherty,Comerica Park,True
+2026,regular,2026-04-04,824622,2026-04-04T18:10:00Z,Final,F,TOR,CHW,Toronto Blue Jays,Chicago White Sox,3,6,Mason Fluharty,Grant Taylor,Rate Field,True
+2026,regular,2026-04-04,824132,2026-04-04T18:10:00Z,Final,F,MIL,KCR,Milwaukee Brewers,Kansas City Royals,5,2,Chad Patrick,Luinder Avila,Kauffman Stadium,True
+2026,regular,2026-04-04,822757,2026-04-04T20:05:00Z,Final,F,LAD,WSN,Los Angeles Dodgers,Washington Nationals,10,5,Tyler Glasnow,Jake Irvin,Nationals Park,True
+2026,regular,2026-04-04,825027,2026-04-04T20:05:00Z,Final,F,HOU,ATH,Houston Astros,Athletics,11,,Tatsuya Imai,Luis Morales,Sutter Health Park,True
+2026,regular,2026-04-04,823404,2026-04-04T20:05:00Z,Final,F,BAL,PIT,Baltimore Orioles,Pittsburgh Pirates,2,3,Shane Baz,Carmen Mlodzinski,PNC Park,True
+2026,regular,2026-04-04,824782,2026-04-04T20:10:00Z,Final,F,SDP,BOS,San Diego Padres,Boston Red Sox,3,2,Randy Vásquez,Connelly Early,Fenway Park,True
+2026,regular,2026-04-04,822920,2026-04-04T23:05:00Z,Final,F,CIN,TEX,Cincinnati Reds,Texas Rangers,2,,Rhett Lowder,Kumar Rocker,Globe Life Field,True
+2026,regular,2026-04-04,823569,2026-04-04T23:05:00Z,Final,F,MIA,NYY,Miami Marlins,New York Yankees,7,9,Max Meyer,Ryan Weathers,Yankee Stadium,True
+2026,regular,2026-04-04,823730,2026-04-04T23:10:00Z,Final,F,TBR,MIN,Tampa Bay Rays,Minnesota Twins,7,1,Steven Matz,Mick Abel,Target Field,True
+2026,regular,2026-04-04,825104,2026-04-04T23:15:00Z,Final,F,ATL,ARI,Atlanta Braves,Arizona Diamondbacks,1,2,Bryce Elder,Michael Soroka,Chase Field,True
+2026,regular,2026-04-04,824378,2026-04-05T00:10:00Z,Final,F,PHI,COL,Philadelphia Phillies,Colorado Rockies,2,1,Jesús Luzardo,Brennan Bernardino,Coors Field,True
+2026,regular,2026-04-04,823239,2026-04-05T01:05:00Z,Final,F,NYM,SFG,New York Mets,San Francisco Giants,9,,Clay Holmes,Landen Roupp,Oracle Park,True
+2026,regular,2026-04-04,824054,2026-04-05T01:38:00Z,Final,F,SEA,LAA,Seattle Mariners,Los Angeles Angels,,1,Emerson Hancock,Jack Kochanowicz,Angel Stadium,True
+2026,regular,2026-04-05,824460,2026-04-05T17:15:00Z,Final,F,CHC,CLE,Chicago Cubs,Cleveland Guardians,5,6,Shota Imanaga,Parker Messick,Progressive Field,True
+2026,regular,2026-04-05,824459,2026-04-05T17:10:00Z,Final,F,CHC,CLE,Chicago Cubs,Cleveland Guardians,1,,Edward Cabrera,Slade Cecconi,Progressive Field,True
+2026,regular,2026-04-05,822756,2026-04-05T17:35:00Z,Final,F,LAD,WSN,Los Angeles Dodgers,Washington Nationals,8,6,Roki Sasaki,Foster Griffin,Nationals Park,True
+2026,regular,2026-04-05,823405,2026-04-05T17:35:00Z,Final,F,BAL,PIT,Baltimore Orioles,Pittsburgh Pirates,2,8,Chris Bassitt,Braxton Ashcraft,PNC Park,True
+2026,regular,2026-04-05,824781,2026-04-05T17:35:00Z,Final,F,SDP,BOS,San Diego Padres,Boston Red Sox,8,6,Walker Buehler,Ranger Suarez,Fenway Park,True
+2026,regular,2026-04-05,823566,2026-04-05T17:35:00Z,Final,F,MIA,NYY,Miami Marlins,New York Yankees,7,6,Pete Fairbanks,Max Fried,Yankee Stadium,True
+2026,regular,2026-04-05,823729,2026-04-05T18:10:00Z,Final,F,TBR,MIN,Tampa Bay Rays,Minnesota Twins,4,1,Nick Martinez,Simeon Woods Richardson,Target Field,True
+2026,regular,2026-04-05,824620,2026-04-05T18:10:00Z,Final,F,TOR,CHW,Toronto Blue Jays,Chicago White Sox,,3,Eric Lauer,Davis Martin,Rate Field,True
+2026,regular,2026-04-05,824131,2026-04-05T18:10:00Z,Final,F,MIL,KCR,Milwaukee Brewers,Kansas City Royals,8,5,Kyle Harrison,Kris Bubic,Kauffman Stadium,True
+2026,regular,2026-04-05,822917,2026-04-05T18:35:00Z,Final,F,CIN,TEX,Cincinnati Reds,Texas Rangers,2,1,Chase Burns,Jack Leiter,Globe Life Field,True
+2026,regular,2026-04-05,824379,2026-04-05T19:10:00Z,Final,F,PHI,COL,Philadelphia Phillies,Colorado Rockies,1,4,Taijuan Walker,Tomoyuki Sugano,Coors Field,True
+2026,regular,2026-04-05,825025,2026-04-05T20:05:00Z,Final,F,HOU,ATH,Houston Astros,Athletics,10,12,Lance McCullers Jr.,Jacob Lopez,Sutter Health Park,True
+2026,regular,2026-04-05,823238,2026-04-05T20:05:00Z,Final,F,NYM,SFG,New York Mets,San Francisco Giants,5,2,Kodai Senga,Logan Webb,Oracle Park,True
+2026,regular,2026-04-05,824053,2026-04-05T20:07:00Z,Final,F,SEA,LAA,Seattle Mariners,Los Angeles Angels,7,8,Luis Castillo,George Klassen,Angel Stadium,True
+2026,regular,2026-04-05,825102,2026-04-05T20:10:00Z,Final,F,ATL,ARI,Atlanta Braves,Arizona Diamondbacks,5,6,Martín Pérez,Brandon Pfaadt,Chase Field,True
+2026,regular,2026-04-05,824296,2026-04-05T23:20:00Z,Final,F,STL,DET,St. Louis Cardinals,Detroit Tigers,5,3,Kyle Leahy,Keider Montero,Comerica Park,True
+2026,regular,2026-04-06,823002,2026-04-06T20:10:00Z,Final,F,CHC,TBR,Chicago Cubs,Tampa Bay Rays,4,6,Jameson Taillon,Shane McClanahan,Tropicana Field,True
+2026,regular,2026-04-06,824456,2026-04-06T22:10:00Z,Final,F,KCR,CLE,Kansas City Royals,Cleveland Guardians,4,2,Michael Wacha,Tanner Bibee,Progressive Field,True
+2026,regular,2026-04-06,823401,2026-04-06T22:40:00Z,Final,F,SDP,PIT,San Diego Padres,Pittsburgh Pirates,5,,Germán Márquez,Bubba Chandler,PNC Park,True
+2026,regular,2026-04-06,823886,2026-04-06T22:40:00Z,Final,F,CIN,MIA,Cincinnati Reds,Miami Marlins,2,,Brandon Williamson,Janson Junk,loanDepot park,True
+2026,regular,2026-04-06,822755,2026-04-06T22:45:00Z,Final,F,STL,WSN,St. Louis Cardinals,Washington Nationals,6,9,Andre Pallante,Zack Littell,Nationals Park,True
+2026,regular,2026-04-06,824783,2026-04-06T22:45:00Z,Final,F,MIL,BOS,Milwaukee Brewers,Boston Red Sox,8,6,Brandon Woodruff,Brayan Bello,Fenway Park,True
+2026,regular,2026-04-06,822832,2026-04-06T23:07:00Z,Final,F,LAD,TOR,Los Angeles Dodgers,Toronto Blue Jays,14,2,Justin Wrobleski,Max Scherzer,Rogers Centre,True
+2026,regular,2026-04-06,823728,2026-04-06T23:40:00Z,Final,F,DET,MIN,Detroit Tigers,Minnesota Twins,3,7,Casey Mize,Joe Ryan,Target Field,True
+2026,regular,2026-04-06,824619,2026-04-06T23:40:00Z,Final,F,BAL,CHW,Baltimore Orioles,Chicago White Sox,2,1,Brandon Young,Grant Taylor,Rate Field,True
+2026,regular,2026-04-06,822918,2026-04-07T00:05:00Z,Final,F,SEA,TEX,Seattle Mariners,Texas Rangers,1,2,Logan Gilbert,Jacob deGrom,Globe Life Field,True
+2026,regular,2026-04-06,824376,2026-04-07T00:40:00Z,Final,F,HOU,COL,Houston Astros,Colorado Rockies,7,9,Cody Bolton,Ryan Feltner,Coors Field,True
+2026,regular,2026-04-06,824052,2026-04-07T01:38:00Z,Final,F,ATL,LAA,Atlanta Braves,Los Angeles Angels,2,6,Chris Sale,José Soriano,Angel Stadium,True
+2026,regular,2026-04-06,823237,2026-04-07T01:45:00Z,Final,F,PHI,SFG,Philadelphia Phillies,San Francisco Giants,6,4,Andrew Painter,Adrian Houser,Oracle Park,True
+2026,regular,2026-04-07,824457,2026-04-07T17:10:00Z,Final,F,KCR,CLE,Kansas City Royals,Cleveland Guardians,1,2,Noah Cameron,Gavin Williams,Progressive Field,True
+2026,regular,2026-04-07,824618,2026-04-07T19:10:00Z,Final,F,BAL,CHW,Baltimore Orioles,Chicago White Sox,4,2,Trevor Rogers,Shane Smith,Rate Field,True
+2026,regular,2026-04-07,823648,2026-04-07T20:10:00Z,Final,F,ARI,NYM,Arizona Diamondbacks,New York Mets,3,4,Zac Gallen,Freddy Peralta,Citi Field,True
+2026,regular,2026-04-07,823402,2026-04-07T22:40:00Z,Final,F,SDP,PIT,San Diego Padres,Pittsburgh Pirates,1,7,Nick Pivetta,Paul Skenes,PNC Park,True
+2026,regular,2026-04-07,822999,2026-04-07T22:40:00Z,Final,F,CHC,TBR,Chicago Cubs,Tampa Bay Rays,9,2,Javier Assad,Mason Englert,Tropicana Field,True
+2026,regular,2026-04-07,823887,2026-04-07T22:40:00Z,Final,F,CIN,MIA,Cincinnati Reds,Miami Marlins,6,3,Andrew Abbott,Sandy Alcantara,loanDepot park,True
+2026,regular,2026-04-07,822754,2026-04-07T22:45:00Z,Final,F,STL,WSN,St. Louis Cardinals,Washington Nationals,7,6,Matthew Liberatore,Cade Cavalli,Nationals Park,True
+2026,regular,2026-04-07,824780,2026-04-07T22:45:00Z,Final,F,MIL,BOS,Milwaukee Brewers,Boston Red Sox,2,3,Jacob Misiorowski,Garrett Crochet,Fenway Park,True
+2026,regular,2026-04-07,823567,2026-04-07T23:05:00Z,Final,F,ATH,NYY,Athletics,New York Yankees,3,5,Aaron Civale,Cam Schlittler,Yankee Stadium,True
+2026,regular,2026-04-07,822831,2026-04-07T23:07:00Z,Final,F,LAD,TOR,Los Angeles Dodgers,Toronto Blue Jays,4,1,Yoshinobu Yamamoto,Kevin Gausman,Rogers Centre,True
+2026,regular,2026-04-07,823727,2026-04-07T23:40:00Z,Final,F,DET,MIN,Detroit Tigers,Minnesota Twins,2,4,Tarik Skubal,Taj Bradley,Target Field,True
+2026,regular,2026-04-07,822916,2026-04-08T00:05:00Z,Final,F,SEA,TEX,Seattle Mariners,Texas Rangers,2,3,George Kirby,Nathan Eovaldi,Globe Life Field,True
+2026,regular,2026-04-07,824375,2026-04-08T00:40:00Z,Final,F,HOU,COL,Houston Astros,Colorado Rockies,1,5,Mike Burrows,Kyle Freeland,Coors Field,True
+2026,regular,2026-04-07,824051,2026-04-08T01:38:00Z,Final,F,ATL,LAA,Atlanta Braves,Los Angeles Angels,7,2,Reynaldo López,Yusei Kikuchi,Angel Stadium,True
+2026,regular,2026-04-07,823235,2026-04-08T01:45:00Z,Final,F,PHI,SFG,Philadelphia Phillies,San Francisco Giants,,6,Cristopher Sánchez,Robbie Ray,Oracle Park,True
+2026,regular,2026-04-08,823403,2026-04-08T16:35:00Z,Final,F,SDP,PIT,San Diego Padres,Pittsburgh Pirates,8,2,Michael King,Mitch Keller,PNC Park,True
+2026,regular,2026-04-08,824455,2026-04-08T17:10:00Z,Final,F,KCR,CLE,Kansas City Royals,Cleveland Guardians,2,10,Cole Ragans,Joey Cantillo,Progressive Field,True
+2026,regular,2026-04-08,824779,2026-04-08T17:35:00Z,Final,F,MIL,BOS,Milwaukee Brewers,Boston Red Sox,,5,Shane Drohan,Sonny Gray,Fenway Park,True
+2026,regular,2026-04-08,824617,2026-04-08T18:10:00Z,Final,F,BAL,CHW,Baltimore Orioles,Chicago White Sox,5,3,Kyle Bradish,Sean Burke,Rate Field,True
+2026,regular,2026-04-08,822915,2026-04-08T18:35:00Z,Final,F,SEA,TEX,Seattle Mariners,Texas Rangers,,3,Bryan Woo,MacKenzie Gore,Globe Life Field,True
+2026,regular,2026-04-08,822833,2026-04-08T19:07:00Z,Final,F,LAD,TOR,Los Angeles Dodgers,Toronto Blue Jays,3,4,Shohei Ohtani,Dylan Cease,Rogers Centre,True
+2026,regular,2026-04-08,824374,2026-04-08T19:10:00Z,Final,F,HOU,COL,Houston Astros,Colorado Rockies,1,9,Cristian Javier,Michael Lorenzen,Coors Field,True
+2026,regular,2026-04-08,823234,2026-04-08T19:45:00Z,Final,F,PHI,SFG,Philadelphia Phillies,San Francisco Giants,,5,Aaron Nola,Tyler Mahle,Oracle Park,True
+2026,regular,2026-04-08,822753,2026-04-08T20:05:00Z,Final,F,STL,WSN,St. Louis Cardinals,Washington Nationals,6,1,Michael McGreevy,Miles Mikolas,Nationals Park,True
+2026,regular,2026-04-08,824050,2026-04-08T20:07:00Z,Final,F,ATL,LAA,Atlanta Braves,Los Angeles Angels,8,2,Grant Holmes,Reid Detmers,Angel Stadium,True
+2026,regular,2026-04-08,823646,2026-04-08T20:10:00Z,Final,F,ARI,NYM,Arizona Diamondbacks,New York Mets,7,2,Ryne Nelson,David Peterson,Citi Field,True
+2026,regular,2026-04-08,823000,2026-04-08T22:40:00Z,Final,F,CHC,TBR,Chicago Cubs,Tampa Bay Rays,6,2,Colin Rea,Joe Boyle,Tropicana Field,True
+2026,regular,2026-04-08,823885,2026-04-08T22:40:00Z,Final,F,CIN,MIA,Cincinnati Reds,Miami Marlins,4,7,Brady Singer,Eury Pérez,loanDepot park,True
+2026,regular,2026-04-08,823564,2026-04-08T23:05:00Z,Final,F,ATH,NYY,Athletics,New York Yankees,3,2,Luis Severino,Will Warren,Yankee Stadium,True
+2026,regular,2026-04-08,823726,2026-04-08T23:40:00Z,Final,F,DET,MIN,Detroit Tigers,Minnesota Twins,6,8,Framber Valdez,Bailey Ober,Target Field,True
+2026,regular,2026-04-09,823884,2026-04-09T16:10:00Z,Final,F,CIN,MIA,Cincinnati Reds,Miami Marlins,1,8,Rhett Lowder,Max Meyer,loanDepot park,True
+2026,regular,2026-04-09,823565,2026-04-09T17:35:00Z,Final,F,ATH,NYY,Athletics,New York Yankees,1,,Jeffrey Springs,Ryan Weathers,Yankee Stadium,True
+2026,regular,2026-04-09,823724,2026-04-09T17:40:00Z,Final,F,DET,MIN,Detroit Tigers,Minnesota Twins,1,3,Jack Flaherty,Mick Abel,Target Field,True
+2026,regular,2026-04-09,823645,2026-04-09T23:10:00Z,Final,F,ARI,NYM,Arizona Diamondbacks,New York Mets,7,1,Eduardo Rodriguez,Nolan McLean,Citi Field,True
+2026,regular,2026-04-09,824130,2026-04-09T23:40:00Z,Final,F,CHW,KCR,Chicago White Sox,Kansas City Royals,2,,Anthony Kay,Seth Lugo,Kauffman Stadium,True
+2026,regular,2026-04-09,823319,2026-04-10T01:40:00Z,Final,F,COL,SDP,Colorado Rockies,San Diego Padres,3,7,Jimmy Herget,Randy Vásquez,Petco Park,True
+2026,regular,2026-04-10,824695,2026-04-10T18:20:00Z,Final,F,PIT,CHC,Pittsburgh Pirates,Chicago Cubs,2,,Carmen Mlodzinski,Shota Imanaga,Wrigley Field,True
+2026,regular,2026-04-10,823482,2026-04-10T22:40:00Z,Final,F,ARI,PHI,Arizona Diamondbacks,Philadelphia Phillies,5,4,Michael Soroka,Jesús Luzardo,Citizens Bank Park,True
+2026,regular,2026-04-10,824297,2026-04-10T22:40:00Z,Final,F,MIA,DET,Miami Marlins,Detroit Tigers,,2,Chris Paddack,Keider Montero,Comerica Park,True
+2026,regular,2026-04-10,824534,2026-04-10T22:45:00Z,Final,F,LAA,CIN,Los Angeles Angels,Cincinnati Reds,10,2,Jack Kochanowicz,Chase Burns,Great American Ball Park,True
+2026,regular,2026-04-10,822829,2026-04-10T23:07:00Z,Final,F,MIN,TOR,Minnesota Twins,Toronto Blue Jays,4,10,Simeon Woods Richardson,Patrick Corbin,Rogers Centre,True
+2026,regular,2026-04-10,823643,2026-04-10T23:10:00Z,Final,F,ATH,NYM,Athletics,New York Mets,4,,J.T. Ginn,Clay Holmes,Citi Field,True
+2026,regular,2026-04-10,822997,2026-04-10T23:10:00Z,Final,F,NYY,TBR,New York Yankees,Tampa Bay Rays,3,5,Luis Gil,Steven Matz,Tropicana Field,True
+2026,regular,2026-04-10,824858,2026-04-10T23:15:00Z,Final,F,SFG,BAL,San Francisco Giants,Baltimore Orioles,6,3,Landen Roupp,Shane Baz,Oriole Park at Camden Yards,True
+2026,regular,2026-04-10,824941,2026-04-10T23:15:00Z,Final,F,CLE,ATL,Cleveland Guardians,Atlanta Braves,5,11,Slade Cecconi,Bryce Elder,Truist Park,True
+2026,regular,2026-04-10,824128,2026-04-10T23:40:00Z,Final,F,CHW,KCR,Chicago White Sox,Kansas City Royals,,2,Davis Martin,Kris Bubic,Kauffman Stadium,True
+2026,regular,2026-04-10,823808,2026-04-10T23:40:00Z,Final,F,WSN,MIL,Washington Nationals,Milwaukee Brewers,7,3,Jake Irvin,Aaron Ashby,American Family Field,True
+2026,regular,2026-04-10,823076,2026-04-11T00:15:00Z,Final,F,BOS,STL,Boston Red Sox,St. Louis Cardinals,2,3,Connelly Early,Dustin May,Busch Stadium,True
+2026,regular,2026-04-10,823318,2026-04-11T01:40:00Z,Final,F,COL,SDP,Colorado Rockies,San Diego Padres,2,5,Tomoyuki Sugano,Walker Buehler,Petco Park,True
+2026,regular,2026-04-10,823156,2026-04-11T01:40:00Z,Final,F,HOU,SEA,Houston Astros,Seattle Mariners,6,9,Tatsuya Imai,Emerson Hancock,T-Mobile Park,True
+2026,regular,2026-04-10,823968,2026-04-11T02:10:00Z,Final,F,TEX,LAD,Texas Rangers,Los Angeles Dodgers,7,8,Kumar Rocker,Tyler Glasnow,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-11,823480,2026-04-11T17:05:00Z,Final,F,ARI,PHI,Arizona Diamondbacks,Philadelphia Phillies,3,4,Brandon Pfaadt,Taijuan Walker,Citizens Bank Park,True
+2026,regular,2026-04-11,824294,2026-04-11T17:10:00Z,Final,F,MIA,DET,Miami Marlins,Detroit Tigers,1,6,Janson Junk,Casey Mize,Comerica Park,True
+2026,regular,2026-04-11,824697,2026-04-11T18:20:00Z,Final,F,PIT,CHC,Pittsburgh Pirates,Chicago Cubs,4,3,Braxton Ashcraft,Edward Cabrera,Wrigley Field,True
+2026,regular,2026-04-11,822830,2026-04-11T19:07:00Z,Final,F,MIN,TOR,Minnesota Twins,Toronto Blue Jays,7,4,Joe Ryan,Eric Lauer,Rogers Centre,True
+2026,regular,2026-04-11,824535,2026-04-11T20:10:00Z,Final,F,LAA,CIN,Los Angeles Angels,Cincinnati Reds,3,7,George Klassen,Brandon Williamson,Great American Ball Park,True
+2026,regular,2026-04-11,823644,2026-04-11T20:10:00Z,Final,F,ATH,NYM,Athletics,New York Mets,11,6,Jacob Lopez,Kodai Senga,Citi Field,True
+2026,regular,2026-04-11,824129,2026-04-11T20:10:00Z,Final,F,CHW,KCR,Chicago White Sox,Kansas City Royals,,2,Erick Fedde,Michael Wacha,Kauffman Stadium,True
+2026,regular,2026-04-11,822996,2026-04-11T22:10:00Z,Final,F,NYY,TBR,New York Yankees,Tampa Bay Rays,4,5,Max Fried,Nick Martinez,Tropicana Field,True
+2026,regular,2026-04-11,823805,2026-04-11T23:10:00Z,Final,F,WSN,MIL,Washington Nationals,Milwaukee Brewers,3,1,Foster Griffin,Kyle Harrison,American Family Field,True
+2026,regular,2026-04-11,824857,2026-04-11T23:15:00Z,Final,F,SFG,BAL,San Francisco Giants,Baltimore Orioles,2,6,Logan Webb,Chris Bassitt,Oriole Park at Camden Yards,True
+2026,regular,2026-04-11,823074,2026-04-11T23:15:00Z,Final,F,BOS,STL,Boston Red Sox,St. Louis Cardinals,7,1,Ranger Suarez,Kyle Leahy,Busch Stadium,True
+2026,regular,2026-04-11,824939,2026-04-11T23:15:00Z,Final,F,CLE,ATL,Cleveland Guardians,Atlanta Braves,6,,Parker Messick,Martín Pérez,Truist Park,True
+2026,regular,2026-04-11,823316,2026-04-12T00:40:00Z,Final,F,COL,SDP,Colorado Rockies,San Diego Padres,5,9,Ryan Feltner,Germán Márquez,Petco Park,True
+2026,regular,2026-04-11,823967,2026-04-12T01:10:00Z,Final,F,TEX,LAD,Texas Rangers,Los Angeles Dodgers,3,6,Jack Leiter,Emmet Sheehan,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-11,823155,2026-04-12T01:40:00Z,Final,F,HOU,SEA,Houston Astros,Seattle Mariners,7,8,Lance McCullers Jr.,Luis Castillo,T-Mobile Park,True
+2026,regular,2026-04-12,824859,2026-04-12T17:35:00Z,Final,F,SFG,BAL,San Francisco Giants,Baltimore Orioles,2,6,Adrian Houser,Cade Povich,Oriole Park at Camden Yards,True
+2026,regular,2026-04-12,823479,2026-04-12T17:35:00Z,Final,F,ARI,PHI,Arizona Diamondbacks,Philadelphia Phillies,4,3,Zac Gallen,Zach Pop,Citizens Bank Park,True
+2026,regular,2026-04-12,822828,2026-04-12T17:37:00Z,Final,F,MIN,TOR,Minnesota Twins,Toronto Blue Jays,8,2,Taj Bradley,Max Scherzer,Rogers Centre,True
+2026,regular,2026-04-12,824533,2026-04-12T17:40:00Z,Final,F,LAA,CIN,Los Angeles Angels,Cincinnati Reds,9,6,José Soriano,Andrew Abbott,Great American Ball Park,True
+2026,regular,2026-04-12,823642,2026-04-12T17:40:00Z,Final,F,ATH,NYM,Athletics,New York Mets,1,,Aaron Civale,Freddy Peralta,Citi Field,True
+2026,regular,2026-04-12,824293,2026-04-12T17:40:00Z,Final,F,MIA,DET,Miami Marlins,Detroit Tigers,2,8,Sandy Alcantara,Tarik Skubal,Comerica Park,True
+2026,regular,2026-04-12,822998,2026-04-12T17:40:00Z,Final,F,NYY,TBR,New York Yankees,Tampa Bay Rays,4,5,Cam Schlittler,Drew Rasmussen,Tropicana Field,True
+2026,regular,2026-04-12,824126,2026-04-12T18:10:00Z,Final,F,CHW,KCR,Chicago White Sox,Kansas City Royals,6,5,Grant Taylor,Noah Cameron,Kauffman Stadium,True
+2026,regular,2026-04-12,823804,2026-04-12T18:10:00Z,Final,F,WSN,MIL,Washington Nationals,Milwaukee Brewers,8,6,Zack Littell,Brandon Woodruff,American Family Field,True
+2026,regular,2026-04-12,823075,2026-04-12T18:15:00Z,Final,F,BOS,STL,Boston Red Sox,St. Louis Cardinals,9,3,Brayan Bello,Andre Pallante,Busch Stadium,True
+2026,regular,2026-04-12,824696,2026-04-12T18:20:00Z,Final,F,PIT,CHC,Pittsburgh Pirates,Chicago Cubs,6,7,Bubba Chandler,Jameson Taillon,Wrigley Field,True
+2026,regular,2026-04-12,823317,2026-04-12T20:10:00Z,Final,F,COL,SDP,Colorado Rockies,San Diego Padres,2,7,Kyle Freeland,Nick Pivetta,Petco Park,True
+2026,regular,2026-04-12,823154,2026-04-12T20:10:00Z,Final,F,HOU,SEA,Houston Astros,Seattle Mariners,1,6,Cody Bolton,Logan Gilbert,T-Mobile Park,True
+2026,regular,2026-04-12,823966,2026-04-12T20:10:00Z,Final,F,TEX,LAD,Texas Rangers,Los Angeles Dodgers,5,2,Jacob deGrom,Roki Sasaki,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-12,824938,2026-04-12T23:20:00Z,Final,F,CLE,ATL,Cleveland Guardians,Atlanta Braves,1,13,Tanner Bibee,Chris Sale,Truist Park,True
+2026,regular,2026-04-13,823153,2026-04-13T20:10:00Z,Final,F,HOU,SEA,Houston Astros,Seattle Mariners,2,6,Mike Burrows,George Kirby,T-Mobile Park,True
+2026,regular,2026-04-13,824856,2026-04-13T22:35:00Z,Final,F,ARI,BAL,Arizona Diamondbacks,Baltimore Orioles,7,9,Ryne Nelson,Dean Kremer,Oriole Park at Camden Yards,True
+2026,regular,2026-04-13,823400,2026-04-13T22:40:00Z,Final,F,WSN,PIT,Washington Nationals,Pittsburgh Pirates,5,16,PJ Poulin,Paul Skenes,PNC Park,True
+2026,regular,2026-04-13,823481,2026-04-13T22:40:00Z,Final,F,CHC,PHI,Chicago Cubs,Philadelphia Phillies,7,13,Javier Assad,Cristopher Sánchez,Citizens Bank Park,True
+2026,regular,2026-04-13,823563,2026-04-13T23:05:00Z,Final,F,LAA,NYY,Los Angeles Angels,New York Yankees,10,11,Yusei Kikuchi,Will Warren,Yankee Stadium,True
+2026,regular,2026-04-13,824937,2026-04-13T23:15:00Z,Final,F,MIA,ATL,Miami Marlins,Atlanta Braves,10,4,Eury Pérez,Grant Holmes,Truist Park,True
+2026,regular,2026-04-13,823725,2026-04-13T23:40:00Z,Final,F,BOS,MIN,Boston Red Sox,Minnesota Twins,6,13,Garrett Crochet,Bailey Ober,Target Field,True
+2026,regular,2026-04-13,823073,2026-04-13T23:45:00Z,Final,F,CLE,STL,Cleveland Guardians,St. Louis Cardinals,9,3,Gavin Williams,Matthew Liberatore,Busch Stadium,True
+2026,regular,2026-04-13,825024,2026-04-14T01:40:00Z,Final,F,TEX,ATH,Texas Rangers,Athletics,8,1,Nathan Eovaldi,Luis Severino,Sutter Health Park,True
+2026,regular,2026-04-13,823964,2026-04-14T02:10:00Z,Final,F,NYM,LAD,New York Mets,Los Angeles Dodgers,,4,David Peterson,Justin Wrobleski,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-14,824853,2026-04-14T22:35:00Z,Final,F,ARI,BAL,Arizona Diamondbacks,Baltimore Orioles,4,3,Merrill Kelly,Trevor Rogers,Oriole Park at Camden Yards,True
+2026,regular,2026-04-14,824292,2026-04-14T22:40:00Z,Final,F,KCR,DET,Kansas City Royals,Detroit Tigers,1,2,Cole Ragans,Framber Valdez,Comerica Park,True
+2026,regular,2026-04-14,823398,2026-04-14T22:40:00Z,Final,F,WSN,PIT,Washington Nationals,Pittsburgh Pirates,5,4,PJ Poulin,Mitch Keller,PNC Park,True
+2026,regular,2026-04-14,824531,2026-04-14T22:40:00Z,Final,F,SFG,CIN,San Francisco Giants,Cincinnati Reds,1,2,Robbie Ray,Brady Singer,Great American Ball Park,True
+2026,regular,2026-04-14,823478,2026-04-14T22:40:00Z,Final,F,CHC,PHI,Chicago Cubs,Philadelphia Phillies,10,4,Riley Martin,Aaron Nola,Citizens Bank Park,True
+2026,regular,2026-04-14,823562,2026-04-14T23:05:00Z,Final,F,LAA,NYY,Los Angeles Angels,New York Yankees,7,1,Reid Detmers,Ryan Weathers,Yankee Stadium,True
+2026,regular,2026-04-14,824935,2026-04-14T23:15:00Z,Final,F,MIA,ATL,Miami Marlins,Atlanta Braves,5,6,Max Meyer,Reynaldo López,Truist Park,True
+2026,regular,2026-04-14,823723,2026-04-14T23:40:00Z,Final,F,BOS,MIN,Boston Red Sox,Minnesota Twins,,6,Sonny Gray,Mick Abel,Target Field,True
+2026,regular,2026-04-14,824616,2026-04-14T23:40:00Z,Final,F,TBR,CHW,Tampa Bay Rays,Chicago White Sox,8,5,Shane McClanahan,Noah Schultz,Rate Field,True
+2026,regular,2026-04-14,823802,2026-04-14T23:40:00Z,Final,F,TOR,MIL,Toronto Blue Jays,Milwaukee Brewers,9,7,Kevin Gausman,Jacob Misiorowski,American Family Field,True
+2026,regular,2026-04-14,823072,2026-04-14T23:45:00Z,Final,F,CLE,STL,Cleveland Guardians,St. Louis Cardinals,5,6,Joey Cantillo,Michael McGreevy,Busch Stadium,True
+2026,regular,2026-04-14,824210,2026-04-15T00:10:00Z,Final,F,COL,HOU,Colorado Rockies,Houston Astros,6,7,Michael Lorenzen,Spencer Arrighetti,Daikin Park,True
+2026,regular,2026-04-14,823315,2026-04-15T01:40:00Z,Final,F,SEA,SDP,Seattle Mariners,San Diego Padres,1,4,Bryan Woo,Michael King,Petco Park,True
+2026,regular,2026-04-14,825022,2026-04-15T01:40:00Z,Final,F,TEX,ATH,Texas Rangers,Athletics,1,2,MacKenzie Gore,Jeffrey Springs,Sutter Health Park,True
+2026,regular,2026-04-14,823965,2026-04-15T02:10:00Z,Final,F,NYM,LAD,New York Mets,Los Angeles Dodgers,1,2,Nolan McLean,Yoshinobu Yamamoto,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-15,824855,2026-04-15T16:35:00Z,Final,F,ARI,BAL,Arizona Diamondbacks,Baltimore Orioles,8,5,Eduardo Rodriguez,Kyle Bradish,Oriole Park at Camden Yards,True
+2026,regular,2026-04-15,823071,2026-04-15T17:15:00Z,Final,F,CLE,STL,Cleveland Guardians,St. Louis Cardinals,3,5,Slade Cecconi,Dustin May,Busch Stadium,True
+2026,regular,2026-04-15,823722,2026-04-15T17:40:00Z,Final,F,BOS,MIN,Boston Red Sox,Minnesota Twins,9,5,Connelly Early,Simeon Woods Richardson,Target Field,True
+2026,regular,2026-04-15,824291,2026-04-15T22:40:00Z,Final,F,KCR,DET,Kansas City Royals,Detroit Tigers,1,2,Seth Lugo,Jack Flaherty,Comerica Park,True
+2026,regular,2026-04-15,823399,2026-04-15T22:40:00Z,Final,F,WSN,PIT,Washington Nationals,Pittsburgh Pirates,,2,Jake Irvin,Mason Montgomery,PNC Park,True
+2026,regular,2026-04-15,824532,2026-04-15T22:40:00Z,Final,F,SFG,CIN,San Francisco Giants,Cincinnati Reds,3,8,Tyler Mahle,Rhett Lowder,Great American Ball Park,True
+2026,regular,2026-04-15,823477,2026-04-15T22:40:00Z,Final,F,CHC,PHI,Chicago Cubs,Philadelphia Phillies,11,2,Shota Imanaga,Jesús Luzardo,Citizens Bank Park,True
+2026,regular,2026-04-15,823561,2026-04-15T23:05:00Z,Final,F,LAA,NYY,Los Angeles Angels,New York Yankees,4,5,Jack Kochanowicz,Luis Gil,Yankee Stadium,True
+2026,regular,2026-04-15,824936,2026-04-15T23:15:00Z,Final,F,MIA,ATL,Miami Marlins,Atlanta Braves,3,6,Chris Paddack,Bryce Elder,Truist Park,True
+2026,regular,2026-04-15,824615,2026-04-15T23:40:00Z,Final,F,TBR,CHW,Tampa Bay Rays,Chicago White Sox,8,3,Jesse Scholtens,Sean Burke,Rate Field,True
+2026,regular,2026-04-15,823803,2026-04-15T23:40:00Z,Final,F,TOR,MIL,Toronto Blue Jays,Milwaukee Brewers,1,2,Dylan Cease,Chad Patrick,American Family Field,True
+2026,regular,2026-04-15,824209,2026-04-16T00:10:00Z,Final,F,COL,HOU,Colorado Rockies,Houston Astros,1,3,Jose Quintana,Spencer Arrighetti,Daikin Park,True
+2026,regular,2026-04-15,823314,2026-04-16T01:40:00Z,Final,F,SEA,SDP,Seattle Mariners,San Diego Padres,6,7,Emerson Hancock,Randy Vásquez,Petco Park,True
+2026,regular,2026-04-15,825021,2026-04-16T01:40:00Z,Final,F,TEX,ATH,Texas Rangers,Athletics,5,6,Kumar Rocker,J.T. Ginn,Sutter Health Park,True
+2026,regular,2026-04-15,823963,2026-04-16T02:10:00Z,Final,F,NYM,LAD,New York Mets,Los Angeles Dodgers,2,8,Clay Holmes,Shohei Ohtani,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-16,823396,2026-04-16T16:35:00Z,Final,F,WSN,PIT,Washington Nationals,Pittsburgh Pirates,8,7,Foster Griffin,Braxton Ashcraft,PNC Park,True
+2026,regular,2026-04-16,824530,2026-04-16T16:40:00Z,Final,F,SFG,CIN,San Francisco Giants,Cincinnati Reds,3,,Landen Roupp,Chase Burns,Great American Ball Park,True
+2026,regular,2026-04-16,824289,2026-04-16T17:10:00Z,Final,F,KCR,DET,Kansas City Royals,Detroit Tigers,9,10,Kris Bubic,Keider Montero,Comerica Park,True
+2026,regular,2026-04-16,823560,2026-04-16T17:35:00Z,Final,F,LAA,NYY,Los Angeles Angels,New York Yankees,11,4,Brent Suter,Max Fried,Yankee Stadium,True
+2026,regular,2026-04-16,823801,2026-04-16T17:40:00Z,Final,F,TOR,MIL,Toronto Blue Jays,Milwaukee Brewers,1,2,Patrick Corbin,Brandon Sproat,American Family Field,True
+2026,regular,2026-04-16,824614,2026-04-16T18:10:00Z,Final,F,TBR,CHW,Tampa Bay Rays,Chicago White Sox,5,3,Steven Matz,Jordan Leasure,Rate Field,True
+2026,regular,2026-04-16,825023,2026-04-16T19:05:00Z,Final,F,TEX,ATH,Texas Rangers,Athletics,9,6,Jack Leiter,Jacob Lopez,Sutter Health Park,True
+2026,regular,2026-04-16,824453,2026-04-16T22:10:00Z,Final,F,BAL,CLE,Baltimore Orioles,Cleveland Guardians,2,4,Shane Baz,Parker Messick,Progressive Field,True
+2026,regular,2026-04-16,824208,2026-04-17T00:10:00Z,Final,F,COL,HOU,Colorado Rockies,Houston Astros,3,2,Juan Mejia,Ryan Weiss,Daikin Park,True
+2026,regular,2026-04-16,823313,2026-04-17T00:40:00Z,Final,F,SEA,SDP,Seattle Mariners,San Diego Padres,2,5,Luis Castillo,Walker Buehler,Petco Park,True
+2026,regular,2026-04-17,824693,2026-04-17T18:20:00Z,Final,F,NYM,CHC,New York Mets,Chicago Cubs,4,12,Kodai Senga,Edward Cabrera,Wrigley Field,True
+2026,regular,2026-04-17,824454,2026-04-17T22:10:00Z,Final,F,BAL,CLE,Baltimore Orioles,Cleveland Guardians,6,4,Chris Bassitt,Tanner Bibee,Progressive Field,True
+2026,regular,2026-04-17,823476,2026-04-17T22:40:00Z,Final,F,ATL,PHI,Atlanta Braves,Philadelphia Phillies,9,,Martín Pérez,Taijuan Walker,Citizens Bank Park,True
+2026,regular,2026-04-17,822752,2026-04-17T22:45:00Z,Final,F,SFG,WSN,San Francisco Giants,Washington Nationals,10,5,Logan Webb,Zack Littell,Nationals Park,True
+2026,regular,2026-04-17,823397,2026-04-17T22:45:00Z,Final,F,TBR,PIT,Tampa Bay Rays,Pittsburgh Pirates,1,5,Nick Martinez,Bubba Chandler,PNC Park,True
+2026,regular,2026-04-17,823559,2026-04-17T23:05:00Z,Final,F,KCR,NYY,Kansas City Royals,New York Yankees,2,4,Michael Wacha,Cam Schlittler,Yankee Stadium,True
+2026,regular,2026-04-17,823883,2026-04-17T23:10:00Z,Final,F,MIL,MIA,Milwaukee Brewers,Miami Marlins,7,5,Coleman Crow,Janson Junk,loanDepot park,True
+2026,regular,2026-04-17,824778,2026-04-17T23:15:00Z,Final,F,DET,BOS,Detroit Tigers,Boston Red Sox,,1,Casey Mize,Ranger Suarez,Fenway Park,True
+2026,regular,2026-04-17,824207,2026-04-18T00:10:00Z,Final,F,STL,HOU,St. Louis Cardinals,Houston Astros,9,4,Kyle Leahy,Peter Lambert,Daikin Park,True
+2026,regular,2026-04-17,823720,2026-04-18T00:10:00Z,Final,F,CIN,MIN,Cincinnati Reds,Minnesota Twins,2,1,Brandon Williamson,Joe Ryan,Target Field,True
+2026,regular,2026-04-17,824373,2026-04-18T00:40:00Z,Final,F,LAD,COL,Los Angeles Dodgers,Colorado Rockies,7,1,Tyler Glasnow,Tomoyuki Sugano,Coors Field,True
+2026,regular,2026-04-17,824048,2026-04-18T01:38:00Z,Final,F,SDP,LAA,San Diego Padres,Los Angeles Angels,,8,Matt Waldron,José Soriano,Angel Stadium,True
+2026,regular,2026-04-17,823152,2026-04-18T01:40:00Z,Final,F,TEX,SEA,Texas Rangers,Seattle Mariners,5,,Jacob deGrom,Logan Gilbert,T-Mobile Park,True
+2026,regular,2026-04-17,825101,2026-04-18T01:40:00Z,Final,F,TOR,ARI,Toronto Blue Jays,Arizona Diamondbacks,3,6,Braydon Fisher,Michael Soroka,Chase Field,True
+2026,regular,2026-04-17,825019,2026-04-18T01:40:00Z,Final,F,CHW,ATH,Chicago White Sox,Athletics,9,2,Davis Martin,Aaron Civale,Sutter Health Park,True
+2026,regular,2026-04-18,823558,2026-04-18T17:35:00Z,Final,F,KCR,NYY,Kansas City Royals,New York Yankees,4,13,Noah Cameron,Will Warren,Yankee Stadium,True
+2026,regular,2026-04-18,823721,2026-04-18T18:10:00Z,Final,F,CIN,MIN,Cincinnati Reds,Minnesota Twins,5,4,Andrew Abbott,Taj Bradley,Target Field,True
+2026,regular,2026-04-18,824694,2026-04-18T18:20:00Z,Final,F,NYM,CHC,New York Mets,Chicago Cubs,2,4,Freddy Peralta,Jameson Taillon,Wrigley Field,True
+2026,regular,2026-04-18,823394,2026-04-18T19:30:00Z,Final,F,TBR,PIT,Tampa Bay Rays,Pittsburgh Pirates,8,7,Drew Rasmussen,Paul Skenes,PNC Park,True
+2026,regular,2026-04-18,822751,2026-04-18T20:05:00Z,Final,F,SFG,WSN,San Francisco Giants,Washington Nationals,7,6,Adrian Houser,Cade Cavalli,Nationals Park,True
+2026,regular,2026-04-18,825020,2026-04-18T20:05:00Z,Final,F,CHW,ATH,Chicago White Sox,Athletics,6,7,Erick Fedde,Luis Severino,Sutter Health Park,True
+2026,regular,2026-04-18,824775,2026-04-18T20:10:00Z,Final,F,DET,BOS,Detroit Tigers,Boston Red Sox,4,1,Tarik Skubal,Brayan Bello,Fenway Park,True
+2026,regular,2026-04-18,823882,2026-04-18T20:10:00Z,Final,F,MIL,MIA,Milwaukee Brewers,Miami Marlins,5,2,Brandon Woodruff,Sandy Alcantara,loanDepot park,True
+2026,regular,2026-04-18,824451,2026-04-18T22:10:00Z,Final,F,BAL,CLE,Baltimore Orioles,Cleveland Guardians,2,4,Dean Kremer,Gavin Williams,Progressive Field,True
+2026,regular,2026-04-18,824206,2026-04-18T23:10:00Z,Final,F,STL,HOU,St. Louis Cardinals,Houston Astros,7,5,Andre Pallante,Lance McCullers Jr.,Daikin Park,True
+2026,regular,2026-04-18,823151,2026-04-18T23:15:00Z,Final,F,TEX,SEA,Texas Rangers,Seattle Mariners,3,7,Nathan Eovaldi,George Kirby,T-Mobile Park,True
+2026,regular,2026-04-18,823474,2026-04-18T23:15:00Z,Final,F,ATL,PHI,Atlanta Braves,Philadelphia Phillies,3,1,Chris Sale,Cristopher Sánchez,Citizens Bank Park,True
+2026,regular,2026-04-18,824372,2026-04-19T00:10:00Z,Final,F,LAD,COL,Los Angeles Dodgers,Colorado Rockies,3,4,Emmet Sheehan,Ryan Feltner,Coors Field,True
+2026,regular,2026-04-18,825098,2026-04-19T00:10:00Z,Final,F,TOR,ARI,Toronto Blue Jays,Arizona Diamondbacks,2,6,Max Scherzer,Zac Gallen,Chase Field,True
+2026,regular,2026-04-18,824049,2026-04-19T01:38:00Z,Final,F,SDP,LAA,San Diego Padres,Los Angeles Angels,4,1,Germán Márquez,Yusei Kikuchi,Angel Stadium,True
+2026,regular,2026-04-19,822750,2026-04-19T17:35:00Z,Final,F,SFG,WSN,San Francisco Giants,Washington Nationals,,3,Robbie Ray,PJ Poulin,Nationals Park,True
+2026,regular,2026-04-19,823393,2026-04-19T17:35:00Z,Final,F,TBR,PIT,Tampa Bay Rays,Pittsburgh Pirates,3,6,Shane McClanahan,Mitch Keller,PNC Park,True
+2026,regular,2026-04-19,823556,2026-04-19T17:35:00Z,Final,F,KCR,NYY,Kansas City Royals,New York Yankees,,7,Cole Ragans,Ryan Weathers,Yankee Stadium,True
+2026,regular,2026-04-19,824452,2026-04-19T17:40:00Z,Final,F,BAL,CLE,Baltimore Orioles,Cleveland Guardians,4,8,Trevor Rogers,Joey Cantillo,Progressive Field,True
+2026,regular,2026-04-19,823881,2026-04-19T17:40:00Z,Final,F,MIL,MIA,Milwaukee Brewers,Miami Marlins,3,5,Jacob Misiorowski,Eury Pérez,loanDepot park,True
+2026,regular,2026-04-19,824205,2026-04-19T18:10:00Z,Final,F,STL,HOU,St. Louis Cardinals,Houston Astros,7,5,Matthew Liberatore,Mike Burrows,Daikin Park,True
+2026,regular,2026-04-19,823718,2026-04-19T18:10:00Z,Final,F,CIN,MIN,Cincinnati Reds,Minnesota Twins,7,4,Brady Singer,Bailey Ober,Target Field,True
+2026,regular,2026-04-19,824691,2026-04-19T18:20:00Z,Final,F,NYM,CHC,New York Mets,Chicago Cubs,1,2,Tobias Myers,Javier Assad,Wrigley Field,True
+2026,regular,2026-04-19,824371,2026-04-19T19:10:00Z,Final,F,LAD,COL,Los Angeles Dodgers,Colorado Rockies,6,9,Roki Sasaki,Michael Lorenzen,Coors Field,True
+2026,regular,2026-04-19,825018,2026-04-19T20:05:00Z,Final,F,CHW,ATH,Chicago White Sox,Athletics,7,4,Noah Schultz,Jeffrey Springs,Sutter Health Park,True
+2026,regular,2026-04-19,824047,2026-04-19T20:07:00Z,Final,F,SDP,LAA,San Diego Padres,Los Angeles Angels,2,1,Michael King,Walbert Ureña,Angel Stadium,True
+2026,regular,2026-04-19,823150,2026-04-19T20:10:00Z,Final,F,TEX,SEA,Texas Rangers,Seattle Mariners,2,5,MacKenzie Gore,Bryan Woo,T-Mobile Park,True
+2026,regular,2026-04-19,825100,2026-04-19T20:10:00Z,Final,F,TOR,ARI,Toronto Blue Jays,Arizona Diamondbacks,10,4,Kevin Gausman,Ryne Nelson,Chase Field,True
+2026,regular,2026-04-19,824777,2026-04-19T20:35:00Z,Final,F,DET,BOS,Detroit Tigers,Boston Red Sox,6,2,Framber Valdez,Garrett Crochet,Fenway Park,True
+2026,regular,2026-04-19,823475,2026-04-19T23:20:00Z,Final,F,ATL,PHI,Atlanta Braves,Philadelphia Phillies,4,2,Grant Holmes,Andrew Painter,Citizens Bank Park,True
+2026,regular,2026-04-20,824776,2026-04-20T15:10:00Z,Final,F,DET,BOS,Detroit Tigers,Boston Red Sox,6,8,Jack Flaherty,Sonny Gray,Fenway Park,True
+2026,regular,2026-04-20,824450,2026-04-20T22:10:00Z,Final,F,HOU,CLE,Houston Astros,Cleveland Guardians,9,2,Spencer Arrighetti,Slade Cecconi,Progressive Field,True
+2026,regular,2026-04-20,822994,2026-04-20T22:40:00Z,Final,F,CIN,TBR,Cincinnati Reds,Tampa Bay Rays,6,1,Rhett Lowder,Jesse Scholtens,Tropicana Field,True
+2026,regular,2026-04-20,823879,2026-04-20T22:40:00Z,Final,F,STL,MIA,St. Louis Cardinals,Miami Marlins,3,5,Michael McGreevy,Max Meyer,loanDepot park,True
+2026,regular,2026-04-20,822749,2026-04-20T22:45:00Z,Final,F,ATL,WSN,Atlanta Braves,Washington Nationals,9,4,Bryce Elder,Jake Irvin,Nationals Park,True
+2026,regular,2026-04-20,824125,2026-04-20T23:40:00Z,Final,F,BAL,KCR,Baltimore Orioles,Kansas City Royals,7,5,Kyle Bradish,Seth Lugo,Kauffman Stadium,True
+2026,regular,2026-04-20,824692,2026-04-20T23:40:00Z,Final,F,PHI,CHC,Philadelphia Phillies,Chicago Cubs,1,5,Aaron Nola,Colin Rea,Wrigley Field,True
+2026,regular,2026-04-20,824370,2026-04-21T00:40:00Z,Final,F,LAD,COL,Los Angeles Dodgers,Colorado Rockies,12,3,Justin Wrobleski,Jose Quintana,Coors Field,True
+2026,regular,2026-04-20,824046,2026-04-21T01:38:00Z,Final,F,TOR,LAA,Toronto Blue Jays,Los Angeles Angels,5,2,Dylan Cease,Reid Detmers,Angel Stadium,True
+2026,regular,2026-04-20,823149,2026-04-21T01:40:00Z,Final,F,ATH,SEA,Athletics,Seattle Mariners,6,4,J.T. Ginn,Emerson Hancock,T-Mobile Park,True
+2026,regular,2026-04-21,824448,2026-04-21T22:10:00Z,Final,F,HOU,CLE,Houston Astros,Cleveland Guardians,5,8,Ryan Weiss,Parker Messick,Progressive Field,True
+2026,regular,2026-04-21,822995,2026-04-21T22:40:00Z,Final,F,CIN,TBR,Cincinnati Reds,Tampa Bay Rays,12,6,Chase Burns,Steven Matz,Tropicana Field,True
+2026,regular,2026-04-21,823880,2026-04-21T22:40:00Z,Final,F,STL,MIA,St. Louis Cardinals,Miami Marlins,5,3,Dustin May,Chris Paddack,loanDepot park,True
+2026,regular,2026-04-21,824290,2026-04-21T22:40:00Z,Final,F,MIL,DET,Milwaukee Brewers,Detroit Tigers,12,4,Kyle Harrison,Keider Montero,Comerica Park,True
+2026,regular,2026-04-21,822747,2026-04-21T22:45:00Z,Final,F,ATL,WSN,Atlanta Braves,Washington Nationals,4,11,Reynaldo López,Foster Griffin,Nationals Park,True
+2026,regular,2026-04-21,824773,2026-04-21T22:45:00Z,Final,F,NYY,BOS,New York Yankees,Boston Red Sox,4,,Luis Gil,Connelly Early,Fenway Park,True
+2026,regular,2026-04-21,823640,2026-04-21T23:10:00Z,Final,F,MIN,NYM,Minnesota Twins,New York Mets,5,3,Simeon Woods Richardson,Nolan McLean,Citi Field,True
+2026,regular,2026-04-21,824127,2026-04-21T23:40:00Z,Final,F,BAL,KCR,Baltimore Orioles,Kansas City Royals,5,6,Shane Baz,Kris Bubic,Kauffman Stadium,True
+2026,regular,2026-04-21,824690,2026-04-21T23:40:00Z,Final,F,PHI,CHC,Philadelphia Phillies,Chicago Cubs,4,7,Jesús Luzardo,Shota Imanaga,Wrigley Field,True
+2026,regular,2026-04-21,822914,2026-04-22T00:05:00Z,Final,F,PIT,TEX,Pittsburgh Pirates,Texas Rangers,1,5,Carmen Mlodzinski,Kumar Rocker,Globe Life Field,True
+2026,regular,2026-04-21,824369,2026-04-22T00:40:00Z,Final,F,SDP,COL,San Diego Padres,Colorado Rockies,1,,Randy Vásquez,Jimmy Herget,Coors Field,True
+2026,regular,2026-04-21,824045,2026-04-22T01:38:00Z,Final,F,TOR,LAA,Toronto Blue Jays,Los Angeles Angels,4,2,Patrick Corbin,Jack Kochanowicz,Angel Stadium,True
+2026,regular,2026-04-21,823148,2026-04-22T01:40:00Z,Final,F,ATH,SEA,Athletics,Seattle Mariners,5,2,Jacob Lopez,Luis Castillo,T-Mobile Park,True
+2026,regular,2026-04-21,825099,2026-04-22T01:40:00Z,Final,F,CHW,ARI,Chicago White Sox,Arizona Diamondbacks,11,5,Sean Burke,Merrill Kelly,Chase Field,True
+2026,regular,2026-04-21,823236,2026-04-22T01:45:00Z,Final,F,LAD,SFG,Los Angeles Dodgers,San Francisco Giants,1,3,Yoshinobu Yamamoto,Landen Roupp,Oracle Park,True
+2026,regular,2026-04-22,823878,2026-04-22T16:10:00Z,Final,F,STL,MIA,St. Louis Cardinals,Miami Marlins,1,4,Kyle Leahy,Janson Junk,loanDepot park,True
+2026,regular,2026-04-22,824449,2026-04-22T17:10:00Z,Final,F,HOU,CLE,Houston Astros,Cleveland Guardians,2,,Peter Lambert,Tanner Bibee,Progressive Field,True
+2026,regular,2026-04-22,822993,2026-04-22T17:10:00Z,Final,F,CIN,TBR,Cincinnati Reds,Tampa Bay Rays,1,6,Brandon Williamson,Nick Martinez,Tropicana Field,True
+2026,regular,2026-04-22,824123,2026-04-22T18:10:00Z,Final,F,BAL,KCR,Baltimore Orioles,Kansas City Royals,8,6,Chris Bassitt,Michael Wacha,Kauffman Stadium,True
+2026,regular,2026-04-22,824044,2026-04-22T19:07:00Z,Final,F,TOR,LAA,Toronto Blue Jays,Los Angeles Angels,3,7,Eric Lauer,José Soriano,Angel Stadium,True
+2026,regular,2026-04-22,823147,2026-04-22T20:10:00Z,Final,F,ATH,SEA,Athletics,Seattle Mariners,4,5,Aaron Civale,Logan Gilbert,T-Mobile Park,True
+2026,regular,2026-04-22,824286,2026-04-22T22:40:00Z,Final,F,MIL,DET,Milwaukee Brewers,Detroit Tigers,2,5,DL Hall,Casey Mize,Comerica Park,True
+2026,regular,2026-04-22,822748,2026-04-22T22:45:00Z,Final,F,ATL,WSN,Atlanta Braves,Washington Nationals,8,6,Didier Fuentes,Zack Littell,Nationals Park,True
+2026,regular,2026-04-22,824774,2026-04-22T22:45:00Z,Final,F,NYY,BOS,New York Yankees,Boston Red Sox,4,1,Max Fried,Ranger Suarez,Fenway Park,True
+2026,regular,2026-04-22,823641,2026-04-22T23:10:00Z,Final,F,MIN,NYM,Minnesota Twins,New York Mets,2,3,Connor Prielipp,Clay Holmes,Citi Field,True
+2026,regular,2026-04-22,824688,2026-04-22T23:40:00Z,Final,F,PHI,CHC,Philadelphia Phillies,Chicago Cubs,2,7,Kyle Backhus,Matthew Boyd,Wrigley Field,True
+2026,regular,2026-04-22,822913,2026-04-23T00:05:00Z,Final,F,PIT,TEX,Pittsburgh Pirates,Texas Rangers,8,4,Braxton Ashcraft,Jack Leiter,Globe Life Field,True
+2026,regular,2026-04-22,824367,2026-04-23T00:40:00Z,Final,F,SDP,COL,San Diego Padres,Colorado Rockies,3,8,Walker Buehler,Tomoyuki Sugano,Coors Field,True
+2026,regular,2026-04-22,825097,2026-04-23T01:40:00Z,Final,F,CHW,ARI,Chicago White Sox,Arizona Diamondbacks,7,11,Anthony Kay,Eduardo Rodriguez,Chase Field,True
+2026,regular,2026-04-22,823231,2026-04-23T01:45:00Z,Final,F,LAD,SFG,Los Angeles Dodgers,San Francisco Giants,,3,Shohei Ohtani,Tyler Mahle,Oracle Park,True
+2026,regular,2026-04-23,822745,2026-04-23T17:05:00Z,Final,F,ATL,WSN,Atlanta Braves,Washington Nationals,7,2,JR Ritchie,Cade Cavalli,Nationals Park,True
+2026,regular,2026-04-23,824288,2026-04-23T17:10:00Z,Final,F,MIL,DET,Milwaukee Brewers,Detroit Tigers,4,5,Brandon Sproat,Tarik Skubal,Comerica Park,True
+2026,regular,2026-04-23,824689,2026-04-23T18:20:00Z,Final,F,PHI,CHC,Philadelphia Phillies,Chicago Cubs,7,8,Cristopher Sánchez,Edward Cabrera,Wrigley Field,True
+2026,regular,2026-04-23,824368,2026-04-23T19:10:00Z,Final,F,SDP,COL,San Diego Padres,Colorado Rockies,10,8,Matt Waldron,Ryan Feltner,Coors Field,True
+2026,regular,2026-04-23,825096,2026-04-23T19:40:00Z,Final,F,CHW,ARI,Chicago White Sox,Arizona Diamondbacks,4,1,Davis Martin,Michael Soroka,Chase Field,True
+2026,regular,2026-04-23,823233,2026-04-23T19:45:00Z,Final,F,LAD,SFG,Los Angeles Dodgers,San Francisco Giants,3,,Tyler Glasnow,Logan Webb,Oracle Park,True
+2026,regular,2026-04-23,824770,2026-04-23T22:10:00Z,Final,F,NYY,BOS,New York Yankees,Boston Red Sox,4,2,Cam Schlittler,Payton Tolle,Fenway Park,True
+2026,regular,2026-04-23,823639,2026-04-23T23:10:00Z,Final,F,MIN,NYM,Minnesota Twins,New York Mets,8,10,Joe Ryan,Christian Scott,Citi Field,True
+2026,regular,2026-04-23,822912,2026-04-24T00:05:00Z,Final,F,PIT,TEX,Pittsburgh Pirates,Texas Rangers,1,6,Bubba Chandler,Jacob deGrom,Globe Life Field,True
+2026,regular,2026-04-24,824529,2026-04-24T22:40:00Z,Final,F,DET,CIN,Detroit Tigers,Cincinnati Reds,8,9,Framber Valdez,Andrew Abbott,Great American Ball Park,True
+2026,regular,2026-04-24,824854,2026-04-24T23:05:00Z,Final,F,BOS,BAL,Boston Red Sox,Baltimore Orioles,3,10,Brayan Bello,Brandon Young,Oriole Park at Camden Yards,True
+2026,regular,2026-04-24,822827,2026-04-24T23:07:00Z,Final,F,CLE,TOR,Cleveland Guardians,Toronto Blue Jays,8,6,Gavin Williams,Max Scherzer,Rogers Centre,True
+2026,regular,2026-04-24,823638,2026-04-24T23:10:00Z,Final,F,COL,NYM,Colorado Rockies,New York Mets,4,3,Michael Lorenzen,Freddy Peralta,Citi Field,True
+2026,regular,2026-04-24,822992,2026-04-24T23:10:00Z,Final,F,MIN,TBR,Minnesota Twins,Tampa Bay Rays,2,6,Taj Bradley,Drew Rasmussen,Tropicana Field,True
+2026,regular,2026-04-24,824932,2026-04-24T23:15:00Z,Final,F,PHI,ATL,Philadelphia Phillies,Atlanta Braves,3,5,Andrew Painter,Grant Holmes,Truist Park,True
+2026,regular,2026-04-24,824124,2026-04-24T23:40:00Z,Final,F,LAA,KCR,Los Angeles Angels,Kansas City Royals,3,6,Yusei Kikuchi,Noah Cameron,Kauffman Stadium,True
+2026,regular,2026-04-24,824611,2026-04-24T23:40:00Z,Final,F,WSN,CHW,Washington Nationals,Chicago White Sox,4,5,PJ Poulin,Bryan Hudson,Rate Field,True
+2026,regular,2026-04-24,823800,2026-04-24T23:40:00Z,Final,F,PIT,MIL,Pittsburgh Pirates,Milwaukee Brewers,6,,Paul Skenes,Brandon Woodruff,American Family Field,True
+2026,regular,2026-04-24,822909,2026-04-25T00:05:00Z,Final,F,ATH,TEX,Athletics,Texas Rangers,8,1,Luis Severino,Nathan Eovaldi,Globe Life Field,True
+2026,regular,2026-04-24,824204,2026-04-25T00:10:00Z,Final,F,NYY,HOU,New York Yankees,Houston Astros,12,4,Will Warren,Lance McCullers Jr.,Daikin Park,True
+2026,regular,2026-04-24,823069,2026-04-25T00:15:00Z,Final,F,SEA,STL,Seattle Mariners,St. Louis Cardinals,3,2,George Kirby,Andre Pallante,Busch Stadium,True
+2026,regular,2026-04-24,823962,2026-04-25T02:15:00Z,Final,F,CHC,LAD,Chicago Cubs,Los Angeles Dodgers,6,4,Jameson Taillon,Emmet Sheehan,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-24,823232,2026-04-25T02:15:00Z,Final,F,MIA,SFG,Miami Marlins,San Francisco Giants,9,4,Sandy Alcantara,Adrian Houser,Oracle Park,True
+2026,regular,2026-04-25,824851,2026-04-25T16:05:00Z,Final,F,BOS,BAL,Boston Red Sox,Baltimore Orioles,17,1,Garrett Crochet,Trevor Rogers,Oriole Park at Camden Yards,True
+2026,regular,2026-04-25,823070,2026-04-25T18:15:00Z,Final,F,SEA,STL,Seattle Mariners,St. Louis Cardinals,11,9,Bryan Woo,Matthew Liberatore,Busch Stadium,True
+2026,regular,2026-04-25,822826,2026-04-25T19:07:00Z,Final,F,CLE,TOR,Cleveland Guardians,Toronto Blue Jays,3,5,Joey Cantillo,Kevin Gausman,Rogers Centre,True
+2026,regular,2026-04-25,823229,2026-04-25T20:05:00Z,Final,F,MIA,SFG,Miami Marlins,San Francisco Giants,2,6,Eury Pérez,Robbie Ray,Oracle Park,True
+2026,regular,2026-04-25,822989,2026-04-25T20:10:00Z,Final,F,MIN,TBR,Minnesota Twins,Tampa Bay Rays,1,6,Bailey Ober,Shane McClanahan,Tropicana Field,True
+2026,regular,2026-04-25,824613,2026-04-25T20:10:00Z,Final,F,WSN,CHW,Washington Nationals,Chicago White Sox,6,3,Jake Irvin,Noah Schultz,Rate Field,True
+2026,regular,2026-04-25,825093,2026-04-25T22:05:00Z,Final,F,SDP,ARI,San Diego Padres,Arizona Diamondbacks,6,4,Germán Márquez,Zac Gallen,Estadio Alfredo Harp Helu,True
+2026,regular,2026-04-25,822910,2026-04-25T23:05:00Z,Final,F,ATH,TEX,Athletics,Texas Rangers,3,4,Jeffrey Springs,MacKenzie Gore,Globe Life Field,True
+2026,regular,2026-04-25,824121,2026-04-25T23:10:00Z,Final,F,LAA,KCR,Los Angeles Angels,Kansas City Royals,1,12,Walbert Ureña,Cole Ragans,Kauffman Stadium,True
+2026,regular,2026-04-25,824203,2026-04-25T23:10:00Z,Final,F,NYY,HOU,New York Yankees,Houston Astros,8,3,Ryan Weathers,Mike Burrows,Daikin Park,True
+2026,regular,2026-04-25,823799,2026-04-25T23:10:00Z,Final,F,PIT,MIL,Pittsburgh Pirates,Milwaukee Brewers,6,3,Mitch Keller,Jacob Misiorowski,American Family Field,True
+2026,regular,2026-04-25,824527,2026-04-25T23:15:00Z,Final,F,DET,CIN,Detroit Tigers,Cincinnati Reds,2,9,Jack Flaherty,Brady Singer,Great American Ball Park,True
+2026,regular,2026-04-25,823960,2026-04-25T23:15:00Z,Final,F,CHC,LAD,Chicago Cubs,Los Angeles Dodgers,4,12,Colin Rea,Roki Sasaki,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-25,824933,2026-04-25T23:15:00Z,Final,F,PHI,ATL,Philadelphia Phillies,Atlanta Braves,8,5,Zack Wheeler,Bryce Elder,Truist Park,True
+2026,regular,2026-04-26,823637,2026-04-26T17:45:00Z,Final,F,COL,NYM,Colorado Rockies,New York Mets,3,,Chase Dollander,Kodai Senga,Citi Field,True
+2026,regular,2026-04-26,824852,2026-04-26T17:35:00Z,Final,F,BOS,BAL,Boston Red Sox,Baltimore Orioles,5,3,Connelly Early,Kyle Bradish,Oriole Park at Camden Yards,True
+2026,regular,2026-04-26,824934,2026-04-26T17:35:00Z,Final,F,PHI,ATL,Philadelphia Phillies,Atlanta Braves,2,6,Aaron Nola,Chris Sale,Truist Park,True
+2026,regular,2026-04-26,822824,2026-04-26T17:37:00Z,Final,F,CLE,TOR,Cleveland Guardians,Toronto Blue Jays,2,4,Slade Cecconi,Patrick Corbin,Rogers Centre,True
+2026,regular,2026-04-26,824528,2026-04-26T17:40:00Z,Final,F,DET,CIN,Detroit Tigers,Cincinnati Reds,8,3,Keider Montero,Rhett Lowder,Great American Ball Park,True
+2026,regular,2026-04-26,823635,2026-04-26T17:40:00Z,Final,F,COL,NYM,Colorado Rockies,New York Mets,3,1,Jose Quintana,Nolan McLean,Citi Field,True
+2026,regular,2026-04-26,822991,2026-04-26T17:40:00Z,Final,F,MIN,TBR,Minnesota Twins,Tampa Bay Rays,2,4,Simeon Woods Richardson,Griffin Jax,Tropicana Field,True
+2026,regular,2026-04-26,824612,2026-04-26T18:10:00Z,Final,F,WSN,CHW,Washington Nationals,Chicago White Sox,2,1,Foster Griffin,Bryan Hudson,Rate Field,True
+2026,regular,2026-04-26,824202,2026-04-26T18:10:00Z,Final,F,NYY,HOU,New York Yankees,Houston Astros,4,7,Luis Gil,Spencer Arrighetti,Daikin Park,True
+2026,regular,2026-04-26,823797,2026-04-26T18:10:00Z,Final,F,PIT,MIL,Pittsburgh Pirates,Milwaukee Brewers,,5,Carmen Mlodzinski,Kyle Harrison,American Family Field,True
+2026,regular,2026-04-26,823068,2026-04-26T18:15:00Z,Final,F,SEA,STL,Seattle Mariners,St. Louis Cardinals,3,2,Emerson Hancock,Michael McGreevy,Busch Stadium,True
+2026,regular,2026-04-26,822911,2026-04-26T18:35:00Z,Final,F,ATH,TEX,Athletics,Texas Rangers,2,1,J.T. Ginn,Kumar Rocker,Globe Life Field,True
+2026,regular,2026-04-26,825094,2026-04-26T20:05:00Z,Final,F,SDP,ARI,San Diego Padres,Arizona Diamondbacks,7,12,Michael King,Ryne Nelson,Estadio Alfredo Harp Helu,True
+2026,regular,2026-04-26,823230,2026-04-26T20:05:00Z,Final,F,MIA,SFG,Miami Marlins,San Francisco Giants,3,6,Max Meyer,Landen Roupp,Oracle Park,True
+2026,regular,2026-04-26,824122,2026-04-26T20:10:00Z,Final,F,LAA,KCR,Los Angeles Angels,Kansas City Royals,9,11,Reid Detmers,Seth Lugo,Kauffman Stadium,True
+2026,regular,2026-04-26,823959,2026-04-26T20:10:00Z,Final,F,CHC,LAD,Chicago Cubs,Los Angeles Dodgers,,6,Shota Imanaga,Justin Wrobleski,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-27,824446,2026-04-27T22:10:00Z,Final,F,TBR,CLE,Tampa Bay Rays,Cleveland Guardians,3,2,Steven Matz,Parker Messick,Progressive Field,True
+2026,regular,2026-04-27,823395,2026-04-27T22:40:00Z,Final,F,STL,PIT,St. Louis Cardinals,Pittsburgh Pirates,4,2,Dustin May,Mason Montgomery,PNC Park,True
+2026,regular,2026-04-27,822825,2026-04-27T23:07:00Z,Final,F,BOS,TOR,Boston Red Sox,Toronto Blue Jays,5,,Ranger Suarez,Dylan Cease,Rogers Centre,True
+2026,regular,2026-04-27,823719,2026-04-27T23:40:00Z,Final,F,SEA,MIN,Seattle Mariners,Minnesota Twins,4,11,Luis Castillo,Connor Prielipp,Target Field,True
+2026,regular,2026-04-27,824609,2026-04-27T23:40:00Z,Final,F,LAA,CHW,Los Angeles Angels,Chicago White Sox,7,8,Jack Kochanowicz,Anthony Kay,Rate Field,True
+2026,regular,2026-04-27,822906,2026-04-28T00:05:00Z,Final,F,NYY,TEX,New York Yankees,Texas Rangers,4,2,Max Fried,Jack Leiter,Globe Life Field,True
+2026,regular,2026-04-27,823311,2026-04-28T01:40:00Z,Final,F,CHC,SDP,Chicago Cubs,San Diego Padres,7,9,Matthew Boyd,Randy Vásquez,Petco Park,True
+2026,regular,2026-04-27,823961,2026-04-28T02:10:00Z,Final,F,MIA,LAD,Miami Marlins,Los Angeles Dodgers,4,5,Chris Paddack,Yoshinobu Yamamoto,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-28,824447,2026-04-28T22:10:00Z,Final,F,TBR,CLE,Tampa Bay Rays,Cleveland Guardians,1,,Nick Martinez,Tanner Bibee,Progressive Field,True
+2026,regular,2026-04-28,824849,2026-04-28T22:35:00Z,Final,F,HOU,BAL,Houston Astros,Baltimore Orioles,3,5,Kai-Wei Teng,Shane Baz,Oriole Park at Camden Yards,True
+2026,regular,2026-04-28,824526,2026-04-28T22:40:00Z,Final,F,COL,CIN,Colorado Rockies,Cincinnati Reds,2,7,Kyle Freeland,Chase Burns,Great American Ball Park,True
+2026,regular,2026-04-28,823390,2026-04-28T22:40:00Z,Final,F,STL,PIT,St. Louis Cardinals,Pittsburgh Pirates,11,7,Kyle Leahy,Braxton Ashcraft,PNC Park,True
+2026,regular,2026-04-28,823473,2026-04-28T22:40:00Z,Final,F,SFG,PHI,San Francisco Giants,Philadelphia Phillies,,7,Tyler Mahle,Jesús Luzardo,Citizens Bank Park,True
+2026,regular,2026-04-28,822823,2026-04-28T23:07:00Z,Final,F,BOS,TOR,Boston Red Sox,Toronto Blue Jays,,3,Payton Tolle,Trey Yesavage,Rogers Centre,True
+2026,regular,2026-04-28,823636,2026-04-28T23:10:00Z,Final,F,WSN,NYM,Washington Nationals,New York Mets,,8,Zack Littell,Clay Holmes,Citi Field,True
+2026,regular,2026-04-28,824931,2026-04-28T23:15:00Z,Final,F,DET,ATL,Detroit Tigers,Atlanta Braves,2,5,Casey Mize,Martín Pérez,Truist Park,True
+2026,regular,2026-04-28,823716,2026-04-28T23:40:00Z,Final,F,SEA,MIN,Seattle Mariners,Minnesota Twins,7,1,Logan Gilbert,Joe Ryan,Target Field,True
+2026,regular,2026-04-28,824610,2026-04-28T23:40:00Z,Final,F,LAA,CHW,Los Angeles Angels,Chicago White Sox,2,5,José Soriano,Davis Martin,Rate Field,True
+2026,regular,2026-04-28,823798,2026-04-28T23:40:00Z,Final,F,ARI,MIL,Arizona Diamondbacks,Milwaukee Brewers,2,13,Merrill Kelly,Chad Patrick,American Family Field,True
+2026,regular,2026-04-28,822908,2026-04-29T00:05:00Z,Final,F,NYY,TEX,New York Yankees,Texas Rangers,3,2,Cam Schlittler,Jacob deGrom,Globe Life Field,True
+2026,regular,2026-04-28,825017,2026-04-29T01:40:00Z,Final,F,KCR,ATH,Kansas City Royals,Athletics,4,1,Kris Bubic,Aaron Civale,Sutter Health Park,True
+2026,regular,2026-04-28,823310,2026-04-29T01:40:00Z,Final,F,CHC,SDP,Chicago Cubs,San Diego Padres,8,3,Edward Cabrera,Walker Buehler,Petco Park,True
+2026,regular,2026-04-28,823956,2026-04-29T02:10:00Z,Final,F,MIA,LAD,Miami Marlins,Los Angeles Dodgers,2,1,Janson Junk,Shohei Ohtani,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-29,824445,2026-04-29T17:10:00Z,Final,F,TBR,CLE,Tampa Bay Rays,Cleveland Guardians,1,3,Drew Rasmussen,Gavin Williams,Progressive Field,True
+2026,regular,2026-04-29,824608,2026-04-29T17:10:00Z,Final,F,LAA,CHW,Los Angeles Angels,Chicago White Sox,2,3,Yusei Kikuchi,Erick Fedde,Rate Field,True
+2026,regular,2026-04-29,823717,2026-04-29T17:40:00Z,Final,F,SEA,MIN,Seattle Mariners,Minnesota Twins,5,3,George Kirby,Taj Bradley,Target Field,True
+2026,regular,2026-04-29,822907,2026-04-29T18:35:00Z,Final,F,NYY,TEX,New York Yankees,Texas Rangers,,3,Elmer Rodríguez,Nathan Eovaldi,Globe Life Field,True
+2026,regular,2026-04-29,822821,2026-04-29T19:07:00Z,Final,F,BOS,TOR,Boston Red Sox,Toronto Blue Jays,1,8,Brayan Bello,Eric Lauer,Rogers Centre,True
+2026,regular,2026-04-29,823958,2026-04-29T19:10:00Z,Final,F,MIA,LAD,Miami Marlins,Los Angeles Dodgers,3,2,Sandy Alcantara,Tyler Glasnow,UNIQLO Field at Dodger Stadium,True
+2026,regular,2026-04-29,823312,2026-04-29T20:10:00Z,Final,F,CHC,SDP,Chicago Cubs,San Diego Padres,5,4,Jameson Taillon,Matt Waldron,Petco Park,True
+2026,regular,2026-04-29,824525,2026-04-29T22:40:00Z,Final,F,COL,CIN,Colorado Rockies,Cincinnati Reds,13,2,Tomoyuki Sugano,Brandon Williamson,Great American Ball Park,True
+2026,regular,2026-04-29,823392,2026-04-29T22:40:00Z,Final,F,STL,PIT,St. Louis Cardinals,Pittsburgh Pirates,5,4,Andre Pallante,Bubba Chandler,PNC Park,True
+2026,regular,2026-04-29,823633,2026-04-29T23:10:00Z,Final,F,WSN,NYM,Washington Nationals,New York Mets,14,2,Cade Cavalli,David Peterson,Citi Field,True
+2026,regular,2026-04-29,824930,2026-04-29T23:15:00Z,Final,F,DET,ATL,Detroit Tigers,Atlanta Braves,3,4,Tarik Skubal,JR Ritchie,Truist Park,True
+2026,regular,2026-04-29,823796,2026-04-29T23:40:00Z,Final,F,ARI,MIL,Arizona Diamondbacks,Milwaukee Brewers,6,2,Eduardo Rodriguez,Brandon Sproat,American Family Field,True
+2026,regular,2026-04-29,825015,2026-04-30T01:40:00Z,Final,F,KCR,ATH,Kansas City Royals,Athletics,2,5,Michael Wacha,Luis Severino,Sutter Health Park,True
+2026,regular,2026-04-30,823471,2026-04-30T21:35:00Z,Final,F,SFG,PHI,San Francisco Giants,Philadelphia Phillies,5,6,Adrian Houser,Tim Mayza,Citizens Bank Park,True
+2026,regular,2026-04-30,824850,2026-04-30T16:40:00Z,Final,F,HOU,BAL,Houston Astros,Baltimore Orioles,11,5,Lance McCullers Jr.,Brandon Young,Oriole Park at Camden Yards,True
+2026,regular,2026-04-30,824929,2026-04-30T16:15:00Z,Final,F,DET,ATL,Detroit Tigers,Atlanta Braves,5,2,Framber Valdez,Bryce Elder,Truist Park,True
+2026,regular,2026-04-30,824848,2026-04-30T16:35:00Z,Final,F,HOU,BAL,Houston Astros,Baltimore Orioles,3,10,Peter Lambert,Chris Bassitt,Oriole Park at Camden Yards,True
+2026,regular,2026-04-30,823391,2026-04-30T16:35:00Z,Final,F,STL,PIT,St. Louis Cardinals,Pittsburgh Pirates,10,5,Hunter Dobbins,Paul Skenes,PNC Park,True
+2026,regular,2026-04-30,823472,2026-04-30T16:35:00Z,Final,F,SFG,PHI,San Francisco Giants,Philadelphia Phillies,2,3,Logan Webb,Cristopher Sánchez,Citizens Bank Park,True
+2026,regular,2026-04-30,824524,2026-04-30T16:40:00Z,Final,F,COL,CIN,Colorado Rockies,Cincinnati Reds,4,6,Michael Lorenzen,Andrew Abbott,Great American Ball Park,True
+2026,regular,2026-04-30,823634,2026-04-30T17:10:00Z,Final,F,WSN,NYM,Washington Nationals,New York Mets,5,4,Miles Mikolas,Freddy Peralta,Citi Field,True
+2026,regular,2026-04-30,823795,2026-04-30T17:40:00Z,Final,F,ARI,MIL,Arizona Diamondbacks,Milwaukee Brewers,1,13,Michael Soroka,Brandon Woodruff,American Family Field,True
+2026,regular,2026-04-30,825016,2026-04-30T19:05:00Z,Final,F,KCR,ATH,Kansas City Royals,Athletics,3,6,Noah Cameron,Jeffrey Springs,Sutter Health Park,True
+2026,regular,2026-04-30,823714,2026-04-30T23:40:00Z,Final,F,TOR,MIN,Toronto Blue Jays,Minnesota Twins,1,7,Kevin Gausman,Bailey Ober,Target Field,True
+2026,regular,2026-05-01,824686,2026-05-01T18:20:00Z,Final,F,ARI,CHC,Arizona Diamondbacks,Chicago Cubs,5,6,Zac Gallen,Colin Rea,Wrigley Field,True
+2026,regular,2026-05-01,824287,2026-05-01T22:40:00Z,Final,F,TEX,DET,Texas Rangers,Detroit Tigers,5,4,MacKenzie Gore,Jack Flaherty,Comerica Park,True
+2026,regular,2026-05-01,823389,2026-05-01T22:45:00Z,Final,F,CIN,PIT,Cincinnati Reds,Pittsburgh Pirates,1,9,Brady Singer,Mitch Keller,PNC Park,True
+2026,regular,2026-05-01,822744,2026-05-01T22:45:00Z,Final,F,MIL,WSN,Milwaukee Brewers,Washington Nationals,6,1,Jacob Misiorowski,Jake Irvin,Nationals Park,True
+2026,regular,2026-05-01,823557,2026-05-01T23:05:00Z,Final,F,BAL,NYY,Baltimore Orioles,New York Yankees,2,7,Cade Povich,Will Warren,Yankee Stadium,True
+2026,regular,2026-05-01,824772,2026-05-01T23:10:00Z,Final,F,HOU,BOS,Houston Astros,Boston Red Sox,1,3,Mike Burrows,Jake Bennett,Fenway Park,True
+2026,regular,2026-05-01,822990,2026-05-01T23:10:00Z,Final,F,SFG,TBR,San Francisco Giants,Tampa Bay Rays,,3,Robbie Ray,Shane McClanahan,Tropicana Field,True
+2026,regular,2026-05-01,823877,2026-05-01T23:10:00Z,Final,F,PHI,MIA,Philadelphia Phillies,Miami Marlins,6,5,Zack Wheeler,Eury Pérez,loanDepot park,True
+2026,regular,2026-05-01,823713,2026-05-02T00:10:00Z,Final,F,TOR,MIN,Toronto Blue Jays,Minnesota Twins,7,3,Patrick Corbin,Simeon Woods Richardson,Target Field,True
+2026,regular,2026-05-01,823066,2026-05-02T00:15:00Z,Final,F,LAD,STL,Los Angeles Dodgers,St. Louis Cardinals,2,7,Emmet Sheehan,Matthew Liberatore,Busch Stadium,True
+2026,regular,2026-05-01,824366,2026-05-02T00:40:00Z,Final,F,ATL,COL,Atlanta Braves,Colorado Rockies,8,6,Grant Holmes,Jose Quintana,Coors Field,True
+2026,regular,2026-05-01,824041,2026-05-02T01:38:00Z,Final,F,NYM,LAA,New York Mets,Los Angeles Angels,4,3,Christian Scott,Walbert Ureña,Angel Stadium,True
+2026,regular,2026-05-01,825012,2026-05-02T01:40:00Z,Final,F,CLE,ATH,Cleveland Guardians,Athletics,8,5,Joey Cantillo,J.T. Ginn,Sutter Health Park,True
+2026,regular,2026-05-01,823309,2026-05-02T01:40:00Z,Final,F,CHW,SDP,Chicago White Sox,San Diego Padres,8,2,Noah Schultz,Germán Márquez,Petco Park,True
+2026,regular,2026-05-01,823146,2026-05-02T01:45:00Z,Final,F,KCR,SEA,Kansas City Royals,Seattle Mariners,7,6,Cole Ragans,Bryan Woo,T-Mobile Park,True
+2026,regular,2026-05-02,823554,2026-05-02T17:35:00Z,Final,F,BAL,NYY,Baltimore Orioles,New York Yankees,4,9,Kyle Bradish,Ryan Weathers,Yankee Stadium,True
+2026,regular,2026-05-02,823715,2026-05-02T18:10:00Z,Final,F,TOR,MIN,Toronto Blue Jays,Minnesota Twins,11,4,Dylan Cease,Connor Prielipp,Target Field,True
+2026,regular,2026-05-02,824685,2026-05-02T18:20:00Z,Final,F,ARI,CHC,Arizona Diamondbacks,Chicago Cubs,,2,Ryne Nelson,Shota Imanaga,Wrigley Field,True
+2026,regular,2026-05-02,825014,2026-05-02T20:05:00Z,Final,F,CLE,ATH,Cleveland Guardians,Athletics,14,6,Slade Cecconi,Jacob Lopez,Sutter Health Park,True
+2026,regular,2026-05-02,823388,2026-05-02T20:05:00Z,Final,F,CIN,PIT,Cincinnati Reds,Pittsburgh Pirates,7,17,Rhett Lowder,Carmen Mlodzinski,PNC Park,True
+2026,regular,2026-05-02,822746,2026-05-02T20:05:00Z,Final,F,MIL,WSN,Milwaukee Brewers,Washington Nationals,4,1,Kyle Harrison,Foster Griffin,Nationals Park,True
+2026,regular,2026-05-02,824771,2026-05-02T20:10:00Z,Final,F,HOU,BOS,Houston Astros,Boston Red Sox,6,3,Spencer Arrighetti,Connelly Early,Fenway Park,True
+2026,regular,2026-05-02,823876,2026-05-02T20:10:00Z,Final,F,PHI,MIA,Philadelphia Phillies,Miami Marlins,,4,Andrew Painter,Max Meyer,loanDepot park,True
+2026,regular,2026-05-02,822988,2026-05-02T22:10:00Z,Final,F,SFG,TBR,San Francisco Giants,Tampa Bay Rays,1,5,Landen Roupp,Griffin Jax,Tropicana Field,True
+2026,regular,2026-05-02,823067,2026-05-02T23:15:00Z,Final,F,LAD,STL,Los Angeles Dodgers,St. Louis Cardinals,2,3,Roki Sasaki,Michael McGreevy,Busch Stadium,True
+2026,regular,2026-05-02,824284,2026-05-02T23:15:00Z,Final,F,TEX,DET,Texas Rangers,Detroit Tigers,1,5,Kumar Rocker,Keider Montero,Comerica Park,True
+2026,regular,2026-05-02,824365,2026-05-03T00:10:00Z,Final,F,ATL,COL,Atlanta Braves,Colorado Rockies,9,1,Chris Sale,Brennan Bernardino,Coors Field,True
+2026,regular,2026-05-02,823308,2026-05-03T00:40:00Z,Final,F,CHW,SDP,Chicago White Sox,San Diego Padres,4,,Sean Burke,Michael King,Petco Park,True
+2026,regular,2026-05-02,824042,2026-05-03T01:38:00Z,Final,F,NYM,LAA,New York Mets,Los Angeles Angels,3,4,Nolan McLean,Reid Detmers,Angel Stadium,True
+2026,regular,2026-05-02,823144,2026-05-03T01:40:00Z,Final,F,KCR,SEA,Kansas City Royals,Seattle Mariners,3,2,Seth Lugo,Emerson Hancock,T-Mobile Park,True
+2026,regular,2026-05-03,823711,2026-05-03T16:45:00Z,Final,F,TOR,MIN,Toronto Blue Jays,Minnesota Twins,3,4,Trey Yesavage,Joe Ryan,Target Field,True
+2026,regular,2026-05-03,824769,2026-05-03T17:35:00Z,Final,F,HOU,BOS,Houston Astros,Boston Red Sox,3,1,Cody Bolton,Ranger Suarez,Fenway Park,True
+2026,regular,2026-05-03,823387,2026-05-03T17:35:00Z,Final,F,CIN,PIT,Cincinnati Reds,Pittsburgh Pirates,,1,Chase Burns,Braxton Ashcraft,PNC Park,True
+2026,regular,2026-05-03,823555,2026-05-03T17:35:00Z,Final,F,BAL,NYY,Baltimore Orioles,New York Yankees,3,11,Trey Gibson,Max Fried,Yankee Stadium,True
+2026,regular,2026-05-03,822742,2026-05-03T17:35:00Z,Final,F,MIL,WSN,Milwaukee Brewers,Washington Nationals,2,3,Logan Henderson,PJ Poulin,Nationals Park,True
+2026,regular,2026-05-03,822987,2026-05-03T17:40:00Z,Final,F,SFG,TBR,San Francisco Giants,Tampa Bay Rays,1,2,Tyler Mahle,Steven Matz,Tropicana Field,True
+2026,regular,2026-05-03,823875,2026-05-03T17:40:00Z,Final,F,PHI,MIA,Philadelphia Phillies,Miami Marlins,7,2,Jesús Luzardo,Chris Paddack,loanDepot park,True
+2026,regular,2026-05-03,823065,2026-05-03T18:15:00Z,Final,F,LAD,STL,Los Angeles Dodgers,St. Louis Cardinals,4,1,Justin Wrobleski,Dustin May,Busch Stadium,True
+2026,regular,2026-05-03,824687,2026-05-03T18:20:00Z,Final,F,ARI,CHC,Arizona Diamondbacks,Chicago Cubs,4,8,Merrill Kelly,Matthew Boyd,Wrigley Field,True
+2026,regular,2026-05-03,824364,2026-05-03T19:10:00Z,Final,F,ATL,COL,Atlanta Braves,Colorado Rockies,11,6,Spencer Strider,Kyle Freeland,Coors Field,True
+2026,regular,2026-05-03,825013,2026-05-03T20:05:00Z,Final,F,CLE,ATH,Cleveland Guardians,Athletics,1,7,Parker Messick,Aaron Civale,Sutter Health Park,True
+2026,regular,2026-05-03,824043,2026-05-03T20:07:00Z,Final,F,NYM,LAA,New York Mets,Los Angeles Angels,5,1,Clay Holmes,Jack Kochanowicz,Angel Stadium,True
+2026,regular,2026-05-03,823145,2026-05-03T20:10:00Z,Final,F,KCR,SEA,Kansas City Royals,Seattle Mariners,4,1,Kris Bubic,Luis Castillo,T-Mobile Park,True
+2026,regular,2026-05-03,823307,2026-05-03T20:10:00Z,Final,F,CHW,SDP,Chicago White Sox,San Diego Padres,3,4,Anthony Kay,Griffin Canning,Petco Park,True
+2026,regular,2026-05-03,824285,2026-05-03T23:20:00Z,Final,F,TEX,DET,Texas Rangers,Detroit Tigers,1,7,Jack Leiter,Tyler Holton,Comerica Park,True
+2026,regular,2026-05-04,824363,2026-05-04T21:40:00Z,Final,F,NYM,COL,New York Mets,Colorado Rockies,4,2,Huascar Brazobán,Tomoyuki Sugano,Coors Field,True
+2026,regular,2026-05-04,824283,2026-05-04T22:10:00Z,Final,F,BOS,DET,Boston Red Sox,Detroit Tigers,5,4,Payton Tolle,Tyler Holton,Comerica Park,True
+2026,regular,2026-05-04,822984,2026-05-04T22:40:00Z,Final,F,TOR,TBR,Toronto Blue Jays,Tampa Bay Rays,1,5,Eric Lauer,Nick Martinez,Tropicana Field,True
+2026,regular,2026-05-04,823874,2026-05-04T22:40:00Z,Final,F,PHI,MIA,Philadelphia Phillies,Miami Marlins,1,,Aaron Nola,Janson Junk,loanDepot park,True
+2026,regular,2026-05-04,823552,2026-05-04T23:05:00Z,Final,F,BAL,NYY,Baltimore Orioles,New York Yankees,1,12,Shane Baz,Cam Schlittler,Yankee Stadium,True
+2026,regular,2026-05-04,824684,2026-05-04T23:10:00Z,Final,F,CIN,CHC,Cincinnati Reds,Chicago Cubs,4,5,Chase Petty,Edward Cabrera,Wrigley Field,True
+2026,regular,2026-05-04,824120,2026-05-04T23:40:00Z,Final,F,CLE,KCR,Cleveland Guardians,Kansas City Royals,2,6,Tanner Bibee,Michael Wacha,Kauffman Stadium,True
+2026,regular,2026-05-04,823064,2026-05-04T23:45:00Z,Final,F,MIL,STL,Milwaukee Brewers,St. Louis Cardinals,3,6,Chad Patrick,Kyle Leahy,Busch Stadium,True
+2026,regular,2026-05-04,824201,2026-05-05T00:10:00Z,Final,F,LAD,HOU,Los Angeles Dodgers,Houston Astros,8,3,Yoshinobu Yamamoto,Steven Okert,Daikin Park,True
+2026,regular,2026-05-04,824039,2026-05-05T01:38:00Z,Final,F,CHW,LAA,Chicago White Sox,Los Angeles Angels,6,,Davis Martin,José Soriano,Angel Stadium,True
+2026,regular,2026-05-04,823143,2026-05-05T01:40:00Z,Final,F,ATL,SEA,Atlanta Braves,Seattle Mariners,4,5,JR Ritchie,Logan Gilbert,T-Mobile Park,True
+2026,regular,2026-05-04,823228,2026-05-05T01:45:00Z,Final,F,SDP,SFG,San Diego Padres,San Francisco Giants,2,3,Randy Vásquez,Trevor McDonald,Oracle Park,True

@@ -1,0 +1,147 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Runtime logs
+*.log
+*.err.log
+
+# Local/generated app data from uploaded CSVs
+data/*.json
+data/imports/
+data/prop_reports/
+!data/.gitkeep
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+tmp*/
+
+tmpl*/
+
+data/odds/
+
+tmp*/
+
+tmpl*/
+
+data/odds/
+
+data/models/
+data/training/*_training.csv
+data/training/historical_props.csv
+data/training/historical_props_with_game_odds.csv
+data/training/pitcher_strikeouts_training_all_sides.csv
+
+data/training/moneyline_training_*.csv
+data/training/pitcher_strikeouts_training.csv
+
+data/warehouse/logs/
+data/warehouse/odds_snapshots/
+data/warehouse/raw/
+data/warehouse/summaries/
+data/warehouse/external/
+data/warehouse/season_logs/batter_game_logs_*.csv
+data/warehouse/season_logs/pitcher_game_logs_*.csv
+data/warehouse/season_logs/team_game_logs_*.csv
+data/warehouse/season_logs/collector_runs.csv
+
+data/predictions/
+
+data/cache/season_stats/raw/
+
+data/cache/incremental_stats/raw/
+data/cache/incremental_stats/runs/
+
+data/cache/incremental_stats/feature_status_*.json
+
+data/cache/weather/raw/
+
+data/cache/savant/raw/
+
+# Local/generated OddsPapi backfill outputs
+data/cache/oddspapi/
+
+# Local inspection/probe scripts
+oddspapi_probe.py
+oddspapi_mlb_probe.py
+oddspapi_one_historical.py
+oddspapi_one_historical_fd_dk_betmgm.py
+oddspapi_flatten_one_fixture.py
+oddspapi_flatten_team_props_one_fixture.py
+oddspapi_team_props_latest_pregame.py
+grade_oddspapi_team_props_one_fixture.py
+inspect_oddspapi_historical_structure.py
+inspect_oddspapi_returned_market_metadata.py
+
+# Local/generated OddsPapi cache and API responses
+data/cache/oddspapi/
+
+# Local probe/debug scripts
+oddspapi_probe.py
+oddspapi_mlb_probe.py
+oddspapi_one_historical.py
+oddspapi_one_historical_fd_dk_betmgm.py
+oddspapi_flatten_one_fixture.py
+oddspapi_flatten_team_props_one_fixture.py
+oddspapi_team_props_latest_pregame.py
+grade_oddspapi_team_props_one_fixture.py
+inspect_oddspapi_historical_structure.py
+inspect_oddspapi_returned_market_metadata.py
+inspect_oddspapi_player_prop_presence.py
+oddspapi_mlb_stats_id_probe.py
+oddspapi_participants_probe.py
+oddspapi_player_prop_probe.py
+oddspapi_player_prop_sweep.py
+
+# Local generated/test cache folders
+data/cache/savant/
+data/cache/umpires/
+data/cache/incremental_stats/*_platoon_splits_2026.csv
+data/cache/incremental_stats/platoon_splits_status_2026.json
+
+# Local helper/check scripts
+check_batter_feature_coverage.py
+check_batter_hits_date_growth.py
+check_classes.py
+check_market_training_growth.py
+check_snapshot_automation.py
+inspect_2026_historical_props.py
+inspect_all_historical_prop_sources.py
+inspect_available_training_dates.py
+inspect_batter_hit_duplicates.py
+inspect_feature_join_keys.py
+inspect_platoon_join_keys.py
+inspect_training_inputs.py
+patch_calibration.py
+patch_calibration_exact.py
+test_umpire_endpoint.py
+
+# Local PropLine quota/runtime state
+data/cache/propline/
+
+# Local secrets
+.env
+
+# Generated OddsPapi team/game market training outputs
+data/ml/team_game_markets_training_*.csv
+data/ml/team_game_markets_training_summary_*.json
+data/cache/oddspapi/historical_game_markets_graded_*.csv
+data/cache/oddspapi/historical_game_markets_pregame_latest_*_season*.csv
+
+# Generated team/game market model artifacts
+models/team_game_markets/
+data/ml/team_game_markets_model_summary_*.json

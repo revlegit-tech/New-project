@@ -1,0 +1,34 @@
+{
+  "checkedAt": "2026-05-05T20:32:50.797871+00:00",
+  "counts": {
+    "backtestResultsForDate": {
+      "loss": 1112,
+      "ungraded": 131,
+      "win": 392
+    },
+    "backtestRowsForDate": 1635,
+    "gradedBacktestRowsForDate": 1504,
+    "gradedMlRowsForDate": 1286,
+    "mlResultsForDate": {
+      "loss": 952,
+      "ungraded": 123,
+      "win": 334
+    },
+    "mlRowsForDate": 1409
+  },
+  "date": "2026-05-04",
+  "errors": [],
+  "files": {
+    "data/backtests/playerboard_backtest_2026.csv": {
+      "exists": true,
+      "size": 591408
+    },
+    "data/ml/playerboard_training_2026.csv": {
+      "exists": true,
+      "size": 487067
+    }
+  },
+  "ok": true,
+  "season": 2026,
+  "warnings": []
+}
