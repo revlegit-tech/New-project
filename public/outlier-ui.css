@@ -2188,3 +2188,289 @@ body.outlier-mode {
     grid-template-columns: 1fr;
   }
 }
+
+/* Stage 7: premium game-context right rail */
+.outlier-mode .ob-rail-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--ob-rail);
+}
+
+.outlier-mode .ob-rail-tabs button {
+  cursor: pointer;
+}
+
+.outlier-mode .ob-rail-context-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+
+.outlier-mode .ob-rail-context-title strong {
+  overflow: hidden;
+  color: var(--ob-text);
+  font-size: 0.82rem;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outlier-mode .ob-rail-context-title span {
+  flex: 0 0 auto;
+  color: var(--ob-muted);
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
+.outlier-mode .ob-sp-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+
+.outlier-mode .ob-sp-panel {
+  min-width: 0;
+  border: 1px solid var(--ob-line-soft);
+  border-radius: 8px;
+  background: #0d0f0f;
+}
+
+.outlier-mode .ob-sp-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--ob-line-soft);
+  padding: 9px;
+}
+
+.outlier-mode .ob-sp-identity strong,
+.outlier-mode .ob-batter-name {
+  overflow: hidden;
+  display: block;
+  color: var(--ob-text);
+  font-size: 0.74rem;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outlier-mode .ob-sp-identity span {
+  display: block;
+  margin-top: 2px;
+  color: var(--ob-muted);
+  font-size: 0.64rem;
+  font-weight: 850;
+}
+
+.outlier-mode .ob-avatar--team {
+  border-color: var(--team-color);
+  color: var(--team-color);
+  background: var(--team-bg);
+}
+
+.outlier-mode .ob-rail-toggle-mini,
+.outlier-mode .ob-rail-team-toggle {
+  display: inline-flex;
+  gap: 5px;
+  min-width: 0;
+}
+
+.outlier-mode .ob-rail-toggle-mini button,
+.outlier-mode .ob-rail-team-toggle button {
+  min-height: 24px;
+  border: 1px solid var(--ob-line);
+  border-radius: 999px;
+  padding: 0 8px;
+  color: var(--ob-muted);
+  background: #0d0f0f;
+  font: inherit;
+  font-size: 0.64rem;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.outlier-mode .ob-rail-toggle-mini button.is-active,
+.outlier-mode .ob-rail-team-toggle button.is-active {
+  color: var(--ob-text);
+  border-color: rgba(24, 217, 156, 0.55);
+  background: var(--ob-green-soft);
+}
+
+.outlier-mode .ob-rail-table-wrap {
+  overflow: auto;
+}
+
+.outlier-mode .ob-rail-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.outlier-mode .ob-rail-table th,
+.outlier-mode .ob-rail-table td {
+  border-bottom: 1px solid var(--ob-line-soft);
+  padding: 7px 8px;
+  color: var(--ob-text);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.outlier-mode .ob-rail-table th {
+  color: var(--ob-muted);
+  background: #0d0f0f;
+  font-size: 0.62rem;
+  font-weight: 950;
+}
+
+.outlier-mode .ob-rail-table td:first-child,
+.outlier-mode .ob-rail-table th:first-child {
+  max-width: 106px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.outlier-mode .ob-rail-table .is-good { color: var(--ob-green); }
+.outlier-mode .ob-rail-table .is-bad { color: var(--ob-red); }
+.outlier-mode .ob-rail-table .is-warn { color: var(--ob-amber); }
+
+.outlier-mode .ob-bullpen-table,
+.outlier-mode .ob-batter-table {
+  min-width: 390px;
+}
+
+.outlier-mode .ob-batter-scroll {
+  max-height: 330px;
+}
+
+.outlier-mode .ob-batter-table tr.is-selected-batter td {
+  background: rgba(24, 217, 156, 0.09);
+}
+
+.outlier-mode .ob-batter-table tr.is-selected-batter td:first-child {
+  border-left: 3px solid var(--ob-green);
+}
+
+.outlier-mode .ob-batter-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.outlier-mode .ob-batter-name i {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--ob-green);
+  background: var(--ob-green-soft);
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.outlier-mode .ob-rail-subtabs {
+  margin: 10px 10px 8px;
+}
+
+.outlier-mode .ob-rail-compared {
+  margin: 8px 10px 10px;
+}
+
+.outlier-mode .ob-stadium-card h4 {
+  margin: 0 0 9px;
+  color: var(--ob-text);
+  font-size: 1.02rem;
+  font-weight: 950;
+}
+
+.outlier-mode .ob-weather-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.outlier-mode .ob-weather-grid div {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--ob-line-soft);
+  border-radius: 8px;
+  padding: 8px;
+  background: #0d0f0f;
+}
+
+.outlier-mode .ob-weather-grid span {
+  color: var(--ob-muted);
+  font-size: 0.62rem;
+  font-weight: 900;
+}
+
+.outlier-mode .ob-weather-grid strong {
+  overflow: hidden;
+  color: var(--ob-text);
+  font-size: 0.78rem;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outlier-mode .ob-weather-alert {
+  margin: 10px 0 0;
+  color: var(--ob-amber);
+  font-size: 0.73rem;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.outlier-mode .ob-muted-line.is-compact {
+  margin: 0;
+  padding: 0;
+}
+
+.outlier-mode .ob-rail-skel-line {
+  display: block;
+  height: 14px;
+  margin-bottom: 10px;
+}
+
+.outlier-mode .ob-rail-skel-line:nth-child(2n) {
+  width: 72%;
+}
+
+.outlier-mode .ob-rail-error,
+.outlier-mode .ob-rail-warning {
+  border: 1px solid rgba(255, 107, 107, 0.5);
+  border-radius: 8px;
+  padding: 10px;
+  color: var(--ob-red);
+  background: rgba(255, 107, 107, 0.08);
+  font-size: 0.74rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.outlier-mode .ob-rail-warning strong,
+.outlier-mode .ob-rail-warning span {
+  display: block;
+}
+
+.outlier-mode .ob-rail-warning span {
+  margin-top: 3px;
+  color: #ffd3d3;
+}
+
+@media (max-width: 1480px) {
+  :root { --ob-right-rail: 292px; }
+
+  .outlier-mode .ob-sp-grid {
+    grid-template-columns: 1fr;
+  }
+}

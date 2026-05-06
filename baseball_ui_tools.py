@@ -43,6 +43,26 @@ TEAM_PROP_MARKETS = {
     "team_first_to_score",
 }
 
+TEAM_ALIASES = {
+    "AZ": "ARI",
+    "WSH": "WSN",
+    "WAS": "WSN",
+    "TB": "TBR",
+}
+
+
+def canonical_team(value: Any) -> str:
+    code = clean(value).upper()
+    return TEAM_ALIASES.get(code, code)
+
+
+def team_variants(value: Any) -> set[str]:
+    code = clean(value).upper()
+    canonical = canonical_team(code)
+    variants = {code, canonical} - {""}
+    variants.update(alias for alias, target in TEAM_ALIASES.items() if target == canonical)
+    return variants - {""}
+
 
 def clean(value: Any) -> str:
     return str(value or "").strip()
@@ -148,6 +168,72 @@ def pitcher_totals_index(season: int) -> dict[tuple[str, str], dict[str, str]]:
     }
 
 
+def pitcher_game_logs_for(season: int, team: str, pitcher: str, opponent: str = "") -> list[dict[str, str]]:
+    team = clean(team).upper()
+    pitcher_norm = norm_name(pitcher)
+    opponent = clean(opponent).upper()
+    if not pitcher_norm:
+        return []
+    rows = []
+    for row in read_csv(INCREMENTAL_STATS_DIR / f"pitcher_game_logs_{season}.csv"):
+        if team and clean(row.get("team")).upper() != team:
+            continue
+        if norm_name(row.get("player")) != pitcher_norm:
+            continue
+        if opponent and clean(row.get("opponent")).upper() != opponent:
+            continue
+        rows.append(row)
+    rows.sort(key=lambda item: (clean(item.get("date")), clean(item.get("gamePk"))))
+    return rows
+
+
+def pitcher_stats_from_logs(rows: list[dict[str, str]]) -> dict[str, Any]:
+    if not rows:
+        return {}
+    ip = sum(innings_to_float(row.get("inningsPitched")) for row in rows)
+    earned = sum(to_float(row.get("earnedRuns"), 0.0) or 0.0 for row in rows)
+    hits = sum(to_float(row.get("hits"), 0.0) or 0.0 for row in rows)
+    walks = sum(to_float(row.get("baseOnBalls"), 0.0) or 0.0 for row in rows)
+    strikeouts = sum(to_float(row.get("strikeOuts"), 0.0) or 0.0 for row in rows)
+    wins = sum(to_int(row.get("wins"), 0) or 0 for row in rows)
+    losses = sum(to_int(row.get("losses"), 0) or 0 for row in rows)
+    return compact_row({
+        "record": f"{wins}-{losses}",
+        "era": round((earned * 9.0) / ip, 2) if ip else None,
+        "ip": round(ip, 1) if ip else None,
+        "hPer9": round((hits * 9.0) / ip, 2) if ip else None,
+        "kPer9": round((strikeouts * 9.0) / ip, 2) if ip else None,
+        "bbPer9": round((walks * 9.0) / ip, 2) if ip else None,
+        "whip": round((walks + hits) / ip, 3) if ip else None,
+    })
+
+
+def pitcher_stat_line(season: int, team: str, pitcher: str, opponent: str = "") -> dict[str, Any] | None:
+    if not clean(pitcher):
+        return None
+    logs = pitcher_game_logs_for(season, team, pitcher, opponent)
+    log_stats = pitcher_stats_from_logs(logs)
+    if opponent:
+        return log_stats or None
+
+    totals = pitcher_totals_index(season).get((norm_name(pitcher), clean(team).upper()), {})
+    if not totals and not log_stats:
+        return None
+
+    ip = to_float(totals.get("ip"), None)
+    hits = to_float(totals.get("hitsAllowed"), None)
+    season_stats = {
+        "record": log_stats.get("record", "—"),
+        "era": to_float(totals.get("era"), log_stats.get("era")),
+        "ip": ip if ip is not None else log_stats.get("ip"),
+        "hPer9": round((hits * 9.0) / ip, 2) if hits is not None and ip else log_stats.get("hPer9"),
+        "kPer9": to_float(totals.get("kPer9"), log_stats.get("kPer9")),
+        "bbPer9": to_float(totals.get("bbPer9"), log_stats.get("bbPer9")),
+        "whip": to_float(totals.get("whip"), log_stats.get("whip")),
+    }
+    return compact_row(season_stats)
+
+
 def bullpen_pitchers_payload(season: int, team: str, starting_pitcher: str, as_of_date: str) -> list[dict[str, Any]]:
     """Return recent bullpen workload without failing the parent endpoint.
 
@@ -156,7 +242,7 @@ def bullpen_pitchers_payload(season: int, team: str, starting_pitcher: str, as_o
     pitchers averaging <= 3.25 IP per appearance. If that heuristic finds no
     rows for a team, fall back to every non-starter pitcher for visibility.
     """
-    team = clean(team).upper()
+    team = canonical_team(team)
     if not team:
         return []
 
@@ -234,7 +320,7 @@ def bullpen_pitchers_payload(season: int, team: str, starting_pitcher: str, as_o
 
 
 def team_side_payload(side: str, team: str, summary: dict[str, Any], season: int, date_label: str) -> dict[str, Any]:
-    team = clean(team).upper()
+    team = canonical_team(team)
     pitcher_key = "homeProbablePitcher" if side == "home" else "awayProbablePitcher"
     name_key = "homeName" if side == "home" else "awayName"
     probable_pitcher = clean(summary.get(pitcher_key))
@@ -278,8 +364,8 @@ def projected_lineup_from_summary(date_label: str, team: str, opponent: str = ""
     except Exception:
         return []
 
-    team = clean(team).upper()
-    opponent = clean(opponent).upper()
+    team = canonical_team(team)
+    opponent = canonical_team(opponent)
 
     def game_matches(game: dict[str, Any]) -> bool:
         if game_pk and clean(game.get("gamePk")) == clean(game_pk):
@@ -339,8 +425,8 @@ def projected_lineup_from_summary(date_label: str, team: str, opponent: str = ""
 def lineup_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     season = int(query.get("season", ["2026"])[0])
     date_label = clean(query.get("date", [datetime.now().strftime("%Y-%m-%d")])[0])
-    team = clean(query.get("team", [""])[0]).upper()
-    opponent = clean(query.get("opponent", [""])[0]).upper()
+    team = canonical_team(query.get("team", [""])[0])
+    opponent = canonical_team(query.get("opponent", [""])[0])
     game_pk = clean(query.get("gamePk", query.get("fixtureId", [""]))[0])
 
     if not team:
@@ -502,12 +588,13 @@ def summarize_line(rows: list[dict[str, str]], market: str) -> list[dict[str, An
 def game_context_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     season = int(query.get("season", ["2026"])[0])
     date_label = clean(query.get("date", [datetime.now().strftime("%Y-%m-%d")])[0])
-    team_filter = clean(query.get("team", [""])[0]).upper()
+    team_filter = canonical_team(query.get("team", [""])[0])
     limit = int(query.get("limit", ["100"])[0])
 
     rows, sources = load_game_market_rows(date_label, season)
     if team_filter:
-        rows = [row for row in rows if team_filter in {clean(row.get("team")).upper(), clean(row.get("opponent")).upper()}]
+        team_filter_variants = team_variants(team_filter)
+        rows = [row for row in rows if team_filter_variants & (team_variants(row.get("team")) | team_variants(row.get("opponent")))]
 
     summaries = load_summary_games(date_label)
     games: dict[tuple[str, str], dict[str, Any]] = {}
@@ -532,9 +619,9 @@ def game_context_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     # game context so Stage 7/8 screens can render instead of going blank.
     if not games and summaries:
         for item in summaries:
-            away = clean(item.get("away")).upper()
-            home = clean(item.get("home")).upper()
-            if team_filter and team_filter not in {away, home}:
+            away = canonical_team(item.get("away"))
+            home = canonical_team(item.get("home"))
+            if team_filter and not (team_variants(team_filter) & (team_variants(away) | team_variants(home))):
                 continue
             key = (clean(item.get("gamePk")), date_label)
             games[key] = {
@@ -546,17 +633,17 @@ def game_context_payload(query: dict[str, list[str]]) -> dict[str, Any]:
             }
             rows_by_game[key] = []
 
-    weather_by_date_team = {(clean(row.get("date"))[:10], clean(row.get("team")).upper()): row for row in load_weather_rows(season)}
+    weather_by_date_team = {(clean(row.get("date"))[:10], canonical_team(row.get("team") or row.get("home"))): row for row in load_weather_rows(season)}
     umpire_by_date_game = {(clean(row.get("date"))[:10], clean(row.get("gamePk"))): row for row in load_umpire_rows(season)}
 
     out_games = []
     for key, game in games.items():
         game_rows = rows_by_game[key]
         summary = match_summary_game(game, game_rows, summaries)
-        away_team = clean(summary.get("away")).upper()
-        home_team = clean(summary.get("home")).upper()
+        away_team = canonical_team(summary.get("away"))
+        home_team = canonical_team(summary.get("home"))
         if not away_team or not home_team:
-            teams = [clean(team).upper() for team in game.get("teams", []) if clean(team)]
+            teams = [canonical_team(team) for team in game.get("teams", []) if clean(team)]
             away_team = away_team or (teams[0] if teams else "")
             home_team = home_team or (teams[1] if len(teams) > 1 else "")
 
@@ -584,14 +671,20 @@ def game_context_payload(query: dict[str, list[str]]) -> dict[str, Any]:
         })
         game["away"] = team_side_payload("away", away_team, summary, season, game["date"])
         game["home"] = team_side_payload("home", home_team, summary, season, game["date"])
+        away_pitcher = clean(summary.get("awayProbablePitcher"))
+        home_pitcher = clean(summary.get("homeProbablePitcher"))
         game["startingPitchers"] = {
             "away": compact_row({
                 "team": away_team,
-                "name": clean(summary.get("awayProbablePitcher")),
+                "name": away_pitcher,
+                "seasonStats": pitcher_stat_line(season, away_team, away_pitcher),
+                "vsOpponentStats": pitcher_stat_line(season, away_team, away_pitcher, home_team),
             }),
             "home": compact_row({
                 "team": home_team,
-                "name": clean(summary.get("homeProbablePitcher")),
+                "name": home_pitcher,
+                "seasonStats": pitcher_stat_line(season, home_team, home_pitcher),
+                "vsOpponentStats": pitcher_stat_line(season, home_team, home_pitcher, away_team),
             }),
         }
         game["lineupStatus"] = {
@@ -601,8 +694,11 @@ def game_context_payload(query: dict[str, list[str]]) -> dict[str, Any]:
         }
         game["weather"] = [compact_row({
             "team": team,
-            "temperature": weather_by_date_team.get((game["date"], team), {}).get("temperature"),
-            "windMph": weather_by_date_team.get((game["date"], team), {}).get("wind_mph"),
+            "temperature": weather_by_date_team.get((game["date"], team), {}).get("temperature") or weather_by_date_team.get((game["date"], team), {}).get("temperatureF"),
+            "temperatureF": weather_by_date_team.get((game["date"], team), {}).get("temperatureF"),
+            "humidity": weather_by_date_team.get((game["date"], team), {}).get("humidity"),
+            "windMph": weather_by_date_team.get((game["date"], team), {}).get("windMph") or weather_by_date_team.get((game["date"], team), {}).get("wind_mph"),
+            "windDirection": weather_by_date_team.get((game["date"], team), {}).get("windDirection"),
             "roof": weather_by_date_team.get((game["date"], team), {}).get("roof"),
             "venue": weather_by_date_team.get((game["date"], team), {}).get("venue") or clean(summary.get("venue")),
         }) for team in game.get("teams", [])]
