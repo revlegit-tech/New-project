@@ -1,6 +1,6 @@
 {
   "season": 2026,
-  "updatedAt": "2026-05-06T17:40:05.105745+00:00",
+  "updatedAt": "2026-05-06T21:45:20.655631+00:00",
   "source": "/home/runner/work/New-project/New-project/data/backtests/playerboard_backtest_2026.csv",
   "trainingFile": "/home/runner/work/New-project/New-project/data/ml/playerboard_training_2026.csv",
   "summaryFile": "/home/runner/work/New-project/New-project/data/ml/playerboard_training_summary_2026.json",
