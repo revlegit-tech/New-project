@@ -305,19 +305,26 @@ def iter_rows(raw_file: Path, market_by_id: dict[str, dict[str, Any]]) -> list[d
                 side = ""
                 team = ""
                 opponent = ""
+                line_value = handicap if handicap is not None else ""
 
                 if outcome_name in {"Over", "Under"}:
                     side = outcome_name.lower()
-                    team = ""
-                    opponent = ""
+                    team = team1
+                    opponent = team2
                 elif outcome_name == "1":
                     side = team1
                     team = team1
                     opponent = team2
+                    # OddsPapi handicap markets store the handicap magnitude at the market level.
+                    # Outcome 1 receives the positive side; outcome 2 receives the negative side.
+                    if market_type.lower() == "spreads" and handicap is not None:
+                        line_value = abs(float(handicap))
                 elif outcome_name == "2":
                     side = team2
                     team = team2
                     opponent = team1
+                    if market_type.lower() == "spreads" and handicap is not None:
+                        line_value = -abs(float(handicap))
                 else:
                     side = outcome_name
 
@@ -330,7 +337,7 @@ def iter_rows(raw_file: Path, market_by_id: dict[str, dict[str, Any]]) -> list[d
                         "market": normalized_market,
                         "team": team,
                         "opponent": opponent,
-                        "line": handicap if handicap is not None else "",
+                        "line": line_value,
                         "marketId": clean(market_id),
                         "marketType": market_type,
                         "marketName": market_name,

@@ -969,6 +969,48 @@ def team_game_prop_to_playerboard_card(prop: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def team_game_market_display_allowed(prop: dict[str, Any]) -> bool:
+    """Filter extreme alternate team/game lines out of the default Playerboard.
+
+    OddsPapi can provide many alternate lines. We still collect them upstream,
+    but default Playerboard rankings should focus on practical/displayable lines
+    so extreme longshot alts do not dominate the top edge list.
+    """
+    market = normalize_market(prop.get("market"))
+    try:
+        line = float(clean(prop.get("line")) or 0)
+    except Exception:
+        line = 0.0
+
+    try:
+        odds = float(clean(prop.get("americanOdds") or prop.get("american_odds")) or 0)
+    except Exception:
+        odds = 0.0
+
+    abs_odds = abs(odds)
+
+    # Remove stale/extreme odds from default board.
+    if abs_odds > 2000:
+        return False
+
+    if market in {"run_line", "run_line_first_five", "run_line_first_inning"}:
+        return -2.5 <= line <= 2.5
+
+    if market == "game_total_runs":
+        return 4.5 <= line <= 13.5
+
+    if market == "first_five_total_runs":
+        return 1.5 <= line <= 8.5
+
+    if market == "first_inning_total_runs":
+        return 0.5 <= line <= 3.5
+
+    if market == "team_total_runs":
+        return 0.5 <= line <= 9.5
+
+    return True
+
+
 def can_use_direct_team_game_card(prop: dict[str, Any]) -> bool:
     market = normalize_market(prop.get("market"))
     if market not in TEAM_GAME_MARKETS:
@@ -992,6 +1034,8 @@ def build_playerboard(season: int = 2026, date_label: str = "", market: str = ""
         prop = infer_missing_context(prop, season)
 
         if can_use_direct_team_game_card(prop):
+            if not team_game_market_display_allowed(prop):
+                return None, "extreme_alt_line_filtered"
             return team_game_prop_to_playerboard_card(prop), None
 
         if not prop.get("team") or not prop.get("opponent"):
