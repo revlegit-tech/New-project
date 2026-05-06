@@ -185,7 +185,7 @@
     "pitcher_hits_allowed",
     "pitcher_earned_runs"
   ],
-  "updatedAt": "2026-05-06T16:14:41.120600+00:00",
+  "updatedAt": "2026-05-06T17:40:06.062877+00:00",
   "warnings": [
     "batter_rbis skipped: Only 0 rows. Need at least 25 rows before training.",
     "batter_stolen_bases skipped: Only 0 rows. Need at least 25 rows before training.",
