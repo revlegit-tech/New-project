@@ -599,13 +599,79 @@ def incremental_stats_status_payload(query: dict[str, list[str]]) -> dict[str, A
 
 def incremental_stats_lookup_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     from incremental_stats_collector import lookup
+    import csv
+    from pathlib import Path
 
     season = int(query.get("season", ["2026"])[0])
     q = query.get("q", [""])[0]
-    kind = query.get("kind", ["all"])[0]
+    player = query.get("player", [q])[0]
+    kind = query.get("kind", query.get("type", ["all"]))[0]
     limit = int(query.get("limit", ["20"])[0])
 
-    return lookup(query=q, kind=kind, season=season, limit=limit)
+    def _clean(value: Any) -> str:
+        return str(value or "").strip()
+
+    def _norm(value: Any) -> str:
+        return " ".join(_clean(value).lower().replace(".", "").replace(",", "").split())
+
+    def _to_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(str(value or "").replace(",", ""))
+        except ValueError:
+            return default
+
+    def _read_rows(path: Path) -> list[dict[str, str]]:
+        if not path.exists():
+            return []
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            return list(csv.DictReader(handle))
+
+    # Stage 6 detail charts need actual game logs, while the historical lookup
+    # endpoint only returned search result metadata. Preserve the old lookup
+    # response, but enrich it when a concrete player is requested.
+    base = lookup(query=q or player, kind=kind, season=season, limit=limit)
+    if player and kind in {"batter", "pitcher", "all"}:
+        file_name = f"pitcher_game_logs_{season}.csv" if kind == "pitcher" else f"batter_game_logs_{season}.csv"
+        path = Path(__file__).resolve().parent / "data" / "cache" / "incremental_stats" / file_name
+        rows = [row for row in _read_rows(path) if _norm(row.get("player")) == _norm(player)]
+        rows.sort(key=lambda row: (_clean(row.get("date")), _clean(row.get("gamePk"))), reverse=True)
+        game_logs = []
+        for row in rows[:limit]:
+            doubles = _to_float(row.get("doubles"))
+            triples = _to_float(row.get("triples"))
+            home_runs = _to_float(row.get("homeRuns"))
+            hits = _to_float(row.get("hits"))
+            game_logs.append({
+                "season": row.get("season") or season,
+                "date": _clean(row.get("date")),
+                "gamePk": _clean(row.get("gamePk")),
+                "team": _clean(row.get("team")).upper(),
+                "opponent": _clean(row.get("opponent")).upper(),
+                "playerId": _clean(row.get("playerId")),
+                "player": _clean(row.get("player")),
+                "plateAppearances": _to_float(row.get("plateAppearances") or row.get("pa")),
+                "pa": _to_float(row.get("plateAppearances") or row.get("pa")),
+                "atBats": _to_float(row.get("atBats") or row.get("ab")),
+                "runs": _to_float(row.get("runs")),
+                "hits": hits,
+                "doubles": doubles,
+                "triples": triples,
+                "homeRuns": home_runs,
+                "rbi": _to_float(row.get("rbi")),
+                "baseOnBalls": _to_float(row.get("baseOnBalls") or row.get("walks")),
+                "strikeOuts": _to_float(row.get("strikeOuts") or row.get("strikeouts")),
+                "stolenBases": _to_float(row.get("stolenBases")),
+                "totalBases": _to_float(row.get("totalBases"), hits + doubles + triples * 2 + home_runs * 3),
+                "xbh": doubles + triples + home_runs,
+                "inningsPitched": _clean(row.get("inningsPitched")),
+                "earnedRuns": _to_float(row.get("earnedRuns")),
+                "battersFaced": _to_float(row.get("battersFaced")),
+                "pitchesThrown": _to_float(row.get("pitchesThrown")),
+            })
+        base["gameLogs"] = list(reversed(game_logs))
+        base["gameLogCount"] = len(rows)
+        base["sourceFile"] = str(path) if path.exists() else ""
+    return base
 
 
 def season_cache_backfill_payload(query: dict[str, list[str]]) -> dict[str, Any]:
@@ -7552,6 +7618,31 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         if self.handle_action_post(parsed):
+            return
+
+        if parsed.path == "/api/unified-prop-card/predict":
+            try:
+                from unified_prop_card import unified_prop_card
+                body = read_json_body(self)
+                query = parse_qs(parsed.query)
+                row = {
+                    "season": body.get("season") or query.get("season", ["2026"])[0],
+                    "date": body.get("date") or query.get("date", [""])[0],
+                    "market": body.get("market") or query.get("market", ["batter_hits"])[0],
+                    "marketDisplay": body.get("marketDisplay") or body.get("market_display", ""),
+                    "rawLabel": body.get("rawLabel") or body.get("raw_label", ""),
+                    "player": body.get("player") or query.get("player", [""])[0],
+                    "team": body.get("team") or query.get("team", [""])[0],
+                    "opponent": body.get("opponent") or query.get("opponent", [""])[0],
+                    "pitcher": body.get("pitcher") or query.get("pitcher", [""])[0],
+                    "line": body.get("line") or query.get("line", ["0.5"])[0],
+                    "american_odds": body.get("american_odds") or body.get("americanOdds") or query.get("american_odds", ["-110"])[0],
+                }
+                json_response(self, unified_prop_card(row))
+            except ValueError as error:
+                json_response(self, {"error": str(error)}, 400)
+            except Exception as error:
+                json_response(self, {"error": str(error)}, 500)
             return
 
         if parsed.path == "/api/refresh-sources":
