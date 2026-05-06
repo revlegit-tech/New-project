@@ -192,6 +192,8 @@
     insightsError: "",
     insightsLastLoaded: "",
     insightsTimer: null,
+    railTab: "Matchup",
+    railOpen: false,
   };
 
   function $(selector, root = document) {
@@ -251,6 +253,10 @@
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
+  }
+
+  function wait(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
 
   function loadSavedKeys() {
@@ -475,17 +481,28 @@
     return state.sortDir === "desc" ? -result : result;
   }
 
-  async function getJson(path, options = {}) {
-    const response = await fetch(path, options);
-    const text = await response.text();
-    let payload = {};
-    try {
-      payload = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error(`Non-JSON response: ${text.slice(0, 120)}`);
+  async function getJson(path, options = {}, maxAttempts = 3) {
+    let lastError = null;
+    const attempts = Math.max(1, maxAttempts || 1);
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const response = await fetch(path, options);
+        const text = await response.text();
+        let payload = {};
+        try {
+          payload = text ? JSON.parse(text) : {};
+        } catch {
+          throw new Error(`Non-JSON response: ${text.slice(0, 120)}`);
+        }
+        if (!response.ok) throw new Error(payload.error || `Request failed ${response.status}`);
+        return payload;
+      } catch (error) {
+        lastError = error;
+        if (attempt >= attempts) break;
+        await wait(1000 * Math.pow(2, attempt - 1));
+      }
     }
-    if (!response.ok) throw new Error(payload.error || `Request failed ${response.status}`);
-    return payload;
+    throw lastError || new Error("Request failed");
   }
 
   async function loadBoard() {
@@ -583,6 +600,7 @@
       ? rows.reduce((sum, row) => sum + number(row.finalEdgePercent), 0) / rows.length
       : 0;
     const mainContent = renderMainContent(rows);
+    root.className = `outlier-app ${state.railOpen ? "is-rail-open" : ""}`;
 
     root.innerHTML = `
       ${renderSidebar(rows.length, positive, avgEdge)}
@@ -590,6 +608,7 @@
         ${mainContent}
       </main>
       ${renderRightRail(rows)}
+      <button type="button" class="ob-rail-overlay" data-action="closeRail" aria-label="Close matchup panel"></button>
     `;
     afterRender();
   }
@@ -638,6 +657,12 @@
     }
   }
 
+  function navIsActive(item) {
+    if (item === state.nav) return true;
+    if (item === "Props" && state.nav === "PropDetail") return true;
+    return false;
+  }
+
   function renderSidebar(total, positive, avgEdge) {
     return `
       <aside class="ob-sidebar" aria-label="Application navigation">
@@ -654,7 +679,7 @@
 
         <nav class="ob-nav">
           ${NAV_ITEMS.map((item) => `
-            <button type="button" class="${state.nav === item ? "is-active" : ""}" data-nav="${escapeHtml(item)}" aria-label="${escapeHtml(item)}">
+            <button type="button" class="${navIsActive(item) ? "is-active" : ""}" data-nav="${escapeHtml(item)}" aria-label="${escapeHtml(item)}">
               <span class="ob-nav-icon" aria-hidden="true"></span>
               <span>${escapeHtml(item)}</span>
             </button>
@@ -720,6 +745,7 @@
 
           <div class="ob-filter-right">
             <button class="ob-icon-button" type="button" data-action="columnConfig" aria-label="Column settings">Cols</button>
+            <button class="ob-icon-button ob-rail-toggle" type="button" data-action="toggleRail" aria-label="Open matchup info">i</button>
             <button class="ob-toggle ${state.showAlt ? "is-on" : ""}" type="button" data-action="toggleAlt" aria-pressed="${state.showAlt}">
               <span>Show all lines</span>
               <span class="ob-toggle-dot" aria-hidden="true"></span>
@@ -1225,6 +1251,7 @@
 
   function openPropDetail(row) {
     state.selected = row;
+    state.railOpen = false;
     state.nav = "PropDetail";
     state.detailStatTab = statTabIndexForMarket(row.market);
     state.detailPeriod = "L10";
@@ -2196,58 +2223,113 @@
 
   function renderRightRail(rows) {
     const selected = state.selected || rows[0] || FALLBACK_ROWS[0];
-    const signals = rowSignals(selected);
     const top = rows.slice(0, 6);
+    const tabs = ["Matchup", "Injuries", "Insights"];
 
     return `
       <aside class="ob-right-rail" aria-label="Prop context">
-        <div class="ob-rail-tabs">
-          <button class="is-active" type="button">Matchup</button>
-          <button type="button">Injuries</button>
-          <button type="button">Insights</button>
+        <div class="ob-rail-tabs" role="tablist" aria-label="Right rail sections">
+          ${tabs.map((tab) => `<button class="${state.railTab === tab ? "is-active" : ""}" type="button" data-rail-tab="${escapeHtml(tab)}">${escapeHtml(tab)}</button>`).join("")}
         </div>
-
-        <section class="ob-rail-card">
-          <div class="ob-rail-card-header">
-            <h3>${escapeHtml(clean(selected.player) || "Selected prop")}</h3>
-            <span>${escapeHtml(gameLabel(selected) || "MLB")}</span>
-          </div>
-          <div class="ob-rail-body">
-            <p class="ob-pick-title">${escapeHtml(proposition(selected))}</p>
-            <p class="ob-pick-copy">${escapeHtml(selectedInsight(selected))}</p>
-            <div class="ob-rail-metrics">
-              <div class="ob-rail-metric"><span>IP</span><strong>${escapeHtml(percent(signals.ip))}</strong></div>
-              <div class="ob-rail-metric"><span>L10</span><strong>${escapeHtml(hitWindow(selected, "L10") ? percent(hitWindow(selected, "L10").pct) : "--")}</strong></div>
-              <div class="ob-rail-metric"><span>Odds</span><strong>${escapeHtml(formatOdds(selected.americanOdds))}</strong></div>
-            </div>
-          </div>
-        </section>
-
-        <section class="ob-rail-card">
-          <div class="ob-rail-card-header">
-            <h3>Hit-Rate Profile</h3>
-            <span>${escapeHtml(state.date)}</span>
-          </div>
-          <div class="ob-rail-body ob-bar-list">
-            ${HIT_COLUMNS.map(([key, label]) => signalBar(label, hitPct(selected, key))).join("")}
-          </div>
-        </section>
-
-        <section class="ob-rail-card">
-          <div class="ob-rail-card-header">
-            <h3>Best On Board</h3>
-            <span>${escapeHtml(String(top.length))} props</span>
-          </div>
-          <div class="ob-rail-body ob-insight-list">
-            ${top.map((row) => `
-              <div class="ob-insight-item">
-                <strong>${escapeHtml(clean(row.player) || clean(row.team))} ${escapeHtml(proposition(row))}</strong>
-                <span>${escapeHtml(gameLabel(row) || "MLB")} - ${escapeHtml(hitWindow(row, "L10") ? percent(hitWindow(row, "L10").pct) : "hit rate pending")}</span>
-              </div>
-            `).join("")}
-          </div>
-        </section>
+        ${state.loading ? renderRailSkeleton() : renderRailContent(state.railTab, selected, top)}
       </aside>
+    `;
+  }
+
+  function renderRailSkeleton() {
+    return `
+      <section class="ob-rail-card"><div class="ob-rail-body"><span class="ob-skeleton ob-skel-text wide"></span><span class="ob-skeleton ob-skel-text mid"></span><span class="ob-skeleton ob-skel-block"></span></div></section>
+      <section class="ob-rail-card"><div class="ob-rail-body"><span class="ob-skeleton ob-skel-text wide"></span><span class="ob-skeleton ob-skel-block"></span></div></section>
+      <section class="ob-rail-card"><div class="ob-rail-body"><span class="ob-skeleton ob-skel-text mid"></span><span class="ob-skeleton ob-skel-block"></span></div></section>
+    `;
+  }
+
+  function renderRailContent(tab, selected, top) {
+    if (tab === "Injuries") return renderRailInjuries(selected, top);
+    if (tab === "Insights") return renderRailInsights(selected, top);
+    return renderRailMatchup(selected, top);
+  }
+
+  function renderRailMatchup(selected, top) {
+    const signals = rowSignals(selected);
+    return `
+      <section class="ob-rail-card">
+        <div class="ob-rail-card-header">
+          <h3>${escapeHtml(clean(selected.player) || "Selected prop")}</h3>
+          <span>${escapeHtml(gameLabel(selected) || "MLB")}</span>
+        </div>
+        <div class="ob-rail-body">
+          <p class="ob-pick-title">${escapeHtml(proposition(selected))}</p>
+          <p class="ob-pick-copy">${escapeHtml(selectedInsight(selected))}</p>
+          <div class="ob-rail-metrics">
+            <div class="ob-rail-metric"><span>IP</span><strong>${escapeHtml(percent(signals.ip))}</strong></div>
+            <div class="ob-rail-metric"><span>L10</span><strong>${escapeHtml(hitWindow(selected, "L10") ? percent(hitWindow(selected, "L10").pct) : "--")}</strong></div>
+            <div class="ob-rail-metric"><span>Odds</span><strong>${escapeHtml(formatOdds(selected.americanOdds))}</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ob-rail-card">
+        <div class="ob-rail-card-header">
+          <h3>Hit-Rate Profile</h3>
+          <span>${escapeHtml(state.date)}</span>
+        </div>
+        <div class="ob-rail-body ob-bar-list">
+          ${HIT_COLUMNS.map(([key, label]) => signalBar(label, hitPct(selected, key))).join("")}
+        </div>
+      </section>
+
+      <section class="ob-rail-card">
+        <div class="ob-rail-card-header">
+          <h3>Best On Board</h3>
+          <span>${escapeHtml(String(top.length))} props</span>
+        </div>
+        <div class="ob-rail-body ob-insight-list">
+          ${top.map((row) => `
+            <div class="ob-insight-item">
+              <strong>${escapeHtml(clean(row.player) || clean(row.team))} ${escapeHtml(proposition(row))}</strong>
+              <span>${escapeHtml(gameLabel(row) || "MLB")} - ${escapeHtml(hitWindow(row, "L10") ? percent(hitWindow(row, "L10").pct) : "hit rate pending")}</span>
+            </div>
+          `).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderRailInjuries(selected, top) {
+    const flagged = [selected, ...top].filter(Boolean).filter((row, index, all) => shouldWarn(row) && all.findIndex((item) => selectedKey(item) === selectedKey(row)) === index);
+    return `
+      <section class="ob-rail-card">
+        <div class="ob-rail-card-header"><h3>Injury & Confidence Watch</h3><span>${escapeHtml(String(flagged.length))} flags</span></div>
+        <div class="ob-rail-body ob-insight-list">
+          ${flagged.length ? flagged.map((row) => `
+            <div class="ob-insight-item">
+              <strong>${escapeHtml(clean(row.player) || clean(row.team))}</strong>
+              <span>${escapeHtml(warningText(row))} ${escapeHtml(missingText(row) || clean(row.confidence) || "Review closer to first pitch.")}</span>
+            </div>
+          `).join("") : `<p class="ob-muted-line">No injury or low-confidence flags are currently attached to the selected board rows.</p>`}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderRailInsights(selected, top) {
+    return `
+      <section class="ob-rail-card">
+        <div class="ob-rail-card-header"><h3>Selected Prop Insight</h3><span>${escapeHtml(clean(selected.team) || "MLB")}</span></div>
+        <div class="ob-rail-body"><p class="ob-pick-copy">${escapeHtml(selectedInsight(selected))}</p></div>
+      </section>
+      <section class="ob-rail-card">
+        <div class="ob-rail-card-header"><h3>Top Hit-Rate Signals</h3><span>L10 sorted</span></div>
+        <div class="ob-rail-body ob-insight-list">
+          ${top.map((row) => `
+            <div class="ob-insight-item">
+              <strong>${escapeHtml(clean(row.player) || clean(row.team))} ${escapeHtml(marketLabel(row.market))}</strong>
+              <span>${escapeHtml(selectedInsight(row))}</span>
+            </div>
+          `).join("")}
+        </div>
+      </section>
     `;
   }
 
@@ -2321,6 +2403,13 @@
         return;
       }
       state.sport = sport;
+      render();
+      return;
+    }
+
+    const railTabButton = event.target.closest("[data-rail-tab]");
+    if (railTabButton) {
+      state.railTab = railTabButton.dataset.railTab || "Matchup";
       render();
       return;
     }
@@ -2440,6 +2529,16 @@
 
     const action = event.target.closest("[data-action]");
     if (!action) return;
+    if (action.dataset.action === "toggleRail") {
+      state.railOpen = !state.railOpen;
+      render();
+      return;
+    }
+    if (action.dataset.action === "closeRail") {
+      state.railOpen = false;
+      render();
+      return;
+    }
     if (action.dataset.action === "reload") loadBoard();
     if (action.dataset.action === "retryGames") loadGames();
     if (action.dataset.action === "retryInsights") loadInsights();
@@ -2520,6 +2619,7 @@
 
   function applyNav(item) {
     state.nav = item;
+    state.railOpen = false;
     if (state.insightsTimer && item !== "Insights") {
       window.clearInterval(state.insightsTimer);
       state.insightsTimer = null;

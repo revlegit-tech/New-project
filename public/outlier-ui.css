@@ -2702,3 +2702,232 @@ body.outlier-mode {
     justify-content: start;
   }
 }
+
+/* Stage 11: final navigation, responsive drawer, and polish pass */
+.outlier-mode .ob-nav button {
+  position: relative;
+  border-left: 3px solid transparent;
+  border-radius: 9px;
+}
+
+.outlier-mode .ob-nav button:hover,
+.outlier-mode .ob-nav button.is-active {
+  color: var(--ob-green);
+  border-left-color: var(--ob-green);
+  background: var(--ob-green-soft);
+}
+
+.outlier-mode .ob-nav button.is-active .ob-nav-icon {
+  color: var(--ob-green);
+  opacity: 1;
+}
+
+.outlier-mode .ob-sport-row .ob-tab {
+  position: relative;
+}
+
+.outlier-mode .ob-sport-row .ob-tab::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -8px;
+  height: 2px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.outlier-mode .ob-sport-row .ob-tab.is-active::after {
+  background: var(--ob-green);
+}
+
+.outlier-mode .ob-rail-toggle {
+  display: none;
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-radius: 999px;
+  font-weight: 1000;
+  text-transform: lowercase;
+}
+
+.outlier-mode .ob-rail-overlay {
+  display: none;
+}
+
+.outlier-mode .ob-right-rail {
+  border-left: 1px solid #101312;
+}
+
+.outlier-mode .ob-rail-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--ob-rail);
+}
+
+@media (max-width: 1440px) {
+  :root {
+    --ob-right-rail: 280px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .outlier-mode .outlier-app {
+    grid-template-columns: var(--ob-sidebar) minmax(0, 1fr);
+  }
+
+  .outlier-mode .ob-rail-toggle {
+    display: inline-flex;
+  }
+
+  .outlier-mode .ob-right-rail {
+    display: block;
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: 100;
+    width: min(360px, calc(100vw - 72px));
+    max-width: 100vw;
+    height: 100vh;
+    box-shadow: -18px 0 50px rgba(0, 0, 0, 0.5);
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+  }
+
+  .outlier-mode .outlier-app.is-rail-open .ob-right-rail {
+    transform: translateX(0);
+  }
+
+  .outlier-mode .outlier-app.is-rail-open .ob-rail-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    border: 0;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+  }
+}
+
+@media (max-width: 1024px) {
+  .outlier-mode .outlier-app {
+    grid-template-columns: 1fr;
+    padding-bottom: 74px;
+  }
+
+  .outlier-mode .ob-main {
+    border-right: 0;
+  }
+
+  .outlier-mode .ob-sidebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    z-index: 120;
+    height: 66px;
+    display: block;
+    border-top: 1px solid var(--ob-line);
+    border-right: 0;
+    border-bottom: 0;
+    padding: 7px 10px calc(7px + env(safe-area-inset-bottom));
+    background: rgba(10, 11, 11, 0.96);
+    backdrop-filter: blur(18px);
+  }
+
+  .outlier-mode .ob-brand,
+  .outlier-mode .ob-sidebar-footer {
+    display: none;
+  }
+
+  .outlier-mode .ob-nav {
+    display: flex;
+    height: 100%;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .outlier-mode .ob-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .outlier-mode .ob-nav button {
+    flex: 0 0 92px;
+    min-height: 50px;
+    justify-content: center;
+    gap: 5px;
+    border-left: 0;
+    border-top: 3px solid transparent;
+    border-radius: 10px;
+    padding: 5px 6px;
+    font-size: 0.68rem;
+    text-align: center;
+  }
+
+  .outlier-mode .ob-nav button.is-active {
+    border-top-color: var(--ob-green);
+  }
+
+  .outlier-mode .ob-nav-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .outlier-mode .ob-hero {
+    position: relative;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 860px) {
+  .outlier-mode .ob-table-scroll {
+    display: block;
+  }
+
+  .outlier-mode .ob-mobile-cards {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .outlier-mode .ob-table-scroll {
+    display: none;
+  }
+
+  .outlier-mode .ob-mobile-cards {
+    display: grid;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .outlier-mode .ob-nav button {
+    flex-basis: 76px;
+  }
+
+  .outlier-mode .ob-nav span:last-child {
+    display: block;
+    max-width: 70px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .outlier-mode .ob-filter-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .outlier-mode .ob-toast-stack {
+    right: 12px;
+    bottom: 84px;
+    width: min(320px, calc(100vw - 24px));
+  }
+}
+
+@media (max-width: 1024px) {
+  .outlier-mode .ob-nav span:last-child {
+    display: block;
+  }
+}
