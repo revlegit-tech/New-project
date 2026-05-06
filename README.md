@@ -10,7 +10,7 @@ python app.py
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
-The app automatically loads `C:\Users\RevLe\Downloads\batting.csv` if it exists. You can also upload more CSVs from the browser.
+The app automatically loads ` if it exists. You can also upload more CSVs from the browser.
 
 ## Batch MLB Prop Analyzer
 
