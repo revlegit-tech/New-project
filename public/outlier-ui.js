@@ -13,6 +13,7 @@
 
   const SPORT_TABS = ["NBA", "MLB", "Soccer", "NHL", "WNBA", "NCAAFB"];
   const NAV_ITEMS = ["Insights", "Popular", "Games", "Props", "EV+", "Boosts", "Arbitrage", "Middle Bets"];
+  const CATEGORY_TABS = ["Today", "Tomorrow", "Batter Props", "Pitcher Props", "Team Props", "Saved"];
   const HIT_COLUMNS = [
     ["L5", "L5"],
     ["L10", "L10"],
@@ -114,6 +115,7 @@
     query: "",
     showAlt: false,
     savedOnly: false,
+    categoryTab: "Today",
     saved: new Set(loadSavedKeys()),
     loading: false,
     source: "loading",
@@ -128,6 +130,14 @@
     const date = new Date();
     const offset = date.getTimezoneOffset();
     const local = new Date(date.getTime() - offset * 60000);
+    return local.toISOString().slice(0, 10);
+  }
+
+  function addDays(dateLabel, days) {
+    const base = dateLabel ? new Date(`${dateLabel}T12:00:00`) : new Date();
+    base.setDate(base.getDate() + days);
+    const offset = base.getTimezoneOffset();
+    const local = new Date(base.getTime() - offset * 60000);
     return local.toISOString().slice(0, 10);
   }
 
@@ -330,6 +340,7 @@
       state.query,
       state.showAlt ? "all-lines" : "",
       state.savedOnly ? "saved" : "",
+      state.categoryTab && !["Today", "Tomorrow"].includes(state.categoryTab) ? state.categoryTab : "",
       state.minEdge > 0 ? "edge" : "",
     ].filter(Boolean).length;
   }
@@ -338,11 +349,21 @@
     return [...new Set(state.rows.map(gameLabel).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }
 
+  function categoryMatches(row) {
+    const market = normalizeMarket(row.market);
+    if (state.categoryTab === "Batter Props") return market.startsWith("batter_");
+    if (state.categoryTab === "Pitcher Props") return market.startsWith("pitcher_");
+    if (state.categoryTab === "Team Props") return market.startsWith("team_") || ["moneyline", "run_line", "game_total_runs", "team_first_to_score"].includes(market);
+    if (state.categoryTab === "Saved") return state.saved.has(selectedKey(row));
+    return true;
+  }
+
   function filteredRows() {
     const query = state.query.toLowerCase();
     const targetMarket = state.market;
     let rows = state.rows.filter((row) => {
       if (state.savedOnly && !state.saved.has(selectedKey(row))) return false;
+      if (!categoryMatches(row)) return false;
       if (!state.showAlt && isAltMarket(row)) return false;
       if (targetMarket && baseMarket(row.market) !== targetMarket) return false;
       if (state.side && sideLabel(row).toLowerCase() !== state.side) return false;
@@ -594,7 +615,19 @@
             <span class="ob-rail-note" id="obPropCount">${escapeHtml(String(visible))}/${escapeHtml(String(total))} Props</span>
           </div>
         </div>
+
+        ${renderCategoryTabs()}
       </header>
+    `;
+  }
+
+  function renderCategoryTabs() {
+    return `
+      <div class="ob-category-tabs" role="tablist" aria-label="Prop categories">
+        ${CATEGORY_TABS.map((tab) => `
+          <button type="button" class="${state.categoryTab === tab ? "is-active" : ""}" data-category-tab="${escapeHtml(tab)}">${escapeHtml(tab)}</button>
+        `).join("")}
+      </div>
     `;
   }
 
@@ -609,10 +642,45 @@
   }
 
   function renderLoading() {
+    const rows = Array.from({ length: 8 }, (_, index) => `
+      <tr class="ob-skeleton-row" aria-hidden="true">
+        <td><span class="ob-skeleton ob-skel-dot"></span></td>
+        <td><span class="ob-skeleton ob-skel-avatar"></span><span class="ob-skeleton ob-skel-text wide"></span><span class="ob-skeleton ob-skel-text small"></span></td>
+        <td><span class="ob-skeleton ob-skel-text wide"></span><span class="ob-skeleton ob-skel-text mid"></span></td>
+        <td><span class="ob-skeleton ob-skel-pill"></span></td>
+        <td><span class="ob-skeleton ob-skel-pill"></span></td>
+        <td><span class="ob-skeleton ob-skel-pill"></span></td>
+        ${HIT_COLUMNS.map(() => `<td><span class="ob-skeleton ob-skel-pill"></span></td>`).join("")}
+      </tr>
+    `).join("");
     return `
-      <div class="ob-empty">
-        <strong>Loading board</strong>
-        <span>Pulling props, model odds, and historical hit-rate windows.</span>
+      <div class="ob-table-scroll">
+        <table class="ob-table ob-loading-table">
+          <colgroup>
+            <col class="ob-col-action" />
+            <col class="ob-col-player" />
+            <col class="ob-col-prop" />
+            <col class="ob-col-line" />
+            <col class="ob-col-odds" />
+            <col class="ob-col-ip" />
+            <col class="ob-col-hit" />
+            <col class="ob-col-hit" />
+            <col class="ob-col-hit" />
+            <col class="ob-col-hit" />
+            <col class="ob-col-hit" />
+            <col class="ob-col-hit" />
+          </colgroup>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="ob-mobile-cards ob-mobile-skeletons">
+        ${Array.from({ length: 5 }, () => `
+          <article class="ob-mobile-card">
+            <span class="ob-skeleton ob-skel-text wide"></span>
+            <span class="ob-skeleton ob-skel-text mid"></span>
+            <span class="ob-skeleton ob-skel-block"></span>
+          </article>
+        `).join("")}
       </div>
     `;
   }
@@ -747,7 +815,7 @@
       return `<td class="ob-hit-cell is-empty"><span>--</span></td>`;
     }
     const pct = number(value.pct, 0);
-    const tone = pct >= 80 ? "is-hot" : pct >= 60 ? "is-mid" : "is-cold";
+    const tone = pct >= 80 ? "ob-pct--high" : pct >= 60 ? "ob-pct--mid" : "ob-pct--low";
     const title = `${value.hits} of ${value.total}`;
     return `<td class="ob-hit-cell ${tone}"><span title="${escapeHtml(title)}">${escapeHtml(percent(pct))}</span></td>`;
   }
@@ -899,10 +967,34 @@
     if (sportButton) {
       const sport = sportButton.dataset.sport;
       if (sport !== "MLB") {
-        showToast(`${sport} is parked for the MLB build.`);
+        showToast(`This build is MLB-only. ${sport} coming soon.`, "info");
         return;
       }
       state.sport = sport;
+      render();
+      return;
+    }
+
+    const categoryButton = event.target.closest("[data-category-tab]");
+    if (categoryButton) {
+      const tab = categoryButton.dataset.categoryTab;
+      state.categoryTab = tab;
+      state.savedOnly = tab === "Saved";
+      if (tab === "Tomorrow") {
+        const nextDate = addDays(today(), 1);
+        if (state.date !== nextDate) {
+          state.date = nextDate;
+          loadBoard();
+          return;
+        }
+      } else if (tab === "Today") {
+        const current = today();
+        if (state.date !== current) {
+          state.date = current;
+          loadBoard();
+          return;
+        }
+      }
       render();
       return;
     }
@@ -937,12 +1029,13 @@
       state.query = "";
       state.showAlt = false;
       state.savedOnly = false;
+      state.categoryTab = "Today";
       state.minEdge = 0;
       state.nav = "Props";
       render();
     }
     if (action.dataset.action === "columnConfig") {
-      showToast("Column controls are queued for the next table pass.");
+      showToast("Column controls are queued for the next table pass.", "info");
     }
   }
 
@@ -958,14 +1051,14 @@
       state.sortDir = "desc";
     } else if (item === "Popular") {
       state.savedOnly = false;
-      state.sortKey = "ip";
+      state.sortKey = "L10";
       state.sortDir = "desc";
     } else if (item === "Saved") {
       state.savedOnly = true;
     } else if (item === "Games") {
-      showToast("Games view begins in Stage 8.");
+      showToast("Games view begins in Stage 8.", "info");
     } else if (item === "Insights") {
-      showToast("Insights feed begins in Stage 9.");
+      showToast("Insights feed begins in Stage 9.", "info");
     }
     render();
   }
@@ -1027,20 +1120,27 @@
     render();
   }
 
-  function showToast(message) {
-    let toast = $("#obToast", document.body);
-    if (!toast) {
-      toast = document.createElement("div");
-      toast.id = "obToast";
-      toast.className = "ob-toast";
-      document.body.appendChild(toast);
+  function showToast(message, type = "info") {
+    let stack = $("#obToastStack", document.body);
+    if (!stack) {
+      stack = document.createElement("div");
+      stack.id = "obToastStack";
+      stack.className = "ob-toast-stack";
+      document.body.appendChild(stack);
     }
+
+    const toast = document.createElement("div");
+    const safeType = ["success", "error", "info"].includes(type) ? type : "info";
+    toast.className = `ob-toast ob-toast--${safeType}`;
+    toast.setAttribute("role", safeType === "error" ? "alert" : "status");
     toast.textContent = message;
-    toast.classList.add("is-visible");
-    window.clearTimeout(showToast.timer);
-    showToast.timer = window.setTimeout(() => {
+    stack.appendChild(toast);
+
+    window.requestAnimationFrame(() => toast.classList.add("is-visible"));
+    window.setTimeout(() => {
       toast.classList.remove("is-visible");
-    }, 2400);
+      window.setTimeout(() => toast.remove(), 220);
+    }, 3000);
   }
 
   if (document.readyState === "loading") {

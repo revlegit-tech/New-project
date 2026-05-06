@@ -6594,6 +6594,11 @@ def game_context_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     return payload(query)
 
 
+def game_lineup_payload(query: dict[str, list[str]]) -> dict[str, Any]:
+    from baseball_ui_tools import lineup_payload as payload
+    return payload(query)
+
+
 def odds_market_signals_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     from baseball_ui_tools import odds_market_signals_payload as payload
     return payload(query)
@@ -7107,6 +7112,14 @@ class AppHandler(BaseHTTPRequestHandler):
             try:
                 query = parse_qs(parsed.query)
                 json_response(self, game_context_payload(query))
+            except Exception as error:
+                json_response(self, {"error": str(error)}, 500)
+            return
+
+        if parsed.path == "/api/game/lineup":
+            try:
+                query = parse_qs(parsed.query)
+                json_response(self, game_lineup_payload(query))
             except Exception as error:
                 json_response(self, {"error": str(error)}, 500)
             return

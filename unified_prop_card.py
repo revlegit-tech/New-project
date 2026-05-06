@@ -417,22 +417,163 @@ def find_odds_movement_context(
         return {}
 
 
+def player_id_from_index(player: str, season: int) -> str:
+    if not clean(player):
+        return ""
+    try:
+        from savant_features import load_player_index
+        index = load_player_index(season)
+    except Exception:
+        return ""
+    target = norm(player)
+    for player_id, item in index.items():
+        name = norm(item.get("player"))
+        if name == target or (target and target in name) or (name and name in target):
+            return clean(player_id)
+    return ""
+
+
+def raw_statcast_rows(season: int) -> list[dict[str, str]]:
+    try:
+        from savant_features import latest_raw_file, read_csv_rows
+        path = latest_raw_file(season)
+        return read_csv_rows(path) if path else []
+    except Exception:
+        return []
+
+
+def pitch_type_label(code: str) -> str:
+    labels = {
+        "FF": "Fastball", "FA": "Fastball", "SI": "Sinker", "FT": "Two-Seam",
+        "FC": "Cutter", "SL": "Slider", "ST": "Sweeper", "CU": "Curveball",
+        "KC": "Knuckle Curve", "CH": "Changeup", "FS": "Splitter", "FO": "Forkball",
+        "KN": "Knuckleball", "EP": "Eephus", "SC": "Screwball",
+    }
+    return labels.get(clean(code).upper(), clean(code).upper() or "Unknown")
+
+
+def zone_index(row: dict[str, Any]) -> int | None:
+    x = to_float(row.get("plate_x"), None)
+    z = to_float(row.get("plate_z"), None)
+    if x is None or z is None:
+        return None
+    # Fixed 4x4 strike-zone-ish grid, clamped so edge pitches still render.
+    col = int(max(0, min(3, ((x + 1.0) / 2.0) * 4)))
+    band = int(max(0, min(3, ((z - 1.5) / 2.0) * 4)))
+    row_idx = 3 - band
+    return row_idx * 4 + col
+
+
+def zone_frequency(rows: list[dict[str, str]]) -> list[float]:
+    counts = [0] * 16
+    for row in rows:
+        idx = zone_index(row)
+        if idx is not None:
+            counts[idx] += 1
+    total = sum(counts)
+    return [round((count / total) * 100, 1) if total else 0 for count in counts]
+
+
+def zone_performance(rows: list[dict[str, str]]) -> list[float]:
+    values: list[list[float]] = [[] for _ in range(16)]
+    hit_events = {"single", "double", "triple", "home_run"}
+    for row in rows:
+        idx = zone_index(row)
+        if idx is None:
+            continue
+        xwoba = to_float(row.get("estimated_woba_using_speedangle"), None)
+        if xwoba is not None and xwoba > 0:
+            values[idx].append(xwoba)
+            continue
+        event = clean(row.get("events"))
+        if event:
+            values[idx].append(1.0 if event in hit_events else 0.0)
+    return [round(sum(items) / len(items), 3) if items else 0 for items in values]
+
+
+def savant_matchup_detail(season: int, batter: str, pitcher: str) -> dict[str, Any]:
+    rows = raw_statcast_rows(season)
+    if not rows:
+        return {
+            "pitcher": {"pitchMix": [], "zoneFrequency": {}},
+            "batter": {"zonePerformance": {}},
+            "available": False,
+            "note": "No cached raw Statcast rows available; run savant sync/build to populate pitch mix and zone fields.",
+        }
+
+    pitcher_id = player_id_from_index(pitcher, season)
+    batter_id = player_id_from_index(batter, season)
+    pitcher_rows = [row for row in rows if pitcher_id and clean(row.get("pitcher")) == pitcher_id]
+    batter_rows = [row for row in rows if batter_id and clean(row.get("batter")) == batter_id]
+
+    pitch_counts: dict[str, int] = {}
+    for row in pitcher_rows:
+        code = clean(row.get("pitch_type")).upper()
+        if code:
+            pitch_counts[code] = pitch_counts.get(code, 0) + 1
+    total_pitches = sum(pitch_counts.values())
+    pitch_mix = [
+        {
+            "pitchType": code,
+            "pitchName": pitch_type_label(code),
+            "percentage": round((count / total_pitches) * 100, 1) if total_pitches else 0,
+            "count": count,
+        }
+        for code, count in sorted(pitch_counts.items(), key=lambda item: item[1], reverse=True)
+    ]
+
+    pitcher_zone = {
+        "ALL": zone_frequency(pitcher_rows),
+        "LHB": zone_frequency([row for row in pitcher_rows if clean(row.get("stand")).upper() == "L"]),
+        "RHB": zone_frequency([row for row in pitcher_rows if clean(row.get("stand")).upper() == "R"]),
+    }
+    batter_zone = {
+        "ALL": zone_performance(batter_rows),
+        "LHP": zone_performance([row for row in batter_rows if clean(row.get("p_throws")).upper() == "L"]),
+        "RHP": zone_performance([row for row in batter_rows if clean(row.get("p_throws")).upper() == "R"]),
+    }
+
+    return {
+        "pitcher": {
+            "pitchMix": pitch_mix,
+            "zoneFrequency": pitcher_zone,
+        },
+        "batter": {
+            "zonePerformance": batter_zone,
+        },
+        "available": bool(pitch_mix or any(any(v for v in grid) for grid in pitcher_zone.values()) or any(any(v for v in grid) for grid in batter_zone.values())),
+        "rawRowsUsed": {"pitcher": len(pitcher_rows), "batter": len(batter_rows)},
+    }
+
+
 def find_savant_context(season: int, player: str, pitcher: str, market: str) -> dict[str, Any]:
     if clean(market) in TEAM_GAME_MARKETS:
-        return {"available": False, "batter": {}, "pitcher": {}}
+        return {"available": False, "batter": {}, "pitcher": {}, "fieldAudit": {}}
     try:
         from savant_features import lookup_batter, lookup_pitcher
 
         batter = lookup_batter(player, season) if player else {}
         pitcher_quality = lookup_pitcher(pitcher, season) if pitcher else {}
+        detail = savant_matchup_detail(season, player, pitcher)
+
+        batter = {**batter, **(detail.get("batter") or {})}
+        pitcher_quality = {**pitcher_quality, **(detail.get("pitcher") or {})}
 
         return {
             "batter": batter,
             "pitcher": pitcher_quality,
-            "available": bool(batter or pitcher_quality),
+            "available": bool(batter or pitcher_quality or detail.get("available")),
+            "rawRowsUsed": detail.get("rawRowsUsed", {}),
+            "note": detail.get("note", ""),
+            "fieldAudit": {
+                "pitchMix": "savant.pitcher.pitchMix",
+                "zoneFrequency": "savant.pitcher.zoneFrequency",
+                "zonePerformance": "savant.batter.zonePerformance",
+                "gridShape": "flat 16-cell array, row-major 4x4 strike-zone grid",
+            },
         }
-    except Exception:
-        return {"available": False, "batter": {}, "pitcher": {}}
+    except Exception as error:
+        return {"available": False, "batter": {}, "pitcher": {}, "fieldAudit": {}, "error": str(error)}
 
 
 def savant_adjustment_for_market(market: str, savant: dict[str, Any]) -> tuple[float, list[dict[str, Any]]]:
@@ -515,6 +656,35 @@ def savant_adjustment_for_market(market: str, savant: dict[str, Any]) -> tuple[f
     # Keep Savant conservative.
     adjustment = clamp(adjustment, -0.025, 0.025)
     return adjustment, reasons
+
+def build_insights(
+    player: str,
+    market: str,
+    line: float,
+    recommendation: str,
+    cache_adjustments: list[dict[str, Any]],
+    savant_adjustments: list[dict[str, Any]],
+    weather_context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for adjustment in (cache_adjustments or [])[:3]:
+        reason = clean(adjustment.get("reason"))
+        if reason:
+            items.append({"type": "analysis", "text": reason, "source": "cached_stats"})
+    for adjustment in (savant_adjustments or [])[:3]:
+        reason = clean(adjustment.get("reason"))
+        if reason:
+            items.append({"type": "analysis", "text": reason, "source": "savant"})
+    if weather_context:
+        venue = clean(weather_context.get("venue"))
+        wind = clean(weather_context.get("wind_mph") or weather_context.get("windMph"))
+        if venue or wind:
+            items.append({"type": "insight", "text": f"Weather context is available for {venue or 'this game'}{f' with wind {wind} mph' if wind else ''}.", "source": "weather"})
+    if not items:
+        label = market.replace("_", " ")
+        items.append({"type": "insight", "text": f"{player or 'This player'} is priced at {label} line {line}; recommendation is {recommendation.lower()}.", "source": "model"})
+    return items[:5]
+
 
 def unified_prop_card(row: dict[str, Any]) -> dict[str, Any]:
     season = int(clean(row.get("season")) or clean(row.get("date"))[:4] or 2026)
@@ -707,7 +877,9 @@ def unified_prop_card(row: dict[str, Any]) -> dict[str, Any]:
             "opponent": opponent_context,
         },
         "weatherContext": weather_context,
+        "savant": savant_context,
         "cachedAdjustments": cache_adjustments,
+        "insights": build_insights(player, model_market, line, recommendation, cache_adjustments, savant_adjustments, weather_context),
     }
 
 
