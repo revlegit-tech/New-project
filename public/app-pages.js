@@ -53,7 +53,7 @@
       shell.appendChild(page);
     });
 
-    main.insertBefore(nav, main.firstChild);
+    main.prepend(nav);
     nav.insertAdjacentElement("afterend", shell);
     byId("workflowJumpNav")?.remove();
     document.body.classList.add("app-pages-enabled");
@@ -128,7 +128,7 @@
       </ol>
     `;
 
-    target.insertBefore(card, target.firstChild);
+    target.prepend(card);
   }
 
   function movePanels() {

@@ -981,6 +981,12 @@ def playerboard_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     return build_playerboard(season=season, date_label=date_label, market=market, limit=limit, save=save)
 
 
+def player_hit_rates_payload(query: dict[str, list[str]]) -> dict[str, Any]:
+    from player_hit_rates import player_hit_rates_payload as build_payload
+
+    return build_payload(query)
+
+
 def player_profile_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     from player_profile import get_profile
 
@@ -7157,6 +7163,14 @@ class AppHandler(BaseHTTPRequestHandler):
             try:
                 query = parse_qs(parsed.query)
                 json_response(self, playerboard_payload(query))
+            except Exception as error:
+                json_response(self, {"error": str(error)}, 500)
+            return
+
+        if parsed.path == "/api/player/hit-rates":
+            try:
+                query = parse_qs(parsed.query)
+                json_response(self, player_hit_rates_payload(query))
             except Exception as error:
                 json_response(self, {"error": str(error)}, 500)
             return

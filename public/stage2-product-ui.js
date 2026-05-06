@@ -136,7 +136,11 @@
       </div>
     `;
 
-    body.insertBefore(card, output || body.firstChild);
+    if (output && output.parentNode === body) {
+      body.insertBefore(card, output);
+    } else {
+      body.prepend(card);
+    }
     card.addEventListener("click", (event) => {
       const proxy = event.target.closest("[data-stage2-click]");
       if (!proxy) return;
