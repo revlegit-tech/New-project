@@ -1,16 +1,16 @@
 {
   "season": 2026,
-  "updatedAt": "2026-05-06T01:18:15.375514+00:00",
-  "rows": 2077,
+  "updatedAt": "2026-05-06T05:55:10.199916+00:00",
+  "rows": 2232,
   "graded": 1395,
-  "ungraded": 682,
+  "ungraded": 837,
   "wins": 363,
   "losses": 1032,
   "pushes": 0,
   "profitUnits": -589.5493,
   "winRate": 26.02,
   "roiPercent": -42.26,
-  "warningRows": 85,
+  "warningRows": 92,
   "auditCsv": "/home/runner/work/New-project/New-project/data/audit/model_audit_2026.csv",
   "auditJson": "/home/runner/work/New-project/New-project/data/audit/model_audit_2026.json",
   "topWarnings": [
@@ -669,7 +669,7 @@
     {
       "bucket": "source",
       "name": "playerboard_backtest",
-      "rows": 2077,
+      "rows": 2232,
       "graded": 1395,
       "wins": 363,
       "losses": 1032,
@@ -681,7 +681,7 @@
     {
       "bucket": "market",
       "name": "team_total_runs",
-      "rows": 143,
+      "rows": 286,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -693,7 +693,7 @@
     {
       "bucket": "market",
       "name": "team_first_to_score",
-      "rows": 12,
+      "rows": 24,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -813,7 +813,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "70%+",
-      "rows": 65,
+      "rows": 112,
       "graded": 16,
       "wins": 8,
       "losses": 8,
@@ -825,7 +825,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "45-50%",
-      "rows": 380,
+      "rows": 384,
       "graded": 226,
       "wins": 90,
       "losses": 136,
@@ -837,7 +837,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "60-65%",
-      "rows": 158,
+      "rows": 165,
       "graded": 92,
       "wins": 49,
       "losses": 43,
@@ -849,7 +849,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "65-70%",
-      "rows": 57,
+      "rows": 65,
       "graded": 36,
       "wins": 10,
       "losses": 26,
@@ -861,7 +861,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "50-55%",
-      "rows": 431,
+      "rows": 442,
       "graded": 296,
       "wins": 110,
       "losses": 186,
@@ -873,7 +873,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "55-60%",
-      "rows": 279,
+      "rows": 290,
       "graded": 177,
       "wins": 62,
       "losses": 115,
@@ -885,7 +885,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "<45%",
-      "rows": 707,
+      "rows": 774,
       "graded": 552,
       "wins": 34,
       "losses": 518,
@@ -897,7 +897,7 @@
     {
       "bucket": "edgeBucket",
       "name": "8%+",
-      "rows": 206,
+      "rows": 210,
       "graded": 135,
       "wins": 62,
       "losses": 73,
@@ -909,7 +909,7 @@
     {
       "bucket": "edgeBucket",
       "name": "6-8%",
-      "rows": 93,
+      "rows": 94,
       "graded": 53,
       "wins": 16,
       "losses": 37,
@@ -921,7 +921,7 @@
     {
       "bucket": "edgeBucket",
       "name": "4-6%",
-      "rows": 204,
+      "rows": 205,
       "graded": 138,
       "wins": 25,
       "losses": 113,
@@ -933,7 +933,7 @@
     {
       "bucket": "edgeBucket",
       "name": "2-4%",
-      "rows": 318,
+      "rows": 332,
       "graded": 255,
       "wins": 40,
       "losses": 215,
@@ -945,7 +945,7 @@
     {
       "bucket": "edgeBucket",
       "name": "0-2%",
-      "rows": 414,
+      "rows": 437,
       "graded": 216,
       "wins": 29,
       "losses": 187,
@@ -957,7 +957,7 @@
     {
       "bucket": "edgeBucket",
       "name": "<0%",
-      "rows": 842,
+      "rows": 954,
       "graded": 598,
       "wins": 191,
       "losses": 407,
@@ -970,6 +970,18 @@
       "bucket": "confidence",
       "name": "Unmodeled",
       "rows": 155,
+      "graded": 0,
+      "wins": 0,
+      "losses": 0,
+      "pushes": 0,
+      "profitUnits": 0,
+      "winRate": 0,
+      "roiPercent": 0
+    },
+    {
+      "bucket": "confidence",
+      "name": "High",
+      "rows": 6,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -993,7 +1005,7 @@
     {
       "bucket": "confidence",
       "name": "Medium",
-      "rows": 530,
+      "rows": 553,
       "graded": 421,
       "wins": 167,
       "losses": 254,
@@ -1017,7 +1029,7 @@
     {
       "bucket": "confidence",
       "name": "Low",
-      "rows": 848,
+      "rows": 974,
       "graded": 510,
       "wins": 69,
       "losses": 441,
@@ -1040,8 +1052,20 @@
     },
     {
       "bucket": "recommendation",
+      "name": "Negative edge",
+      "rows": 112,
+      "graded": 0,
+      "wins": 0,
+      "losses": 0,
+      "pushes": 0,
+      "profitUnits": 0,
+      "winRate": 0,
+      "roiPercent": 0
+    },
+    {
+      "bucket": "recommendation",
       "name": "Positive edge",
-      "rows": 424,
+      "rows": 467,
       "graded": 253,
       "wins": 101,
       "losses": 152,

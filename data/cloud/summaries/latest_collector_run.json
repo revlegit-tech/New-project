@@ -1,8 +1,8 @@
 {
-  "runId": "20260506T005524Z",
+  "runId": "20260506T052626Z",
   "date": "2026-05-06",
   "runType": "manual",
-  "startedAt": "2026-05-06T00:55:24.259901+00:00",
+  "startedAt": "2026-05-06T05:26:26.868322+00:00",
   "finishedAt": "",
   "success": false,
   "includeSavant": false,
@@ -126,7 +126,7 @@
             "homeName": "Seattle Mariners",
             "awayScore": null,
             "homeScore": null,
-            "awayProbablePitcher": "Grant Holmes",
+            "awayProbablePitcher": "Martín Pérez",
             "homeProbablePitcher": "Bryan Woo",
             "venue": "T-Mobile Park",
             "final": false
@@ -308,90 +308,108 @@
   "cloudExport": null,
   "error": "",
   "traceback": "",
-  "logPath": "/home/runner/work/New-project/New-project/data/warehouse/logs/season_collector_manual_2026-05-06_20260506T005524Z.json",
+  "logPath": "/home/runner/work/New-project/New-project/data/warehouse/logs/season_collector_manual_2026-05-06_20260506T052626Z.json",
   "weatherFeatures": {
     "collect": {
       "season": 2026,
       "phase": "regular",
-      "rowsCollected": 493,
+      "rowsCollected": 484,
       "skippedExisting": 0,
       "upsert": {
-        "inputRows": 493,
+        "inputRows": 484,
         "beforeRows": 0,
-        "afterRows": 493,
-        "netNewRows": 493
+        "afterRows": 484,
+        "netNewRows": 484
       },
       "errors": [
         {
-          "gamePk": "823893",
-          "date": "2026-03-27",
-          "venue": "loanDepot park",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "823811",
-          "date": "2026-03-28",
-          "venue": "American Family Field",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "823160",
-          "date": "2026-03-29",
+          "gamePk": "823163",
+          "date": "2026-03-26",
           "venue": "T-Mobile Park",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "825108",
+          "gamePk": "823488",
+          "date": "2026-03-28",
+          "venue": "Citizens Bank Park",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "823487",
+          "date": "2026-03-29",
+          "venue": "Citizens Bank Park",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "824539",
           "date": "2026-03-30",
+          "venue": "Great American Ball Park",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "824861",
+          "date": "2026-03-31",
+          "venue": "Oriole Park at Camden Yards",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "823158",
+          "date": "2026-03-31",
+          "venue": "T-Mobile Park",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "825106",
+          "date": "2026-04-01",
           "venue": "Chase Field",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "824940",
-          "date": "2026-04-01",
-          "venue": "Truist Park",
+          "gamePk": "822919",
+          "date": "2026-04-03",
+          "venue": "Globe Life Field",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "824621",
-          "date": "2026-04-03",
+          "gamePk": "824132",
+          "date": "2026-04-04",
+          "venue": "Kauffman Stadium",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "824054",
+          "date": "2026-04-04",
+          "venue": "Angel Stadium",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "825025",
+          "date": "2026-04-05",
+          "venue": "Sutter Health Park",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "824619",
+          "date": "2026-04-06",
           "venue": "Rate Field",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "824295",
-          "date": "2026-04-04",
-          "venue": "Comerica Park",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "822756",
-          "date": "2026-04-05",
-          "venue": "Nationals Park",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "824456",
-          "date": "2026-04-06",
-          "venue": "Progressive Field",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "823402",
+          "gamePk": "822831",
           "date": "2026-04-07",
-          "venue": "PNC Park",
+          "venue": "Rogers Centre",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "823235",
-          "date": "2026-04-07",
-          "venue": "Oracle Park",
+          "gamePk": "824374",
+          "date": "2026-04-08",
+          "venue": "Coors Field",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "823565",
+          "gamePk": "823319",
           "date": "2026-04-09",
-          "venue": "Yankee Stadium",
+          "venue": "Petco Park",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
@@ -401,21 +419,27 @@
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "823155",
+          "gamePk": "823074",
           "date": "2026-04-11",
-          "venue": "T-Mobile Park",
+          "venue": "Busch Stadium",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "823966",
+          "gamePk": "823804",
           "date": "2026-04-12",
-          "venue": "UNIQLO Field at Dodger Stadium",
+          "venue": "American Family Field",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "823562",
-          "date": "2026-04-14",
+          "gamePk": "823563",
+          "date": "2026-04-13",
           "venue": "Yankee Stadium",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "823723",
+          "date": "2026-04-14",
+          "venue": "Target Field",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
@@ -425,107 +449,137 @@
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "824614",
+          "gamePk": "824530",
           "date": "2026-04-16",
-          "venue": "Rate Field",
+          "venue": "Great American Ball Park",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "823152",
+          "gamePk": "823397",
           "date": "2026-04-17",
-          "venue": "T-Mobile Park",
+          "venue": "PNC Park",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "823474",
+          "gamePk": "823721",
           "date": "2026-04-18",
-          "venue": "Citizens Bank Park",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "825100",
-          "date": "2026-04-19",
-          "venue": "Chase Field",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "824773",
-          "date": "2026-04-21",
-          "venue": "Fenway Park",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "824774",
-          "date": "2026-04-22",
-          "venue": "Fenway Park",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "822827",
-          "date": "2026-04-24",
-          "venue": "Rogers Centre",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "825093",
-          "date": "2026-04-25",
-          "venue": "Estadio Alfredo Harp Helu",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "822911",
-          "date": "2026-04-26",
-          "venue": "Globe Life Field",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "824447",
-          "date": "2026-04-28",
-          "venue": "Progressive Field",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "824445",
-          "date": "2026-04-29",
-          "venue": "Progressive Field",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "824850",
-          "date": "2026-04-30",
-          "venue": "Oriole Park at Camden Yards",
-          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
-        },
-        {
-          "gamePk": "823713",
-          "date": "2026-05-01",
           "venue": "Target Field",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "824284",
-          "date": "2026-05-02",
-          "venue": "Comerica Park",
+          "gamePk": "824049",
+          "date": "2026-04-18",
+          "venue": "Angel Stadium",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "823145",
-          "date": "2026-05-03",
+          "gamePk": "824047",
+          "date": "2026-04-19",
+          "venue": "Angel Stadium",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "823149",
+          "date": "2026-04-20",
           "venue": "T-Mobile Park",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "825099",
+          "date": "2026-04-21",
+          "venue": "Chase Field",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "822913",
+          "date": "2026-04-22",
+          "venue": "Globe Life Field",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "822912",
+          "date": "2026-04-23",
+          "venue": "Globe Life Field",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "823232",
+          "date": "2026-04-24",
+          "venue": "Oracle Park",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "823960",
+          "date": "2026-04-25",
+          "venue": "UNIQLO Field at Dodger Stadium",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "825094",
+          "date": "2026-04-26",
+          "venue": "Estadio Alfredo Harp Helu",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "824849",
+          "date": "2026-04-28",
+          "venue": "Oriole Park at Camden Yards",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "823310",
+          "date": "2026-04-28",
+          "venue": "Petco Park",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "824930",
+          "date": "2026-04-29",
+          "venue": "Truist Park",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "825016",
+          "date": "2026-04-30",
+          "venue": "Sutter Health Park",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "825012",
+          "date": "2026-05-01",
+          "venue": "Sutter Health Park",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "824365",
+          "date": "2026-05-02",
+          "venue": "Coors Field",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "824687",
+          "date": "2026-05-03",
+          "venue": "Wrigley Field",
+          "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
+        },
+        {
+          "gamePk": "823064",
+          "date": "2026-05-04",
+          "venue": "Busch Stadium",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         }
       ],
-      "errorCount": 32,
+      "errorCount": 41,
       "weatherFile": "/home/runner/work/New-project/New-project/data/cache/weather/game_weather_2026.csv",
-      "updatedAt": "2026-05-06T01:18:12.652220+00:00"
+      "updatedAt": "2026-05-06T05:55:07.283317+00:00"
     },
     "features": {
       "season": 2026,
       "phase": "regular",
-      "inputWeatherRows": 493,
-      "featureRows": 493,
+      "inputWeatherRows": 484,
+      "featureRows": 484,
       "featureFile": "/home/runner/work/New-project/New-project/data/cache/weather/weather_features_2026.csv",
-      "updatedAt": "2026-05-06T01:18:12.669014+00:00"
+      "updatedAt": "2026-05-06T05:55:07.300903+00:00"
     }
   },
   "savantFeatures": {
@@ -537,11 +591,11 @@
       "season": 2026,
       "date": "2026-05-06",
       "market": "",
-      "snapshotId": "20260506T011812Z",
-      "snapshotAt": "2026-05-06T01:18:12.677044+00:00",
+      "snapshotId": "20260506T055507Z",
+      "snapshotAt": "2026-05-06T05:55:07.308933+00:00",
       "rowsSnapshotted": 0,
       "snapshotFile": "/home/runner/work/New-project/New-project/data/cache/odds_movement/prop_snapshots_2026.csv",
-      "updatedAt": "2026-05-06T01:18:12.677626+00:00"
+      "updatedAt": "2026-05-06T05:55:07.309551+00:00"
     },
     "movement": {
       "season": 2026,
@@ -549,7 +603,7 @@
       "movementRows": 161,
       "snapshotFile": "/home/runner/work/New-project/New-project/data/cache/odds_movement/prop_snapshots_2026.csv",
       "movementFile": "/home/runner/work/New-project/New-project/data/cache/odds_movement/prop_movement_2026.csv",
-      "updatedAt": "2026-05-06T01:18:12.684648+00:00"
+      "updatedAt": "2026-05-06T05:55:07.316632+00:00"
     }
   },
   "playerboard": {
@@ -564,10 +618,10 @@
   },
   "playerboardBacktest": {
     "season": 2026,
-    "updatedAt": "2026-05-06T01:18:15.296927+00:00",
-    "props": 2077,
+    "updatedAt": "2026-05-06T05:55:10.115191+00:00",
+    "props": 2232,
     "graded": 1395,
-    "ungraded": 682,
+    "ungraded": 837,
     "wins": 363,
     "losses": 1032,
     "pushes": 0,
@@ -580,7 +634,7 @@
       {
         "bucket": "market",
         "name": "team_total_runs",
-        "props": 143,
+        "props": 286,
         "graded": 0,
         "wins": 0,
         "losses": 0,
@@ -592,7 +646,7 @@
       {
         "bucket": "market",
         "name": "team_first_to_score",
-        "props": 12,
+        "props": 24,
         "graded": 0,
         "wins": 0,
         "losses": 0,
@@ -712,7 +766,7 @@
       {
         "bucket": "edgeBucket",
         "name": "6%+",
-        "props": 299,
+        "props": 304,
         "graded": 188,
         "wins": 78,
         "losses": 110,
@@ -724,7 +778,7 @@
       {
         "bucket": "edgeBucket",
         "name": "4% to 6%",
-        "props": 204,
+        "props": 205,
         "graded": 138,
         "wins": 25,
         "losses": 113,
@@ -736,7 +790,7 @@
       {
         "bucket": "edgeBucket",
         "name": "2% to 4%",
-        "props": 318,
+        "props": 332,
         "graded": 255,
         "wins": 40,
         "losses": 215,
@@ -748,7 +802,7 @@
       {
         "bucket": "edgeBucket",
         "name": "0% to 2%",
-        "props": 414,
+        "props": 437,
         "graded": 216,
         "wins": 29,
         "losses": 187,
@@ -760,7 +814,7 @@
       {
         "bucket": "edgeBucket",
         "name": "< 0%",
-        "props": 842,
+        "props": 954,
         "graded": 598,
         "wins": 191,
         "losses": 407,
@@ -773,6 +827,18 @@
         "bucket": "confidence",
         "name": "Unmodeled",
         "props": 155,
+        "graded": 0,
+        "wins": 0,
+        "losses": 0,
+        "pushes": 0,
+        "profitUnits": 0,
+        "winRate": 0,
+        "roiPercent": 0
+      },
+      {
+        "bucket": "confidence",
+        "name": "High",
+        "props": 6,
         "graded": 0,
         "wins": 0,
         "losses": 0,
@@ -796,7 +862,7 @@
       {
         "bucket": "confidence",
         "name": "Medium",
-        "props": 530,
+        "props": 553,
         "graded": 421,
         "wins": 167,
         "losses": 254,
@@ -820,7 +886,7 @@
       {
         "bucket": "confidence",
         "name": "Low",
-        "props": 848,
+        "props": 974,
         "graded": 510,
         "wins": 69,
         "losses": 441,
@@ -843,8 +909,20 @@
       },
       {
         "bucket": "recommendation",
+        "name": "Negative edge",
+        "props": 112,
+        "graded": 0,
+        "wins": 0,
+        "losses": 0,
+        "pushes": 0,
+        "profitUnits": 0,
+        "winRate": 0,
+        "roiPercent": 0
+      },
+      {
+        "bucket": "recommendation",
         "name": "Positive edge",
-        "props": 424,
+        "props": 467,
         "graded": 253,
         "wins": 101,
         "losses": 152,
@@ -904,7 +982,7 @@
       {
         "bucket": "savant",
         "name": "Savant neutral",
-        "props": 973,
+        "props": 1128,
         "graded": 403,
         "wins": 85,
         "losses": 318,
@@ -928,7 +1006,7 @@
       {
         "bucket": "weather",
         "name": "Weather neutral",
-        "props": 777,
+        "props": 932,
         "graded": 207,
         "wins": 67,
         "losses": 140,
@@ -988,7 +1066,7 @@
       {
         "bucket": "oddsMovement",
         "name": "Odds movement neutral",
-        "props": 698,
+        "props": 853,
         "graded": 453,
         "wins": 46,
         "losses": 407,
@@ -1001,17 +1079,17 @@
   },
   "modelAudit": {
     "season": 2026,
-    "updatedAt": "2026-05-06T01:18:15.375514+00:00",
-    "rows": 2077,
+    "updatedAt": "2026-05-06T05:55:10.199916+00:00",
+    "rows": 2232,
     "graded": 1395,
-    "ungraded": 682,
+    "ungraded": 837,
     "wins": 363,
     "losses": 1032,
     "pushes": 0,
     "profitUnits": -589.5493,
     "winRate": 26.02,
     "roiPercent": -42.26,
-    "warningRows": 85,
+    "warningRows": 92,
     "auditCsv": "/home/runner/work/New-project/New-project/data/audit/model_audit_2026.csv",
     "auditJson": "/home/runner/work/New-project/New-project/data/audit/model_audit_2026.json",
     "topWarnings": [
@@ -1670,7 +1748,7 @@
       {
         "bucket": "source",
         "name": "playerboard_backtest",
-        "rows": 2077,
+        "rows": 2232,
         "graded": 1395,
         "wins": 363,
         "losses": 1032,
@@ -1682,7 +1760,7 @@
       {
         "bucket": "market",
         "name": "team_total_runs",
-        "rows": 143,
+        "rows": 286,
         "graded": 0,
         "wins": 0,
         "losses": 0,
@@ -1694,7 +1772,7 @@
       {
         "bucket": "market",
         "name": "team_first_to_score",
-        "rows": 12,
+        "rows": 24,
         "graded": 0,
         "wins": 0,
         "losses": 0,
@@ -1814,7 +1892,7 @@
       {
         "bucket": "probabilityBucket",
         "name": "70%+",
-        "rows": 65,
+        "rows": 112,
         "graded": 16,
         "wins": 8,
         "losses": 8,
@@ -1826,7 +1904,7 @@
       {
         "bucket": "probabilityBucket",
         "name": "45-50%",
-        "rows": 380,
+        "rows": 384,
         "graded": 226,
         "wins": 90,
         "losses": 136,
@@ -1838,7 +1916,7 @@
       {
         "bucket": "probabilityBucket",
         "name": "60-65%",
-        "rows": 158,
+        "rows": 165,
         "graded": 92,
         "wins": 49,
         "losses": 43,
@@ -1850,7 +1928,7 @@
       {
         "bucket": "probabilityBucket",
         "name": "65-70%",
-        "rows": 57,
+        "rows": 65,
         "graded": 36,
         "wins": 10,
         "losses": 26,
@@ -1862,7 +1940,7 @@
       {
         "bucket": "probabilityBucket",
         "name": "50-55%",
-        "rows": 431,
+        "rows": 442,
         "graded": 296,
         "wins": 110,
         "losses": 186,
@@ -1874,7 +1952,7 @@
       {
         "bucket": "probabilityBucket",
         "name": "55-60%",
-        "rows": 279,
+        "rows": 290,
         "graded": 177,
         "wins": 62,
         "losses": 115,
@@ -1886,7 +1964,7 @@
       {
         "bucket": "probabilityBucket",
         "name": "<45%",
-        "rows": 707,
+        "rows": 774,
         "graded": 552,
         "wins": 34,
         "losses": 518,
@@ -1898,7 +1976,7 @@
       {
         "bucket": "edgeBucket",
         "name": "8%+",
-        "rows": 206,
+        "rows": 210,
         "graded": 135,
         "wins": 62,
         "losses": 73,
@@ -1910,7 +1988,7 @@
       {
         "bucket": "edgeBucket",
         "name": "6-8%",
-        "rows": 93,
+        "rows": 94,
         "graded": 53,
         "wins": 16,
         "losses": 37,
@@ -1922,7 +2000,7 @@
       {
         "bucket": "edgeBucket",
         "name": "4-6%",
-        "rows": 204,
+        "rows": 205,
         "graded": 138,
         "wins": 25,
         "losses": 113,
@@ -1934,7 +2012,7 @@
       {
         "bucket": "edgeBucket",
         "name": "2-4%",
-        "rows": 318,
+        "rows": 332,
         "graded": 255,
         "wins": 40,
         "losses": 215,
@@ -1946,7 +2024,7 @@
       {
         "bucket": "edgeBucket",
         "name": "0-2%",
-        "rows": 414,
+        "rows": 437,
         "graded": 216,
         "wins": 29,
         "losses": 187,
@@ -1958,7 +2036,7 @@
       {
         "bucket": "edgeBucket",
         "name": "<0%",
-        "rows": 842,
+        "rows": 954,
         "graded": 598,
         "wins": 191,
         "losses": 407,
@@ -1971,6 +2049,18 @@
         "bucket": "confidence",
         "name": "Unmodeled",
         "rows": 155,
+        "graded": 0,
+        "wins": 0,
+        "losses": 0,
+        "pushes": 0,
+        "profitUnits": 0,
+        "winRate": 0,
+        "roiPercent": 0
+      },
+      {
+        "bucket": "confidence",
+        "name": "High",
+        "rows": 6,
         "graded": 0,
         "wins": 0,
         "losses": 0,
@@ -1994,7 +2084,7 @@
       {
         "bucket": "confidence",
         "name": "Medium",
-        "rows": 530,
+        "rows": 553,
         "graded": 421,
         "wins": 167,
         "losses": 254,
@@ -2018,7 +2108,7 @@
       {
         "bucket": "confidence",
         "name": "Low",
-        "rows": 848,
+        "rows": 974,
         "graded": 510,
         "wins": 69,
         "losses": 441,
@@ -2041,8 +2131,20 @@
       },
       {
         "bucket": "recommendation",
+        "name": "Negative edge",
+        "rows": 112,
+        "graded": 0,
+        "wins": 0,
+        "losses": 0,
+        "pushes": 0,
+        "profitUnits": 0,
+        "winRate": 0,
+        "roiPercent": 0
+      },
+      {
+        "bucket": "recommendation",
         "name": "Positive edge",
-        "rows": 424,
+        "rows": 467,
         "graded": 253,
         "wins": 101,
         "losses": 152,
@@ -2091,13 +2193,13 @@
   },
   "mlExport": {
     "season": 2026,
-    "updatedAt": "2026-05-06T01:18:15.445870+00:00",
+    "updatedAt": "2026-05-06T05:55:10.272613+00:00",
     "source": "/home/runner/work/New-project/New-project/data/backtests/playerboard_backtest_2026.csv",
     "trainingFile": "/home/runner/work/New-project/New-project/data/ml/playerboard_training_2026.csv",
     "summaryFile": "/home/runner/work/New-project/New-project/data/ml/playerboard_training_summary_2026.json",
-    "rows": 1739,
+    "rows": 1761,
     "graded": 1286,
-    "ungraded": 453,
+    "ungraded": 475,
     "wins": 334,
     "losses": 952,
     "pushes": 0,
@@ -2114,21 +2216,21 @@
       "pitcher_earned_runs": 31,
       "pitcher_hits_allowed": 35,
       "pitcher_strikeouts": 84,
-      "team_first_to_score": 12,
-      "team_total_runs": 143
+      "team_first_to_score": 14,
+      "team_total_runs": 163
     },
     "byResult": {
       "loss": 952,
-      "ungraded": 453,
+      "ungraded": 475,
       "win": 334
     },
     "byEdgeBucket": {
-      "0-2%": 398,
-      "2-4%": 287,
+      "0-2%": 402,
+      "2-4%": 290,
       "4-6%": 165,
       "6-8%": 62,
       "8%+": 156,
-      "<0%": 671
+      "<0%": 686
     }
   },
   "predictionGrades": {
@@ -2143,6 +2245,6 @@
     "winRate": 0,
     "predictionFile": "/home/runner/work/New-project/New-project/data/predictions/prediction_history_2026.csv",
     "gradesFile": "/home/runner/work/New-project/New-project/data/predictions/prediction_grades_2026.csv",
-    "updatedAt": "2026-05-06T01:18:15.454303+00:00"
+    "updatedAt": "2026-05-06T05:55:10.281497+00:00"
   }
 }

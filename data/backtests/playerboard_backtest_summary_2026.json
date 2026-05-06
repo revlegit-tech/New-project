@@ -1,9 +1,9 @@
 {
   "season": 2026,
-  "updatedAt": "2026-05-06T01:18:15.296927+00:00",
-  "props": 2077,
+  "updatedAt": "2026-05-06T05:55:10.115191+00:00",
+  "props": 2232,
   "graded": 1395,
-  "ungraded": 682,
+  "ungraded": 837,
   "wins": 363,
   "losses": 1032,
   "pushes": 0,
@@ -16,7 +16,7 @@
     {
       "bucket": "market",
       "name": "team_total_runs",
-      "props": 143,
+      "props": 286,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -28,7 +28,7 @@
     {
       "bucket": "market",
       "name": "team_first_to_score",
-      "props": 12,
+      "props": 24,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -148,7 +148,7 @@
     {
       "bucket": "edgeBucket",
       "name": "6%+",
-      "props": 299,
+      "props": 304,
       "graded": 188,
       "wins": 78,
       "losses": 110,
@@ -160,7 +160,7 @@
     {
       "bucket": "edgeBucket",
       "name": "4% to 6%",
-      "props": 204,
+      "props": 205,
       "graded": 138,
       "wins": 25,
       "losses": 113,
@@ -172,7 +172,7 @@
     {
       "bucket": "edgeBucket",
       "name": "2% to 4%",
-      "props": 318,
+      "props": 332,
       "graded": 255,
       "wins": 40,
       "losses": 215,
@@ -184,7 +184,7 @@
     {
       "bucket": "edgeBucket",
       "name": "0% to 2%",
-      "props": 414,
+      "props": 437,
       "graded": 216,
       "wins": 29,
       "losses": 187,
@@ -196,7 +196,7 @@
     {
       "bucket": "edgeBucket",
       "name": "< 0%",
-      "props": 842,
+      "props": 954,
       "graded": 598,
       "wins": 191,
       "losses": 407,
@@ -209,6 +209,18 @@
       "bucket": "confidence",
       "name": "Unmodeled",
       "props": 155,
+      "graded": 0,
+      "wins": 0,
+      "losses": 0,
+      "pushes": 0,
+      "profitUnits": 0,
+      "winRate": 0,
+      "roiPercent": 0
+    },
+    {
+      "bucket": "confidence",
+      "name": "High",
+      "props": 6,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -232,7 +244,7 @@
     {
       "bucket": "confidence",
       "name": "Medium",
-      "props": 530,
+      "props": 553,
       "graded": 421,
       "wins": 167,
       "losses": 254,
@@ -256,7 +268,7 @@
     {
       "bucket": "confidence",
       "name": "Low",
-      "props": 848,
+      "props": 974,
       "graded": 510,
       "wins": 69,
       "losses": 441,
@@ -279,8 +291,20 @@
     },
     {
       "bucket": "recommendation",
+      "name": "Negative edge",
+      "props": 112,
+      "graded": 0,
+      "wins": 0,
+      "losses": 0,
+      "pushes": 0,
+      "profitUnits": 0,
+      "winRate": 0,
+      "roiPercent": 0
+    },
+    {
+      "bucket": "recommendation",
       "name": "Positive edge",
-      "props": 424,
+      "props": 467,
       "graded": 253,
       "wins": 101,
       "losses": 152,
@@ -340,7 +364,7 @@
     {
       "bucket": "savant",
       "name": "Savant neutral",
-      "props": 973,
+      "props": 1128,
       "graded": 403,
       "wins": 85,
       "losses": 318,
@@ -364,7 +388,7 @@
     {
       "bucket": "weather",
       "name": "Weather neutral",
-      "props": 777,
+      "props": 932,
       "graded": 207,
       "wins": 67,
       "losses": 140,
@@ -424,7 +448,7 @@
     {
       "bucket": "oddsMovement",
       "name": "Odds movement neutral",
-      "props": 698,
+      "props": 853,
       "graded": 453,
       "wins": 46,
       "losses": 407,
