@@ -291,3 +291,178 @@ def pnl_analytics_payload(query: dict[str, list[str]]) -> dict[str, Any]:
         },
         "backtestFile": str(path),
     }
+
+
+def _market_display(market: Any) -> str:
+    text = _clean(market).replace("_", " ").strip()
+    return text.title() if text else "Prop"
+
+
+def _pct_window(item: dict[str, Any], key: str = "L10") -> dict[str, Any] | None:
+    value = item.get(key)
+    return value if isinstance(value, dict) and _float(value.get("pct"), -1) >= 0 else None
+
+
+def _badge_for_pct(pct: float) -> str:
+    if pct >= 80:
+        return "ob-green"
+    if pct >= 65:
+        return "ob-amber"
+    return "ob-red"
+
+
+def _latest_playerboard_lookup(season: int, date: str = "") -> dict[tuple[str, str, str], dict[str, str]]:
+    path = ROOT / "data" / "playerboard" / f"playerboard_{season}.csv"
+    rows = _read_csv(path)
+    if date:
+        dated = [row for row in rows if _clean(row.get("date"))[:10] == date]
+        if dated:
+            rows = dated
+    latest: dict[tuple[str, str, str], dict[str, str]] = {}
+    for row in rows:
+        key = (_norm(row.get("player") or row.get("team")), _norm(row.get("market")), _clean(row.get("team")).upper())
+        prev = latest.get(key)
+        if not prev or _clean(row.get("snapshotAt")) >= _clean(prev.get("snapshotAt")):
+            latest[key] = row
+    return latest
+
+
+def _team_recent_trends(season: int, limit: int = 8) -> list[dict[str, Any]]:
+    path = ROOT / "data" / "cache" / "incremental_stats" / f"team_game_logs_{season}.csv"
+    rows = _read_csv(path)
+    by_team: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for row in rows:
+        team = _clean(row.get("team")).upper()
+        if team:
+            by_team[team].append(row)
+
+    cards: list[dict[str, Any]] = []
+    for team, team_rows in by_team.items():
+        team_rows.sort(key=lambda row: (_clean(row.get("date")), _clean(row.get("gamePk"))))
+        recent = team_rows[-15:]
+        if len(recent) < 8:
+            continue
+        wins = 0
+        run_diff = 0.0
+        for row in recent:
+            runs = _float(row.get("runs"))
+            allowed = _float(row.get("pitchingRuns"))
+            run_diff += runs - allowed
+            if runs > allowed:
+                wins += 1
+        if wins <= 3 or wins >= 12:
+            pct = round((wins / len(recent)) * 100.0)
+            direction = "struggling" if wins <= 3 else "surging"
+            cards.append({
+                "type": "ats",
+                "team": team,
+                "player": team,
+                "game": team,
+                "gameTime": "Recent form",
+                "text": f"{team} is {wins}-{len(recent) - wins} over its last {len(recent)} games with a {run_diff:+.0f} run differential. Treat this as a team-form proxy until spread results are available.",
+                "market": "Team trend",
+                "odds": "",
+                "hitRateBar": {"pct": pct, "total": len(recent)},
+                "badge": "ob-red" if wins <= 3 else "ob-green",
+            })
+    cards.sort(key=lambda card: abs(_float(card.get("hitRateBar", {}).get("pct"), 50) - 50), reverse=True)
+    return cards[:limit]
+
+
+def insights_feed_payload(query: dict[str, list[str]]) -> dict[str, Any]:
+    """Aggregate premium feed cards for the Outlier-style insights rail/page."""
+    season = _int(query.get("season", ["2026"])[0], 2026)
+    date = _clean(query.get("date", [""])[0])
+    limit = _int(query.get("limit", ["40"])[0], 40)
+    cards: list[dict[str, Any]] = []
+
+    playerboard = _latest_playerboard_lookup(season, date)
+
+    try:
+        from player_hit_rates import player_hit_rates_payload
+        hit_payload = player_hit_rates_payload({"season": [str(season)], "date": [date], "limit": ["750"]})
+        for row in hit_payload.get("rows", []):
+            window = _pct_window(row, "L10")
+            if not window or _float(window.get("pct")) < 80:
+                continue
+            player = _clean(row.get("player")) or _clean(row.get("team"))
+            team = _clean(row.get("team")).upper()
+            opponent = _clean(row.get("opponent")).upper()
+            market = _clean(row.get("market"))
+            lookup = playerboard.get((_norm(player), _norm(market), team), {})
+            side = _clean(row.get("rawLabel") or lookup.get("rawLabel") or "Under").title()
+            line = row.get("line") if row.get("line") not in (None, "") else lookup.get("line")
+            average = ""
+            season_window = _pct_window(row, "season")
+            if season_window and _int(season_window.get("total")):
+                average = f" Season hit rate is {_float(season_window.get('pct')):.0f}%."
+            cards.append({
+                "type": "streak",
+                "player": player,
+                "team": team,
+                "game": f"{team} @ {opponent}" if opponent else team,
+                "gameTime": "Today",
+                "text": f"{player} has hit {side} {line} {_market_display(market)} in {_int(window.get('hits'))} of last {_int(window.get('total'))} games.{average}",
+                "market": f"{side} {line} {_market_display(market)}",
+                "odds": _clean(lookup.get("americanOdds")),
+                "hitRateBar": {"pct": round(_float(window.get("pct"))), "total": _int(window.get("total"))},
+                "badge": _badge_for_pct(_float(window.get("pct"))),
+                "sortScore": _float(window.get("pct")) + min(_int(window.get("total")), 20) / 10.0,
+            })
+    except Exception as error:
+        cards.append({
+            "type": "streak",
+            "player": "Hit-rate engine",
+            "team": "MLB",
+            "game": "MLB",
+            "gameTime": "Today",
+            "text": f"Hit-rate insights are temporarily unavailable: {error}",
+            "market": "Hit-rate status",
+            "odds": "",
+            "hitRateBar": {"pct": 0, "total": 0},
+            "badge": "ob-red",
+            "sortScore": -1,
+        })
+
+    try:
+        steam_payload = steam_alerts_payload({"season": [str(season)], "date": [date], "limit": [str(max(10, limit))]})
+        for alert in steam_payload.get("alerts", []):
+            latest_odds = alert.get("latestAmericanOdds")
+            move = _float(alert.get("oddsMove"))
+            pct_move = abs(_float(alert.get("impliedProbabilityMovePercent")))
+            player = _clean(alert.get("player")) or "Market steam"
+            team = _clean(alert.get("team")).upper()
+            opponent = _clean(alert.get("opponent")).upper()
+            cards.append({
+                "type": "steam",
+                "player": player,
+                "team": team or "MLB",
+                "game": f"{team} @ {opponent}" if team and opponent else "MLB slate",
+                "gameTime": _clean(alert.get("latestSnapshotAt")) or "Latest move",
+                "text": _clean(alert.get("movementSummary")) or f"{player} saw notable market movement with an odds move of {move:+.0f}.",
+                "market": f"{_market_display(alert.get('market'))} {alert.get('latestLine')}",
+                "odds": str(int(latest_odds)) if isinstance(latest_odds, (int, float)) and latest_odds else _clean(latest_odds),
+                "hitRateBar": {"pct": max(5, min(100, round(pct_move * 4))), "total": _int(alert.get("snapshots"))},
+                "badge": "ob-amber" if _clean(alert.get("tone")) == "drift" else "ob-green",
+                "sortScore": 75 + abs(move) / 10.0 + pct_move,
+            })
+    except Exception:
+        pass
+
+    for card in _team_recent_trends(season, limit=8):
+        card["sortScore"] = _float(card.get("hitRateBar", {}).get("pct"), 50)
+        cards.append(card)
+
+    cards.sort(key=lambda card: _float(card.get("sortScore")), reverse=True)
+    for card in cards:
+        card.pop("sortScore", None)
+    return {
+        "ok": True,
+        "season": season,
+        "date": date,
+        "cards": cards[:limit],
+        "cardCount": min(len(cards), limit),
+        "totalCards": len(cards),
+        "generatedAt": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "sources": ["player_hit_rates", "steam_alerts", "team_game_logs"],
+    }

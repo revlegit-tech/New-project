@@ -830,6 +830,11 @@ def stage3_pnl_analytics_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     return pnl_analytics_payload(query)
 
 
+def insights_feed_payload(query: dict[str, list[str]]) -> dict[str, Any]:
+    from stage3_betting_features import insights_feed_payload as payload
+    return payload(query)
+
+
 def prediction_status_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     from prediction_history import status
 
@@ -7315,6 +7320,14 @@ class AppHandler(BaseHTTPRequestHandler):
             try:
                 query = parse_qs(parsed.query)
                 json_response(self, stage3_pnl_analytics_payload(query))
+            except Exception as error:
+                json_response(self, {"error": str(error)}, 500)
+            return
+
+        if parsed.path == "/api/insights/feed":
+            try:
+                query = parse_qs(parsed.query)
+                json_response(self, insights_feed_payload(query))
             except Exception as error:
                 json_response(self, {"error": str(error)}, 500)
             return

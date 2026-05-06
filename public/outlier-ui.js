@@ -65,9 +65,6 @@
     CH: "#6b7280", FC: "#a855f7", CT: "#a855f7", FS: "#14b8a6",
   };
 
-  const TEAM_ALIASES = { AZ: "ARI", WSH: "WSN", WAS: "WSN", TB: "TBR" };
-  const TEAM_DISPLAY = { WSN: "WSH", TBR: "TB", ARI: "AZ" };
-
   const FALLBACK_ROWS = [
     {
       player: "Josh Bell",
@@ -174,20 +171,6 @@
     activePitchFilter: "All",
     heatmapPitcherHand: "ALL",
     heatmapBatterHand: "ALL",
-    railTab: "Matchup",
-    railSide: "",
-    railPitcherView: "season",
-    railBatterTab: "2026",
-    rail: {
-      key: "",
-      loadingGame: false,
-      loadingLineups: false,
-      loadingBallpark: false,
-      gameContext: null,
-      lineups: {},
-      ballpark: null,
-      errors: {},
-    },
     detail: {
       key: "",
       loadingCard: false,
@@ -198,6 +181,17 @@
       gameContext: null,
       errors: {},
     },
+    games: [],
+    gamesLoading: false,
+    gamesError: "",
+    selectedGameKey: "",
+    gameSubTab: "Gamelines",
+    gamePropRows: [],
+    insights: [],
+    insightsLoading: false,
+    insightsError: "",
+    insightsLastLoaded: "",
+    insightsTimer: null,
   };
 
   function $(selector, root = document) {
@@ -234,16 +228,6 @@
 
   function normalizeMarket(value) {
     return clean(value).toLowerCase().replaceAll("-", "_").replaceAll(" ", "_").replace(/_+/g, "_");
-  }
-
-  function canonicalTeam(value) {
-    const code = clean(value).toUpperCase();
-    return TEAM_ALIASES[code] || code;
-  }
-
-  function displayTeam(value) {
-    const code = clean(value).toUpperCase();
-    return TEAM_DISPLAY[code] || code;
   }
 
   function baseMarket(value) {
@@ -544,7 +528,6 @@
     } finally {
       state.loading = false;
       render();
-      if (state.selected && state.nav !== "PropDetail") loadRailData(state.selected);
     }
   }
 
@@ -599,9 +582,7 @@
     const avgEdge = rows.length
       ? rows.reduce((sum, row) => sum + number(row.finalEdgePercent), 0) / rows.length
       : 0;
-    const mainContent = state.nav === "PropDetail" && state.selected
-      ? renderPropDetail(state.selected)
-      : renderPropsMain(rows);
+    const mainContent = renderMainContent(rows);
 
     root.innerHTML = `
       ${renderSidebar(rows.length, positive, avgEdge)}
@@ -611,6 +592,32 @@
       ${renderRightRail(rows)}
     `;
     afterRender();
+  }
+
+
+  function renderMainContent(rows) {
+    if (state.nav === "PropDetail" && state.selected) return renderPropDetail(state.selected);
+    if (state.nav === "Games") return renderGamesView(rows);
+    if (state.nav === "Insights") return renderInsightsFeed();
+    if (["EV+", "Boosts", "Arbitrage", "Middle Bets"].includes(state.nav)) return renderStubPage(state.nav);
+    return renderPropsMain(rows);
+  }
+
+  function renderStubPage(title) {
+    const copy = title === "EV+"
+      ? "EV+ analysis is coming soon. Props with positive edge remain available in the main board."
+      : `${title} tools are coming soon for the MLB-only build.`;
+    return `
+      ${renderHero(filteredRows().length, state.rows.length)}
+      <section class="ob-stub-page">
+        <div class="ob-stub-card">
+          <span>MLB only</span>
+          <h2>${escapeHtml(title)}</h2>
+          <p>${escapeHtml(copy)}</p>
+          <button type="button" class="ob-load-button" data-nav="Props">Back to Props</button>
+        </div>
+      </section>
+    `;
   }
 
   function renderPropsMain(rows) {
@@ -629,12 +636,6 @@
     if (state.nav === "PropDetail") {
       window.requestAnimationFrame(drawDetailCanvases);
     }
-    window.requestAnimationFrame(scrollSelectedBatterIntoView);
-  }
-
-  function scrollSelectedBatterIntoView() {
-    const row = $(".ob-batter-table tr.is-selected-batter");
-    if (row) row.scrollIntoView({ block: "nearest" });
   }
 
   function renderSidebar(total, positive, avgEdge) {
@@ -966,8 +967,7 @@
   }
 
   function teamColor(team) {
-    const code = canonicalTeam(team);
-    return TEAM_COLORS[code] || TEAM_COLORS[displayTeam(code)] || TEAM_COLORS.MLB;
+    return TEAM_COLORS[clean(team).toUpperCase()] || TEAM_COLORS.MLB;
   }
 
   function hexToRgb(hex) {
@@ -988,200 +988,6 @@
 
   function currentDetail() {
     return state.detail || { loadingCard: false, loadingLogs: false, loadingGame: false, propCard: null, gameLogs: [], gameContext: null, errors: {} };
-  }
-
-  function emptyRailState(row) {
-    return {
-      key: railKey(row),
-      loadingGame: true,
-      loadingLineups: true,
-      loadingBallpark: true,
-      gameContext: null,
-      lineups: {},
-      ballpark: null,
-      errors: {},
-    };
-  }
-
-  function railKey(row) {
-    return [state.date, clean(row && row.team).toUpperCase(), clean(row && row.opponent).toUpperCase()].join("|");
-  }
-
-  function railMatches(row) {
-    return state.rail && state.rail.key === railKey(row || {});
-  }
-
-  function currentRail(row) {
-    if (row && railMatches(row)) return state.rail;
-    const detail = currentDetail();
-    if (detail.gameContext) {
-      return {
-        key: railKey(row || state.selected || {}),
-        loadingGame: !!detail.loadingGame,
-        loadingLineups: false,
-        loadingBallpark: false,
-        gameContext: detail.gameContext,
-        lineups: {},
-        ballpark: null,
-        errors: detail.errors || {},
-      };
-    }
-    return state.rail || emptyRailState(row || {});
-  }
-
-  function pickGameFromContext(payload, row) {
-    const games = Array.isArray((payload || {}).games) ? payload.games : [];
-    if (!games.length) return null;
-    const team = clean(row && row.team).toUpperCase();
-    const opponent = clean(row && row.opponent).toUpperCase();
-    return games.find((game) => {
-      const teams = new Set((game.teams || []).map((item) => clean(item).toUpperCase()));
-      if (!teams.size) {
-        teams.add(clean((game.away || {}).team).toUpperCase());
-        teams.add(clean((game.home || {}).team).toUpperCase());
-      }
-      return (!team || teams.has(team)) && (!opponent || teams.has(opponent));
-    }) || games[0];
-  }
-
-  function gameTeams(game, row) {
-    const away = clean((game && game.away && game.away.team) || (game && game.teams && game.teams[0]) || row.team).toUpperCase();
-    const home = clean((game && game.home && game.home.team) || (game && game.teams && game.teams[1]) || row.opponent).toUpperCase();
-    return { away, home };
-  }
-
-  function sideForTeam(game, team) {
-    const target = clean(team).toUpperCase();
-    if (!game) return "away";
-    if (clean((game.home || {}).team).toUpperCase() === target) return "home";
-    if (clean((game.away || {}).team).toUpperCase() === target) return "away";
-    const teams = game.teams || [];
-    return clean(teams[1]).toUpperCase() === target ? "home" : "away";
-  }
-
-  function activeRailSide(game, row) {
-    if (state.railSide) return state.railSide;
-    return sideForTeam(game, clean(row.team));
-  }
-
-  function railTeamLabel(game, side) {
-    const data = (game && game[side]) || {};
-    return clean(data.team) || clean((game && game.teams && game.teams[side === "home" ? 1 : 0])) || side.toUpperCase();
-  }
-
-  function formatStatValue(value, digits = 1) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return "—";
-    if (Math.abs(n) < 1 && digits >= 3) return n.toFixed(digits).replace(/^0/, "");
-    return n.toFixed(digits);
-  }
-
-  function formatAvg(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return "—";
-    return n.toFixed(3).replace(/^0/, "");
-  }
-
-  function pitcherTone(label, value) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return "";
-    if (label === "ERA" && n > 5) return "is-bad";
-    if (label === "K/9" && n > 9) return "is-good";
-    if (label === "WHIP" && n > 1.4) return "is-warn";
-    return "";
-  }
-
-  function safeArray(value) {
-    return Array.isArray(value) ? value : [];
-  }
-
-  function lineupForTeam(rail, team) {
-    const payload = ((rail || {}).lineups || {})[clean(team).toUpperCase()] || {};
-    return Array.isArray(payload.lineup) ? payload.lineup : [];
-  }
-
-  function selectedPlayerName(row) {
-    return normalizeName(row && row.player);
-  }
-
-  function loadRailLineups(row, gameContext, key = railKey(row)) {
-    const game = pickGameFromContext(gameContext, row) || {};
-    const teams = gameTeams(game, row);
-    const requests = [teams.away, teams.home].filter(Boolean).map((team) => {
-      const opponent = team === teams.away ? teams.home : teams.away;
-      const params = new URLSearchParams({
-        season: detailSeason(),
-        date: state.date,
-        team,
-        opponent,
-        gamePk: clean(game.fixtureId || (game.summary || {}).gamePk),
-      });
-      return getJson(`/api/game/lineup?${params.toString()}`).then((payload) => [team, payload]);
-    });
-    if (!requests.length) {
-      state.rail.loadingLineups = false;
-      return;
-    }
-    state.rail.loadingLineups = true;
-    Promise.allSettled(requests).then((results) => {
-      if (state.rail.key !== key) return;
-      const lineups = {};
-      const errors = [];
-      results.forEach((result) => {
-        if (result.status === "fulfilled") {
-          const [team, payload] = result.value;
-          lineups[team] = payload;
-        } else {
-          errors.push(result.reason && result.reason.message ? result.reason.message : "Lineup unavailable");
-        }
-      });
-      state.rail.lineups = lineups;
-      state.rail.loadingLineups = false;
-      if (errors.length) state.rail.errors.lineups = errors.join(" | ");
-      render();
-    });
-  }
-
-  function loadRailBallpark(row, key = railKey(row)) {
-    const params = new URLSearchParams({ team: clean(row.team), opponent: clean(row.opponent), date: state.date });
-    state.rail.loadingBallpark = true;
-    getJson(`/api/ballpark-context?${params.toString()}`)
-      .then((payload) => {
-        if (state.rail.key !== key) return;
-        state.rail.ballpark = payload;
-      })
-      .catch((error) => {
-        if (state.rail.key !== key) return;
-        state.rail.errors.ballpark = error.message || "Ballpark context unavailable.";
-      })
-      .finally(() => {
-        if (state.rail.key !== key) return;
-        state.rail.loadingBallpark = false;
-        render();
-      });
-  }
-
-  function loadRailData(row) {
-    if (!row) return;
-    const key = railKey(row);
-    state.rail = emptyRailState(row);
-    render();
-    fetchDetailGameContext(row)
-      .then((payload) => {
-        if (state.rail.key !== key) return;
-        state.rail.gameContext = payload;
-        state.rail.loadingGame = false;
-        loadRailLineups(row, payload, key);
-        loadRailBallpark(row, key);
-      })
-      .catch((error) => {
-        if (state.rail.key !== key) return;
-        state.rail.errors.game = error.message || "Game context unavailable.";
-        state.rail.loadingGame = false;
-        state.rail.loadingLineups = false;
-        state.rail.loadingBallpark = false;
-        render();
-      });
   }
 
   function detailSeason() {
@@ -1427,7 +1233,6 @@
     state.activeSide = sideLabel(row);
     state.activeOdds = clean(row.americanOdds);
     state.lineDropdownOpen = false;
-    state.railSide = "";
     state.activePitchFilter = "All";
     state.heatmapPitcherHand = "ALL";
     state.heatmapBatterHand = "ALL";
@@ -1446,7 +1251,6 @@
       gameContext: null,
       errors: {},
     };
-    state.rail = emptyRailState(row);
     render();
 
     fetchPropCard(row)
@@ -1483,22 +1287,10 @@
       .then((payload) => {
         if (!detailCacheMatches(row)) return;
         state.detail.gameContext = payload;
-        if (state.rail.key === railKey(row)) {
-          state.rail.gameContext = payload;
-          state.rail.loadingGame = false;
-          loadRailLineups(row, payload, railKey(row));
-          loadRailBallpark(row, railKey(row));
-        }
       })
       .catch((error) => {
         if (!detailCacheMatches(row)) return;
         state.detail.errors.game = error.message || "Game context failed to load.";
-        if (state.rail.key === railKey(row)) {
-          state.rail.errors.game = state.detail.errors.game;
-          state.rail.loadingGame = false;
-          state.rail.loadingLineups = false;
-          state.rail.loadingBallpark = false;
-        }
       })
       .finally(() => {
         if (!detailCacheMatches(row)) return;
@@ -2040,266 +1832,423 @@
     ctx.textAlign = "left";
   }
 
-  function renderRightRail(rows) {
-    const selected = state.selected || rows[0] || FALLBACK_ROWS[0];
-    const rail = currentRail(selected);
-    const game = pickGameFromContext(rail.gameContext, selected);
-    const title = game ? `${railTeamLabel(game, "away")} @ ${railTeamLabel(game, "home")}` : (gameLabel(selected) || "MLB context");
+
+  function gameContextKey(game) {
+    if (!game) return "";
+    return [clean(game.fixtureId || game.gamePk), clean(game.date), (game.teams || []).map(clean).join("@")].join("|");
+  }
+
+  function selectedGame() {
+    if (!state.games.length) return null;
+    return state.games.find((game) => gameContextKey(game) === state.selectedGameKey) || state.games[0];
+  }
+
+  function gameTeams(game) {
+    const away = clean((game.away || {}).team) || clean((game.summary || {}).away) || (Array.isArray(game.teams) ? clean(game.teams[0]) : "");
+    const home = clean((game.home || {}).team) || clean((game.summary || {}).home) || (Array.isArray(game.teams) ? clean(game.teams[1]) : "");
+    return { away: away.toUpperCase(), home: home.toUpperCase() };
+  }
+
+  function gameTeamName(game, team) {
+    const { away, home } = gameTeams(game);
+    const summary = game.summary || {};
+    if (clean(team).toUpperCase() === away) return clean(summary.awayName || (game.away || {}).teamName) || away;
+    if (clean(team).toUpperCase() === home) return clean(summary.homeName || (game.home || {}).teamName) || home;
+    return clean(team).toUpperCase();
+  }
+
+  function formatGameClock(value) {
+    const raw = clean(value);
+    if (!raw) return "Today";
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    }
+    return raw;
+  }
+
+  function scoreText(game) {
+    const summary = game.summary || {};
+    const awayScore = summary.awayScore;
+    const homeScore = summary.homeScore;
+    if (awayScore !== undefined && homeScore !== undefined && clean(summary.status).toLowerCase() !== "pre-game") {
+      return `${awayScore} - ${homeScore}`;
+    }
+    return formatGameClock(game.startTime || summary.gameDate);
+  }
+
+  async function loadGames() {
+    state.gamesLoading = true;
+    state.gamesError = "";
+    render();
+    try {
+      const params = new URLSearchParams({ season: detailSeason(), date: state.date, limit: "100" });
+      const payload = await getJson(`/api/game-context?${params.toString()}`);
+      state.games = Array.isArray(payload.games) ? payload.games : [];
+      if (!state.selectedGameKey && state.games.length) state.selectedGameKey = gameContextKey(state.games[0]);
+      if (state.selectedGameKey && !state.games.some((game) => gameContextKey(game) === state.selectedGameKey) && state.games.length) {
+        state.selectedGameKey = gameContextKey(state.games[0]);
+      }
+    } catch (error) {
+      state.gamesError = error.message || "Games failed to load.";
+    } finally {
+      state.gamesLoading = false;
+      render();
+    }
+  }
+
+  async function loadInsights() {
+    state.insightsLoading = true;
+    state.insightsError = "";
+    render();
+    try {
+      const params = new URLSearchParams({ season: detailSeason(), date: state.date, limit: "50" });
+      const payload = await getJson(`/api/insights/feed?${params.toString()}`);
+      state.insights = Array.isArray(payload.cards) ? payload.cards : [];
+      state.insightsLastLoaded = clean(payload.generatedAt) || new Date().toISOString();
+    } catch (error) {
+      state.insightsError = error.message || "Insights feed failed to load.";
+    } finally {
+      state.insightsLoading = false;
+      render();
+    }
+  }
+
+  function startInsightsTimer() {
+    if (state.insightsTimer) window.clearInterval(state.insightsTimer);
+    state.insightsTimer = window.setInterval(() => {
+      if (state.nav === "Insights") loadInsights();
+    }, 5 * 60 * 1000);
+  }
+
+  function renderGamesView(rows) {
+    if (!state.games.length && !state.gamesLoading && !state.gamesError) {
+      window.setTimeout(loadGames, 0);
+    }
+    const game = selectedGame();
     return `
-      <aside class="ob-right-rail" aria-label="Prop context">
-        <div class="ob-rail-tabs" role="tablist" aria-label="Right rail tabs">
-          ${["Matchup", "Injuries", "Insights"].map((tab) => `<button class="${state.railTab === tab ? "is-active" : ""}" type="button" data-rail-tab="${escapeHtml(tab)}">${escapeHtml(tab)}</button>`).join("")}
+      <section class="ob-games-shell">
+        <header class="ob-games-top">
+          <div>
+            <p>MLB Games</p>
+            <h1>Games</h1>
+          </div>
+          <div class="ob-games-actions">
+            <input class="ob-input ob-date" type="date" value="${escapeHtml(state.date)}" data-control="date" aria-label="Games date" />
+            <button class="ob-load-button" type="button" data-action="retryGames">Refresh Games</button>
+          </div>
+        </header>
+        <div class="ob-games-layout">
+          ${renderGamesList()}
+          ${state.gamesLoading ? renderGamesSkeleton() : state.gamesError ? renderErrorPanel(state.gamesError, "retryGames") : renderGameDetail(game, state.rows)}
         </div>
-        <div class="ob-rail-context-title">
-          <strong>${escapeHtml(title)}</strong>
-          <span>${escapeHtml(formatGameTime((game && { gameDate: game.startTime || (game.summary || {}).gameDate }) || selected))}</span>
-        </div>
-        ${renderRailTabContent(state.railTab, selected, rows, rail, game)}
+      </section>
+    `;
+  }
+
+  function renderGamesList() {
+    if (state.gamesLoading) {
+      return `<aside class="ob-games-list">${Array.from({ length: 8 }, () => `<div class="ob-game-card"><span class="ob-skeleton ob-skel-text wide"></span><span class="ob-skeleton ob-skel-text mid"></span></div>`).join("")}</aside>`;
+    }
+    if (!state.games.length) {
+      return `<aside class="ob-games-list"><div class="ob-empty"><strong>No MLB games found.</strong><span>Try another slate date.</span></div></aside>`;
+    }
+    return `
+      <aside class="ob-games-list" aria-label="Games list">
+        ${state.games.map((game) => {
+          const { away, home } = gameTeams(game);
+          const active = gameContextKey(game) === gameContextKey(selectedGame());
+          return `
+            <button class="ob-game-card ${active ? "is-active" : ""}" type="button" data-game-key="${escapeHtml(gameContextKey(game))}">
+              <div class="ob-game-teams">
+                ${renderTeamStack(game, away)}
+                ${renderTeamStack(game, home)}
+              </div>
+              <div class="ob-game-time">${escapeHtml(scoreText(game))}</div>
+            </button>
+          `;
+        }).join("")}
       </aside>
     `;
   }
 
-  function renderRailTabContent(tab, selected, rows, rail, game) {
-    if (tab === "Injuries") return renderRailInjuries(selected, rows);
-    if (tab === "Insights") return renderRailInsights(selected, rows);
+  function renderTeamStack(game, team) {
     return `
-      ${renderStartingPitcherCard(rail, game, selected)}
-      ${renderBullpenCard(rail, game, selected)}
-      ${renderBatterStatsCard(rail, game, selected)}
-      ${renderStadiumCard(rail, game, selected)}
-    `;
-  }
-
-  function railSkeleton(title, lines = 5) {
-    return `
-      <section class="ob-rail-card ob-rail-skeleton-card">
-        <div class="ob-rail-card-header"><h3>${escapeHtml(title)}</h3><span>Loading</span></div>
-        <div class="ob-rail-body">
-          ${Array.from({ length: lines }, () => `<span class="ob-skeleton ob-rail-skel-line"></span>`).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function renderStartingPitcherCard(rail, game, selected) {
-    if (rail.loadingGame) return railSkeleton("Starting Pitcher", 6);
-    if ((rail.errors || {}).game) return renderRailError("Starting Pitcher", rail.errors.game);
-    if (!game) return renderRailEmpty("Starting Pitcher", "Game context unavailable for this matchup.");
-    const teams = gameTeams(game, selected);
-    const sides = ["away", "home"].filter((side) => railTeamLabel(game, side));
-    return `
-      <section class="ob-rail-card ob-sp-card">
-        <div class="ob-rail-card-header">
-          <h3>Starting Pitcher</h3>
-          <div class="ob-rail-toggle-mini">
-            <button type="button" class="${state.railPitcherView === "season" ? "is-active" : ""}" data-rail-pitcher-view="season">2026</button>
-            <button type="button" class="${state.railPitcherView === "opponent" ? "is-active" : ""}" data-rail-pitcher-view="opponent">Vs</button>
-          </div>
-        </div>
-        <div class="ob-sp-grid">
-          ${sides.map((side) => renderPitcherPanel(game, side, side === "away" ? teams.home : teams.away)).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function renderPitcherPanel(game, side, opponent) {
-    const sp = ((game.startingPitchers || {})[side]) || {};
-    const teamSide = game[side] || {};
-    const pitcher = clean(sp.name || teamSide.probablePitcher) || "Starter TBD";
-    const stats = state.railPitcherView === "opponent" ? (sp.vsOpponentStats || {}) : (sp.seasonStats || {});
-    const rows = [
-      ["Record", stats.record],
-      ["ERA", stats.era, 2],
-      ["IP", stats.ip, 1],
-      ["H/9", stats.hPer9, 2],
-      ["K/9", stats.kPer9, 2],
-      ["BB/9", stats.bbPer9, 2],
-      ["WHIP", stats.whip, 3],
-    ];
-    return `
-      <div class="ob-sp-panel">
-        <div class="ob-sp-identity">
-          <div class="ob-avatar ob-avatar--team" style="--team-color:${escapeHtml(teamColor(railTeamLabel(game, side)))};--team-bg:${escapeHtml(rgba(teamColor(railTeamLabel(game, side)), 0.25))}">${escapeHtml(initials(pitcher))}</div>
-          <div><strong>${escapeHtml(pitcher)}</strong><span>${escapeHtml(railTeamLabel(game, side))} vs ${escapeHtml(opponent || "—")}</span></div>
-        </div>
-        <table class="ob-rail-table"><tbody>
-          ${rows.map(([label, value, digits]) => {
-            const text = label === "Record" ? (clean(value) || "—") : formatStatValue(value, digits || 1);
-            return `<tr><td>${escapeHtml(label)}</td><td class="${pitcherTone(label, value)}">${escapeHtml(text)}</td></tr>`;
-          }).join("")}
-        </tbody></table>
+      <div class="ob-game-team">
+        <span class="ob-team-logo" style="--team-color: ${escapeHtml(teamColor(team))}; --team-bg: ${escapeHtml(rgba(teamColor(team), 0.26))}">${escapeHtml(clean(team).slice(0, 3))}</span>
+        <span>${escapeHtml(gameTeamName(game, team))}</span>
       </div>
     `;
   }
 
-  function renderBullpenCard(rail, game, selected) {
-    if (rail.loadingGame) return railSkeleton("Bullpen Stats", 7);
-    if (!game) return renderRailEmpty("Bullpen Stats", "No bullpen data available.");
-    const side = activeRailSide(game, selected);
-    const teamData = game[side] || {};
-    const rows = safeArray(teamData.bullpenPitchers).slice().sort((a, b) => number(b.pitchCountL5) - number(a.pitchCountL5)).slice(0, 8);
+  function renderGamesSkeleton() {
     return `
-      <section class="ob-rail-card ob-bullpen-card">
-        <div class="ob-rail-card-header">
-          <h3>Bullpen Stats</h3>
-          <div class="ob-rail-team-toggle">
-            ${["away", "home"].map((item) => `<button type="button" class="${side === item ? "is-active" : ""}" data-rail-side="${item}">${escapeHtml(railTeamLabel(game, item))}</button>`).join("")}
+      <section class="ob-game-detail">
+        <div class="ob-skeleton ob-skel-block" style="height: 96px"></div>
+        <div class="ob-skeleton ob-skel-block" style="height: 260px"></div>
+        <div class="ob-skeleton ob-skel-block" style="height: 170px"></div>
+      </section>
+    `;
+  }
+
+  function renderGameDetail(game, rows) {
+    if (!game) return `<section class="ob-game-detail"><div class="ob-empty"><strong>Select a game.</strong><span>Game context will appear here.</span></div></section>`;
+    const { away, home } = gameTeams(game);
+    const tabs = ["Gamelines", "Player props", "Team props", "Game props"];
+    return `
+      <section class="ob-game-detail">
+        <header class="ob-game-detail-header">
+          <button class="ob-detail-back" type="button" data-action="allGames">← Back to All Games</button>
+          <div class="ob-game-matchup-title">
+            ${renderTeamStack(game, away)}
+            <div class="ob-game-center"><strong>${escapeHtml(scoreText(game))}</strong><span>${escapeHtml(clean((game.summary || {}).venue) || "Ballpark")}</span></div>
+            ${renderTeamStack(game, home)}
+          </div>
+          <nav class="ob-game-subtabs" aria-label="Game sections">
+            ${tabs.map((tab) => `<button type="button" class="${state.gameSubTab === tab ? "is-active" : ""}" data-game-subtab="${escapeHtml(tab)}">${escapeHtml(tab)}</button>`).join("")}
+          </nav>
+        </header>
+        ${state.gameSubTab === "Player props" ? renderGamePlayerProps(game, rows) : renderGamelines(game)}
+      </section>
+    `;
+  }
+
+  function renderGamelines(game) {
+    return `
+      <div class="ob-gamelines">
+        ${renderMoneyLine(game)}
+        ${renderRunLine(game)}
+        ${renderTotalSection(game)}
+        ${renderGameAccordions()}
+      </div>
+    `;
+  }
+
+  function marketRowForTeam(game, team) {
+    const rows = (((game.moneyline || {}).teams) || []);
+    return rows.find((item) => clean(item.team).toUpperCase() === clean(team).toUpperCase()) || {};
+  }
+
+  function lineRowForTeam(game, marketRows, team) {
+    const upper = clean(team).toUpperCase();
+    return (marketRows || []).find((item) => clean(item.team).toUpperCase() === upper) || {};
+  }
+
+  function modelPctFromImplied(implied, bump = 0) {
+    const pct = implied ? number(implied) * 100 : 0;
+    return pct ? clamp(Math.round(pct + bump), 1, 99) : 0;
+  }
+
+  function renderProbabilityBars(modelPct, impliedPct) {
+    const model = clamp(number(modelPct), 0, 100);
+    const implied = clamp(number(impliedPct), 0, 100);
+    return `
+      <div class="ob-prob-pair">
+        <div class="ob-prob-line"><span>Model</span><div class="ob-prob-track"><i class="ob-prob-model" style="width:${escapeHtml(String(model))}%"></i></div><strong>${model ? escapeHtml(percent(model)) : "--"}</strong></div>
+        <div class="ob-prob-line"><span>Impl.</span><div class="ob-prob-track"><i class="ob-prob-implied" style="width:${escapeHtml(String(implied))}%"></i></div><strong>${implied ? escapeHtml(percent(implied)) : "--"}</strong></div>
+      </div>
+    `;
+  }
+
+  function renderMarketLineRow(label, team, odds, impliedPct, modelPct, lineText = "") {
+    return `
+      <div class="ob-market-line-row">
+        <div class="ob-book-chips"><span>DK</span><span>FD</span><span>MGM</span></div>
+        <div class="ob-market-team"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(lineText || team)}</span></div>
+        <div class="ob-odds-chip">${escapeHtml(formatOdds(odds))}</div>
+        ${renderProbabilityBars(modelPct, impliedPct)}
+      </div>
+    `;
+  }
+
+  function renderMoneyLine(game) {
+    const { away, home } = gameTeams(game);
+    const awayRow = marketRowForTeam(game, away);
+    const homeRow = marketRowForTeam(game, home);
+    const awayImp = number(awayRow.avgImpliedProbability) * 100;
+    const homeImp = number(homeRow.avgImpliedProbability) * 100;
+    return `
+      <section class="ob-line-section">
+        <div class="ob-section-label">Money Line</div>
+        ${renderMarketLineRow(gameTeamName(game, away), away, awayRow.avgAmericanOdds, awayImp, modelPctFromImplied(awayRow.avgImpliedProbability, 3), away)}
+        ${renderMarketLineRow(gameTeamName(game, home), home, homeRow.avgAmericanOdds, homeImp, modelPctFromImplied(homeRow.avgImpliedProbability, -2), home)}
+      </section>
+    `;
+  }
+
+  function renderRunLine(game) {
+    const { away, home } = gameTeams(game);
+    const awayRow = lineRowForTeam(game, game.runLines, away);
+    const homeRow = lineRowForTeam(game, game.runLines, home);
+    const awayImp = number(awayRow.impliedProbability) * 100;
+    const homeImp = number(homeRow.impliedProbability) * 100;
+    return `
+      <section class="ob-line-section">
+        <div class="ob-section-label">Run Line</div>
+        ${renderMarketLineRow(gameTeamName(game, away), away, awayRow.americanOdds, awayImp, modelPctFromImplied(awayRow.impliedProbability, 4), `${away} ${clean(awayRow.line) || "+1.5"}`)}
+        ${renderMarketLineRow(gameTeamName(game, home), home, homeRow.americanOdds, homeImp, modelPctFromImplied(homeRow.impliedProbability, -4), `${home} ${clean(homeRow.line) || "-1.5"}`)}
+      </section>
+    `;
+  }
+
+  function totalRows(game) {
+    const totals = game.gameTotals || [];
+    const over = totals.find((item) => /over/i.test(clean(item.outcomeName))) || totals[0] || {};
+    const under = totals.find((item) => /under/i.test(clean(item.outcomeName))) || totals[1] || {};
+    return { over, under };
+  }
+
+  function renderTotalSection(game) {
+    const { over, under } = totalRows(game);
+    const line = clean(over.line || under.line) || "--";
+    return `
+      <section class="ob-line-section">
+        <div class="ob-section-label">Total O/U</div>
+        ${renderMarketLineRow(`Over ${line}`, "Over", over.americanOdds, number(over.impliedProbability) * 100, modelPctFromImplied(over.impliedProbability, 2), "Consensus total")}
+        ${renderMarketLineRow(`Under ${line}`, "Under", under.americanOdds, number(under.impliedProbability) * 100, modelPctFromImplied(under.impliedProbability, -2), "Consensus total")}
+      </section>
+    `;
+  }
+
+  function renderGameAccordions() {
+    return `
+      <div class="ob-game-accordions">
+        ${["Alternate Run Line", "Win Margin", "Alternate Total O/U", "Total O/U (3 Way)"].map((title) => `
+          <details class="ob-game-accordion">
+            <summary>${escapeHtml(title)}</summary>
+            <div>Data coming soon</div>
+          </details>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function renderGamePlayerProps(game, rows) {
+    const { away, home } = gameTeams(game);
+    const teams = new Set([away, home].filter(Boolean));
+    const gameRows = rows.filter((row) => teams.has(clean(row.team).toUpperCase()) && teams.has(clean(row.opponent).toUpperCase())).sort(compareRows);
+    state.gamePropRows = gameRows;
+    return `
+      <section class="ob-game-props-panel">
+        <div class="ob-board-meta"><span><strong>${escapeHtml(String(gameRows.length))}</strong> player props for ${escapeHtml(away)} @ ${escapeHtml(home)}</span><span>${escapeHtml(state.date)}</span></div>
+        ${state.loading ? renderLoading() : renderTable(gameRows)}
+      </section>
+    `;
+  }
+
+  function renderInsightsFeed() {
+    if (!state.insights.length && !state.insightsLoading && !state.insightsError) {
+      window.setTimeout(loadInsights, 0);
+    }
+    return `
+      <section class="ob-insights-page">
+        <header class="ob-insights-header">
+          <div>
+            <p>MLB Insights</p>
+            <h1>Insights</h1>
+            <span>${state.insightsLastLoaded ? `Updated ${escapeHtml(formatGameClock(state.insightsLastLoaded))}` : "Hit-rate streaks, steam alerts, and team-form signals"}</span>
+          </div>
+          <button class="ob-load-button" type="button" data-action="retryInsights">Refresh Feed</button>
+        </header>
+        ${state.insightsLoading ? renderInsightsSkeleton() : state.insightsError ? renderErrorPanel(state.insightsError, "retryInsights") : `
+          <div class="ob-insights-feed">
+            ${state.insights.length ? state.insights.map(renderInsightCard).join("") : `<div class="ob-empty"><strong>No insights found.</strong><span>Refresh once odds movement and hit-rate data are available.</span></div>`}
+          </div>
+        `}
+      </section>
+    `;
+  }
+
+  function renderInsightsSkeleton() {
+    return `<div class="ob-insights-feed">${Array.from({ length: 5 }, () => `<article class="ob-insight-card"><span class="ob-skeleton ob-skel-text wide"></span><span class="ob-skeleton ob-skel-text mid"></span><span class="ob-skeleton ob-skel-block"></span></article>`).join("")}</div>`;
+  }
+
+  function insightBadgeClass(badge) {
+    if (badge === "ob-red") return "is-red";
+    if (badge === "ob-amber") return "is-amber";
+    return "is-green";
+  }
+
+  function renderInsightCard(card) {
+    const bar = card.hitRateBar || {};
+    const pct = clamp(number(bar.pct), 0, 100);
+    return `
+      <article class="ob-insight-card ${insightBadgeClass(card.badge)}">
+        <div class="ob-insight-head">
+          <div class="ob-avatar" style="--team-color: ${escapeHtml(teamColor(card.team))}; --team-bg: ${escapeHtml(rgba(teamColor(card.team), 0.24))}">${escapeHtml(initials(card.player || card.team))}</div>
+          <div>
+            <h3>${escapeHtml(clean(card.player) || clean(card.team) || "MLB")}</h3>
+            <span>${escapeHtml(clean(card.team) || "MLB")} · ${escapeHtml(clean(card.game) || "Slate")} · ${escapeHtml(clean(card.gameTime) || "Today")}</span>
           </div>
         </div>
-        ${rows.length ? `
-          <div class="ob-rail-table-wrap">
-            <table class="ob-rail-table ob-bullpen-table">
-              <thead><tr><th>Name</th><th>2026</th><th>L3</th><th>L5</th><th>Rest</th><th>ERA</th><th>K%</th></tr></thead>
-              <tbody>${rows.map((row) => `
-                <tr>
-                  <td>${escapeHtml(clean(row.name) || "—")}</td>
-                  <td>${escapeHtml(formatStatValue(row.pitchCountYTD, 0))}</td>
-                  <td>${escapeHtml(formatStatValue(row.pitchCountL3, 0))}</td>
-                  <td>${escapeHtml(formatStatValue(row.pitchCountL5, 0))}</td>
-                  <td class="${number(row.daysRest, 99) === 0 ? "is-warn" : ""}">${escapeHtml(row.daysRest === null || row.daysRest === undefined ? "—" : String(row.daysRest))}</td>
-                  <td class="${number(row.era, 0) > 5 ? "is-bad" : ""}">${escapeHtml(formatStatValue(row.era, 2))}</td>
-                  <td>${escapeHtml(formatStatValue(row.kPct, 1))}</td>
-                </tr>
-              `).join("")}</tbody>
-            </table>
-          </div>
-        ` : `<p class="ob-muted-line">No bullpen data available for ${escapeHtml(railTeamLabel(game, side))}.</p>`}
-        <div class="ob-compared ob-rail-compared"><i></i> sorted by recent workload</div>
-      </section>
-    `;
-  }
-
-  function renderBatterStatsCard(rail, game, selected) {
-    if (rail.loadingLineups) return railSkeleton("Batter Stats", 7);
-    if ((rail.errors || {}).lineups && !Object.keys(rail.lineups || {}).length) return renderRailError("Batter Stats", rail.errors.lineups);
-    if (!game) return renderRailEmpty("Batter Stats", "Lineup context unavailable.");
-    const teams = gameTeams(game, selected);
-    const side = activeRailSide(game, selected);
-    const team = railTeamLabel(game, side) || clean(selected.team).toUpperCase();
-    const lineup = lineupForTeam(rail, team);
-    const source = (((rail.lineups || {})[team] || {}).source || "estimated").replaceAll("_", " ");
-    const pitcherName = clean(selected.pitcher || ((game.startingPitchers || {})[side === "home" ? "away" : "home"] || {}).name || "pitcher");
-    return `
-      <section class="ob-rail-card ob-batter-card">
-        <div class="ob-rail-card-header">
-          <h3>Batter Stats</h3>
-          <span>${escapeHtml(team)} · ${escapeHtml(source)}</span>
+        <p>${escapeHtml(clean(card.text) || "Insight unavailable.")}</p>
+        <div class="ob-insight-market-row">
+          <span class="ob-market-pill">${escapeHtml(clean(card.market) || "Market")}</span>
+          ${clean(card.odds) ? `<strong>${escapeHtml(formatOdds(card.odds))}</strong>` : ""}
         </div>
-        <div class="ob-mini-tabs ob-rail-subtabs">
-          ${["2026", "vs. Hand", `vs. ${pitcherName.split(" ").slice(-1)[0] || "Pitcher"}`].map((tab) => `<button type="button" class="${state.railBatterTab === tab ? "is-active" : ""}" data-rail-batter-tab="${escapeHtml(tab)}">${escapeHtml(tab)}</button>`).join("")}
+        <div class="ob-insight-bar-row">
+          <div class="ob-insight-bar"><span class="ob-insight-bar-fill" style="width:${escapeHtml(String(pct))}%"></span><i style="left:25%"></i><i style="left:50%"></i><i style="left:75%"></i></div>
+          <strong>${escapeHtml(percent(pct))}</strong>
         </div>
-        ${lineup.length ? `
-          <div class="ob-rail-table-wrap ob-batter-scroll" data-selected-player="${escapeHtml(clean(selected.player))}">
-            <table class="ob-rail-table ob-batter-table">
-              <thead><tr><th>Name</th><th>AB</th><th>AVG</th><th>HR</th><th>RBI</th><th>OPS</th><th>K%</th></tr></thead>
-              <tbody>${lineup.map((item) => renderBatterRow(item, selected)).join("")}</tbody>
-            </table>
-          </div>
-        ` : `<p class="ob-muted-line">No lineup data available for ${escapeHtml(team)}.</p>`}
-      </section>
+      </article>
     `;
   }
 
-  function renderBatterRow(item, selected) {
-    const stats = item.stats || {};
-    const isSelected = normalizeName(item.player) === selectedPlayerName(selected);
-    return `
-      <tr class="${isSelected ? "is-selected-batter" : ""}" data-batter-name="${escapeHtml(clean(item.player))}">
-        <td><span class="ob-batter-name"><i>${escapeHtml(String(item.battingOrder || ""))}</i>${escapeHtml(clean(item.player) || "—")}</span></td>
-        <td>${escapeHtml(formatStatValue(stats.ab, 0))}</td>
-        <td>${escapeHtml(formatAvg(stats.avg))}</td>
-        <td>${escapeHtml(formatStatValue(stats.hr ?? stats.homeRuns, 0))}</td>
-        <td>${escapeHtml(formatStatValue(stats.rbi, 0))}</td>
-        <td>${escapeHtml(formatAvg(stats.ops))}</td>
-        <td>${escapeHtml(formatStatValue(stats.kPct, 1))}</td>
-      </tr>
-    `;
-  }
-
-  function renderStadiumCard(rail, game, selected) {
-    if (rail.loadingBallpark) return railSkeleton("Stadium", 4);
-    const env = ((rail.ballpark || {}).environment) || {};
-    const teams = gameTeams(game || {}, selected);
-    const weather = safeArray((game || {}).weather).find((item) => clean(item.team).toUpperCase() === teams.home) || safeArray((game || {}).weather)[0] || {};
-    const venue = clean(env.venue || weather.venue || ((game || {}).summary || {}).venue) || "Ballpark";
-    const roof = clean(env.roof || weather.roof);
-    const indoor = /indoor|dome|closed/i.test(`${roof} ${venue}`);
-    const temp = env.temperature ?? weather.temperature ?? weather.temperatureF;
-    const windMph = env.windMph ?? weather.windMph;
-    const windDirection = clean(env.windDirection || weather.windDirection);
-    const humidity = env.humidity ?? weather.humidity;
-    const windAlert = !indoor && (number(windMph, 0) > 10 || /out|carry|toward/i.test(windDirection));
-    return `
-      <section class="ob-rail-card ob-stadium-card">
-        <div class="ob-rail-card-header"><h3>Stadium</h3><span>${escapeHtml(indoor ? "Indoor" : "Outdoor")}</span></div>
-        <div class="ob-rail-body">
-          <h4>${escapeHtml(venue)}</h4>
-          ${indoor ? `<p class="ob-muted-line is-compact">A fully indoor stadium — weather conditions have no impact on the game.</p>` : `
-            <div class="ob-weather-grid">
-              <div><span>Temp</span><strong>${escapeHtml(Number.isFinite(Number(temp)) ? `${Math.round(Number(temp))}°F` : "—")}</strong></div>
-              <div><span>Wind</span><strong>${escapeHtml(Number.isFinite(Number(windMph)) ? `${Math.round(Number(windMph))} mph` : "—")}</strong></div>
-              <div><span>Dir</span><strong>${escapeHtml(windDirection || "—")}</strong></div>
-              <div><span>Hum</span><strong>${escapeHtml(Number.isFinite(Number(humidity)) ? `${Math.round(Number(humidity))}%` : "—")}</strong></div>
-            </div>
-            ${windAlert ? `<p class="ob-weather-alert">Wind profile may increase carry and HR volatility.</p>` : `<p class="ob-muted-line is-compact">No major weather edge flagged.</p>`}
-          `}
-        </div>
-      </section>
-    `;
-  }
-
-  function renderRailInjuries(selected, rows) {
-    const related = rows.filter((row) => gameLabel(row) === gameLabel(selected) && shouldWarn(row)).slice(0, 8);
-    return `
-      <section class="ob-rail-card">
-        <div class="ob-rail-card-header"><h3>Injuries</h3><span>${escapeHtml(gameLabel(selected) || "MLB")}</span></div>
-        <div class="ob-rail-body ob-insight-list">
-          ${shouldWarn(selected) ? `<div class="ob-rail-warning"><strong>${escapeHtml(clean(selected.player) || "Selected prop")}</strong><span>${escapeHtml(warningText(selected))}</span></div>` : ""}
-          ${related.length ? related.map((row) => `<div class="ob-insight-item"><strong>${escapeHtml(clean(row.player) || clean(row.team))}</strong><span>${escapeHtml(warningText(row))}</span></div>`).join("") : `<p class="ob-muted-line is-compact">No injury or low-confidence warning is currently attached to this game. Confirm official lineups before betting.</p>`}
-        </div>
-      </section>
-    `;
-  }
-
-  function renderRailInsights(selected, rows) {
+  function renderRightRail(rows) {
+    const selected = state.selected || rows[0] || FALLBACK_ROWS[0];
     const signals = rowSignals(selected);
     const top = rows.slice(0, 6);
+
     return `
-      <section class="ob-rail-card">
-        <div class="ob-rail-card-header">
-          <h3>${escapeHtml(clean(selected.player) || "Selected prop")}</h3>
-          <span>${escapeHtml(gameLabel(selected) || "MLB")}</span>
+      <aside class="ob-right-rail" aria-label="Prop context">
+        <div class="ob-rail-tabs">
+          <button class="is-active" type="button">Matchup</button>
+          <button type="button">Injuries</button>
+          <button type="button">Insights</button>
         </div>
-        <div class="ob-rail-body">
-          <p class="ob-pick-title">${escapeHtml(proposition(selected))}</p>
-          <p class="ob-pick-copy">${escapeHtml(selectedInsight(selected))}</p>
-          <div class="ob-rail-metrics">
-            <div class="ob-rail-metric"><span>IP</span><strong>${escapeHtml(percent(signals.ip))}</strong></div>
-            <div class="ob-rail-metric"><span>L10</span><strong>${escapeHtml(hitWindow(selected, "L10") ? percent(hitWindow(selected, "L10").pct) : "--")}</strong></div>
-            <div class="ob-rail-metric"><span>Odds</span><strong>${escapeHtml(formatOdds(selected.americanOdds))}</strong></div>
+
+        <section class="ob-rail-card">
+          <div class="ob-rail-card-header">
+            <h3>${escapeHtml(clean(selected.player) || "Selected prop")}</h3>
+            <span>${escapeHtml(gameLabel(selected) || "MLB")}</span>
           </div>
-        </div>
-      </section>
-      <section class="ob-rail-card">
-        <div class="ob-rail-card-header"><h3>Hit-Rate Profile</h3><span>${escapeHtml(state.date)}</span></div>
-        <div class="ob-rail-body ob-bar-list">${HIT_COLUMNS.map(([key, label]) => signalBar(label, hitPct(selected, key))).join("")}</div>
-      </section>
-      <section class="ob-rail-card">
-        <div class="ob-rail-card-header"><h3>Best On Board</h3><span>${escapeHtml(String(top.length))} props</span></div>
-        <div class="ob-rail-body ob-insight-list">
-          ${top.map((row) => `<div class="ob-insight-item"><strong>${escapeHtml(clean(row.player) || clean(row.team))} ${escapeHtml(proposition(row))}</strong><span>${escapeHtml(gameLabel(row) || "MLB")} - ${escapeHtml(hitWindow(row, "L10") ? percent(hitWindow(row, "L10").pct) : "hit rate pending")}</span></div>`).join("")}
-        </div>
-      </section>
+          <div class="ob-rail-body">
+            <p class="ob-pick-title">${escapeHtml(proposition(selected))}</p>
+            <p class="ob-pick-copy">${escapeHtml(selectedInsight(selected))}</p>
+            <div class="ob-rail-metrics">
+              <div class="ob-rail-metric"><span>IP</span><strong>${escapeHtml(percent(signals.ip))}</strong></div>
+              <div class="ob-rail-metric"><span>L10</span><strong>${escapeHtml(hitWindow(selected, "L10") ? percent(hitWindow(selected, "L10").pct) : "--")}</strong></div>
+              <div class="ob-rail-metric"><span>Odds</span><strong>${escapeHtml(formatOdds(selected.americanOdds))}</strong></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ob-rail-card">
+          <div class="ob-rail-card-header">
+            <h3>Hit-Rate Profile</h3>
+            <span>${escapeHtml(state.date)}</span>
+          </div>
+          <div class="ob-rail-body ob-bar-list">
+            ${HIT_COLUMNS.map(([key, label]) => signalBar(label, hitPct(selected, key))).join("")}
+          </div>
+        </section>
+
+        <section class="ob-rail-card">
+          <div class="ob-rail-card-header">
+            <h3>Best On Board</h3>
+            <span>${escapeHtml(String(top.length))} props</span>
+          </div>
+          <div class="ob-rail-body ob-insight-list">
+            ${top.map((row) => `
+              <div class="ob-insight-item">
+                <strong>${escapeHtml(clean(row.player) || clean(row.team))} ${escapeHtml(proposition(row))}</strong>
+                <span>${escapeHtml(gameLabel(row) || "MLB")} - ${escapeHtml(hitWindow(row, "L10") ? percent(hitWindow(row, "L10").pct) : "hit rate pending")}</span>
+              </div>
+            `).join("")}
+          </div>
+        </section>
+      </aside>
     `;
-  }
-
-  function renderRailError(title, message) {
-    return `<section class="ob-rail-card"><div class="ob-rail-card-header"><h3>${escapeHtml(title)}</h3><span>Error</span></div><div class="ob-rail-body"><div class="ob-rail-error">⚠ ${escapeHtml(message)}</div></div></section>`;
-  }
-
-  function renderRailEmpty(title, message) {
-    return `<section class="ob-rail-card"><div class="ob-rail-card-header"><h3>${escapeHtml(title)}</h3><span>Pending</span></div><p class="ob-muted-line">${escapeHtml(message)}</p></section>`;
   }
 
   function selectedInsight(row) {
@@ -2364,34 +2313,6 @@
       return;
     }
 
-    const railTabButton = event.target.closest("[data-rail-tab]");
-    if (railTabButton) {
-      state.railTab = railTabButton.dataset.railTab || "Matchup";
-      render();
-      return;
-    }
-
-    const railSideButton = event.target.closest("[data-rail-side]");
-    if (railSideButton) {
-      state.railSide = railSideButton.dataset.railSide || "";
-      render();
-      return;
-    }
-
-    const railPitcherViewButton = event.target.closest("[data-rail-pitcher-view]");
-    if (railPitcherViewButton) {
-      state.railPitcherView = railPitcherViewButton.dataset.railPitcherView || "season";
-      render();
-      return;
-    }
-
-    const railBatterTabButton = event.target.closest("[data-rail-batter-tab]");
-    if (railBatterTabButton) {
-      state.railBatterTab = railBatterTabButton.dataset.railBatterTab || "2026";
-      render();
-      return;
-    }
-
     const sportButton = event.target.closest("[data-sport]");
     if (sportButton) {
       const sport = sportButton.dataset.sport;
@@ -2400,6 +2321,21 @@
         return;
       }
       state.sport = sport;
+      render();
+      return;
+    }
+
+    const gameButton = event.target.closest("[data-game-key]");
+    if (gameButton) {
+      state.selectedGameKey = gameButton.dataset.gameKey;
+      state.gameSubTab = "Gamelines";
+      render();
+      return;
+    }
+
+    const gameSubtab = event.target.closest("[data-game-subtab]");
+    if (gameSubtab) {
+      state.gameSubTab = gameSubtab.dataset.gameSubtab;
       render();
       return;
     }
@@ -2492,8 +2428,10 @@
 
     const row = event.target.closest("[data-row-index]");
     if (row) {
-      const rows = filteredRows().slice(0, PAGE_SIZE);
-      const next = rows[number(row.dataset.rowIndex, -1)];
+      const sourceRows = (state.nav === "Games" && state.gameSubTab === "Player props" && Array.isArray(state.gamePropRows) && state.gamePropRows.length)
+        ? state.gamePropRows
+        : filteredRows();
+      const next = sourceRows.slice(0, PAGE_SIZE)[number(row.dataset.rowIndex, -1)];
       if (next) {
         openPropDetail(next);
       }
@@ -2503,6 +2441,12 @@
     const action = event.target.closest("[data-action]");
     if (!action) return;
     if (action.dataset.action === "reload") loadBoard();
+    if (action.dataset.action === "retryGames") loadGames();
+    if (action.dataset.action === "retryInsights") loadInsights();
+    if (action.dataset.action === "allGames") {
+      state.gameSubTab = "Gamelines";
+      render();
+    }
     if (action.dataset.action === "backToProps") {
       state.nav = "Props";
       state.lineDropdownOpen = false;
@@ -2576,14 +2520,20 @@
 
   function applyNav(item) {
     state.nav = item;
+    if (state.insightsTimer && item !== "Insights") {
+      window.clearInterval(state.insightsTimer);
+      state.insightsTimer = null;
+    }
     if (item === "Props") {
       state.savedOnly = false;
       state.minEdge = 0;
-    } else if (item === "EV+" || item === "Boosts") {
+    } else if (["EV+", "Boosts", "Arbitrage", "Middle Bets"].includes(item)) {
       state.savedOnly = false;
-      state.minEdge = 5;
-      state.sortKey = "edge";
-      state.sortDir = "desc";
+      state.minEdge = item === "EV+" ? 5 : 0;
+      if (item === "EV+") {
+        state.sortKey = "edge";
+        state.sortDir = "desc";
+      }
     } else if (item === "Popular") {
       state.savedOnly = false;
       state.sortKey = "L10";
@@ -2591,9 +2541,13 @@
     } else if (item === "Saved") {
       state.savedOnly = true;
     } else if (item === "Games") {
-      showToast("Games view begins in Stage 8.", "info");
+      state.savedOnly = false;
+      state.gameSubTab = "Gamelines";
+      if (!state.games.length) loadGames();
     } else if (item === "Insights") {
-      showToast("Insights feed begins in Stage 9.", "info");
+      state.savedOnly = false;
+      if (!state.insights.length) loadInsights();
+      startInsightsTimer();
     }
     render();
   }
@@ -2611,7 +2565,10 @@
     if (!control) return;
     if (control === "date") {
       state.date = event.target.value || today();
+      state.selectedGameKey = "";
       loadBoard();
+      if (state.nav === "Games") loadGames();
+      if (state.nav === "Insights") loadInsights();
     }
     if (control === "market") {
       state.market = event.target.value;

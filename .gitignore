@@ -145,10 +145,3 @@ data/cache/oddspapi/historical_game_markets_pregame_latest_*_season*.csv
 # Generated team/game market model artifacts
 models/team_game_markets/
 data/ml/team_game_markets_model_summary_*.json
-
-# Local temp/test artifacts
-tmp*/
-tmp_tests/
-_stage7_backup_*/
-.pytest_cache/
-__pycache__/
