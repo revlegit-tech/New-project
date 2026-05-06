@@ -1,22 +1,22 @@
 {
   "historical": {
     "markets": {
-      "batter_hits": 482,
+      "batter_hits": 426,
       "batter_hits_alt": 160,
-      "batter_home_runs": 225,
+      "batter_home_runs": 210,
       "batter_home_runs_alt": 47,
-      "batter_total_bases": 279,
+      "batter_total_bases": 244,
       "batter_total_bases_alt": 193,
       "pitcher_earned_runs": 22,
       "pitcher_hits_allowed": 26,
-      "pitcher_strikeouts": 70
+      "pitcher_strikeouts": 67
     },
     "output": "data/training/historical_props.csv",
     "overCounts": {
-      "0": 1112,
-      "1": 392
+      "0": 1032,
+      "1": 363
     },
-    "rows": 1504,
+    "rows": 1395,
     "source": "data/backtests/playerboard_backtest_2026.csv",
     "sourceExists": true
   },
@@ -185,7 +185,7 @@
     "pitcher_hits_allowed",
     "pitcher_earned_runs"
   ],
-  "updatedAt": "2026-05-05T20:32:51.285061+00:00",
+  "updatedAt": "2026-05-06T16:14:41.120600+00:00",
   "warnings": [
     "batter_rbis skipped: Only 0 rows. Need at least 25 rows before training.",
     "batter_stolen_bases skipped: Only 0 rows. Need at least 25 rows before training.",

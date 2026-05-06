@@ -1,10 +1,10 @@
 {
-  "checkedAt": "2026-05-06T07:35:07.936571+00:00",
+  "checkedAt": "2026-05-06T16:14:40.457708+00:00",
   "counts": {
     "backtestResultsForDate": {
-      "ungraded": 225
+      "ungraded": 575
     },
-    "backtestRowsForDate": 225,
+    "backtestRowsForDate": 575,
     "gradedBacktestRowsForDate": 0,
     "gradedMlRowsForDate": 0,
     "mlResultsForDate": {
@@ -17,11 +17,11 @@
   "files": {
     "data/backtests/playerboard_backtest_2026.csv": {
       "exists": true,
-      "size": 623918
+      "size": 2565141
     },
     "data/ml/playerboard_training_2026.csv": {
       "exists": true,
-      "size": 540157
+      "size": 1410630
     }
   },
   "ok": true,
