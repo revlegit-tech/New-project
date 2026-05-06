@@ -1,34 +1,33 @@
 {
-  "checkedAt": "2026-05-05T20:32:50.797871+00:00",
+  "checkedAt": "2026-05-06T07:35:07.936571+00:00",
   "counts": {
     "backtestResultsForDate": {
-      "loss": 1112,
-      "ungraded": 131,
-      "win": 392
+      "ungraded": 225
     },
-    "backtestRowsForDate": 1635,
-    "gradedBacktestRowsForDate": 1504,
-    "gradedMlRowsForDate": 1286,
+    "backtestRowsForDate": 225,
+    "gradedBacktestRowsForDate": 0,
+    "gradedMlRowsForDate": 0,
     "mlResultsForDate": {
-      "loss": 952,
-      "ungraded": 123,
-      "win": 334
+      "ungraded": 175
     },
-    "mlRowsForDate": 1409
+    "mlRowsForDate": 175
   },
-  "date": "2026-05-04",
+  "date": "2026-05-05",
   "errors": [],
   "files": {
     "data/backtests/playerboard_backtest_2026.csv": {
       "exists": true,
-      "size": 591408
+      "size": 623918
     },
     "data/ml/playerboard_training_2026.csv": {
       "exists": true,
-      "size": 487067
+      "size": 540157
     }
   },
   "ok": true,
   "season": 2026,
-  "warnings": []
+  "warnings": [
+    "Backtest rows exist for date but none are graded yet.",
+    "ML export rows exist for date but none are graded yet."
+  ]
 }

@@ -1,9 +1,9 @@
 {
   "season": 2026,
-  "updatedAt": "2026-05-06T05:55:10.115191+00:00",
-  "props": 2232,
+  "updatedAt": "2026-05-06T07:35:07.624527+00:00",
+  "props": 1747,
   "graded": 1395,
-  "ungraded": 837,
+  "ungraded": 352,
   "wins": 363,
   "losses": 1032,
   "pushes": 0,
@@ -15,32 +15,8 @@
   "breakdowns": [
     {
       "bucket": "market",
-      "name": "team_total_runs",
-      "props": 286,
-      "graded": 0,
-      "wins": 0,
-      "losses": 0,
-      "pushes": 0,
-      "profitUnits": 0,
-      "winRate": 0,
-      "roiPercent": 0
-    },
-    {
-      "bucket": "market",
-      "name": "team_first_to_score",
-      "props": 24,
-      "graded": 0,
-      "wins": 0,
-      "losses": 0,
-      "pushes": 0,
-      "profitUnits": 0,
-      "winRate": 0,
-      "roiPercent": 0
-    },
-    {
-      "bucket": "market",
       "name": "pitcher_earned_runs",
-      "props": 38,
+      "props": 31,
       "graded": 22,
       "wins": 8,
       "losses": 14,
@@ -52,7 +28,7 @@
     {
       "bucket": "market",
       "name": "pitcher_hits_allowed",
-      "props": 42,
+      "props": 35,
       "graded": 26,
       "wins": 8,
       "losses": 18,
@@ -64,7 +40,7 @@
     {
       "bucket": "market",
       "name": "pitcher_strikeouts",
-      "props": 100,
+      "props": 87,
       "graded": 67,
       "wins": 27,
       "losses": 40,
@@ -88,7 +64,7 @@
     {
       "bucket": "market",
       "name": "batter_hits",
-      "props": 615,
+      "props": 551,
       "graded": 426,
       "wins": 188,
       "losses": 238,
@@ -100,7 +76,7 @@
     {
       "bucket": "market",
       "name": "batter_total_bases",
-      "props": 442,
+      "props": 366,
       "graded": 244,
       "wins": 77,
       "losses": 167,
@@ -124,7 +100,7 @@
     {
       "bucket": "market",
       "name": "batter_home_runs",
-      "props": 249,
+      "props": 241,
       "graded": 210,
       "wins": 16,
       "losses": 194,
@@ -148,7 +124,7 @@
     {
       "bucket": "edgeBucket",
       "name": "6%+",
-      "props": 304,
+      "props": 268,
       "graded": 188,
       "wins": 78,
       "losses": 110,
@@ -160,7 +136,7 @@
     {
       "bucket": "edgeBucket",
       "name": "4% to 6%",
-      "props": 205,
+      "props": 187,
       "graded": 138,
       "wins": 25,
       "losses": 113,
@@ -172,7 +148,7 @@
     {
       "bucket": "edgeBucket",
       "name": "2% to 4%",
-      "props": 332,
+      "props": 302,
       "graded": 255,
       "wins": 40,
       "losses": 215,
@@ -184,7 +160,7 @@
     {
       "bucket": "edgeBucket",
       "name": "0% to 2%",
-      "props": 437,
+      "props": 247,
       "graded": 216,
       "wins": 29,
       "losses": 187,
@@ -196,7 +172,7 @@
     {
       "bucket": "edgeBucket",
       "name": "< 0%",
-      "props": 954,
+      "props": 743,
       "graded": 598,
       "wins": 191,
       "losses": 407,
@@ -204,30 +180,6 @@
       "profitUnits": -234.5605,
       "winRate": 31.94,
       "roiPercent": -39.22
-    },
-    {
-      "bucket": "confidence",
-      "name": "Unmodeled",
-      "props": 155,
-      "graded": 0,
-      "wins": 0,
-      "losses": 0,
-      "pushes": 0,
-      "profitUnits": 0,
-      "winRate": 0,
-      "roiPercent": 0
-    },
-    {
-      "bucket": "confidence",
-      "name": "High",
-      "props": 6,
-      "graded": 0,
-      "wins": 0,
-      "losses": 0,
-      "pushes": 0,
-      "profitUnits": 0,
-      "winRate": 0,
-      "roiPercent": 0
     },
     {
       "bucket": "confidence",
@@ -244,7 +196,7 @@
     {
       "bucket": "confidence",
       "name": "Medium",
-      "props": 553,
+      "props": 521,
       "graded": 421,
       "wins": 167,
       "losses": 254,
@@ -256,7 +208,7 @@
     {
       "bucket": "confidence",
       "name": "Low-Medium",
-      "props": 491,
+      "props": 473,
       "graded": 411,
       "wins": 109,
       "losses": 302,
@@ -268,7 +220,7 @@
     {
       "bucket": "confidence",
       "name": "Low",
-      "props": 974,
+      "props": 700,
       "graded": 510,
       "wins": 69,
       "losses": 441,
@@ -279,32 +231,8 @@
     },
     {
       "bucket": "recommendation",
-      "name": "Odds only",
-      "props": 155,
-      "graded": 0,
-      "wins": 0,
-      "losses": 0,
-      "pushes": 0,
-      "profitUnits": 0,
-      "winRate": 0,
-      "roiPercent": 0
-    },
-    {
-      "bucket": "recommendation",
-      "name": "Negative edge",
-      "props": 112,
-      "graded": 0,
-      "wins": 0,
-      "losses": 0,
-      "pushes": 0,
-      "profitUnits": 0,
-      "winRate": 0,
-      "roiPercent": 0
-    },
-    {
-      "bucket": "recommendation",
       "name": "Positive edge",
-      "props": 467,
+      "props": 376,
       "graded": 253,
       "wins": 101,
       "losses": 152,
@@ -316,7 +244,7 @@
     {
       "bucket": "recommendation",
       "name": "Negative edge / avoid",
-      "props": 469,
+      "props": 390,
       "graded": 293,
       "wins": 101,
       "losses": 192,
@@ -328,7 +256,7 @@
     {
       "bucket": "recommendation",
       "name": "No clear edge",
-      "props": 593,
+      "props": 545,
       "graded": 449,
       "wins": 122,
       "losses": 327,
@@ -364,7 +292,7 @@
     {
       "bucket": "savant",
       "name": "Savant neutral",
-      "props": 1128,
+      "props": 643,
       "graded": 403,
       "wins": 85,
       "losses": 318,
@@ -388,7 +316,7 @@
     {
       "bucket": "weather",
       "name": "Weather neutral",
-      "props": 932,
+      "props": 447,
       "graded": 207,
       "wins": 67,
       "losses": 140,
@@ -424,7 +352,7 @@
     {
       "bucket": "oddsMovement",
       "name": "Odds movement negative",
-      "props": 711,
+      "props": 640,
       "graded": 498,
       "wins": 214,
       "losses": 284,
@@ -436,7 +364,7 @@
     {
       "bucket": "oddsMovement",
       "name": "Odds movement positive",
-      "props": 668,
+      "props": 587,
       "graded": 444,
       "wins": 103,
       "losses": 341,
@@ -448,7 +376,7 @@
     {
       "bucket": "oddsMovement",
       "name": "Odds movement neutral",
-      "props": 853,
+      "props": 520,
       "graded": 453,
       "wins": 46,
       "losses": 407,

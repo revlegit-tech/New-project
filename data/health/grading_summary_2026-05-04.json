@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-05-05T20:32:50.797871+00:00",
+  "checkedAt": "2026-05-05T18:42:53.673924+00:00",
   "counts": {
     "backtestResultsForDate": {
       "loss": 1112,
@@ -21,11 +21,11 @@
   "files": {
     "data/backtests/playerboard_backtest_2026.csv": {
       "exists": true,
-      "size": 591408
+      "size": 571420
     },
     "data/ml/playerboard_training_2026.csv": {
       "exists": true,
-      "size": 487067
+      "size": 467379
     }
   },
   "ok": true,
