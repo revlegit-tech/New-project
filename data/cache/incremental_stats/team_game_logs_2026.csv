@@ -1049,3 +1049,59 @@ season,seasonPhase,date,gamePk,side,team,opponent,teamName,runs,hits,homeRuns,st
 2026,regular,2026-05-04,823143,home,SEA,ATL,Seattle Mariners,5,8,2,6,8,30,15,21,4,9,8,2,4
 2026,regular,2026-05-04,823228,away,SDP,SFG,San Diego Padres,2,3,2,10,0,30,9,5,3,6,4,3,1
 2026,regular,2026-05-04,823228,home,SFG,SDP,San Francisco Giants,3,6,1,4,3,28,13,12,2,3,10,0,2
+2026,regular,2026-05-05,824281,away,BOS,DET,Boston Red Sox,10,12,3,11,2,39,21,14,3,7,12,3,1
+2026,regular,2026-05-05,824281,home,DET,BOS,Detroit Tigers,3,7,1,12,3,33,10,11,10,12,11,2,3
+2026,regular,2026-05-05,822986,away,TOR,TBR,Toronto Blue Jays,3,8,1,7,3,34,11,14,4,11,5,1,0
+2026,regular,2026-05-05,822986,home,TBR,TOR,Tampa Bay Rays,4,11,0,5,1,33,12,15,3,8,7,3,1
+2026,regular,2026-05-05,823469,away,ATH,PHI,Athletics,1,4,0,12,4,30,4,17,9,14,6,3,3
+2026,regular,2026-05-05,823469,home,PHI,ATH,Philadelphia Phillies,9,14,3,6,3,37,27,16,1,4,12,4,0
+2026,regular,2026-05-05,823873,away,BAL,MIA,Baltimore Orioles,9,10,0,10,5,38,15,15,7,9,10,5,2
+2026,regular,2026-05-05,823873,home,MIA,BAL,Miami Marlins,7,9,2,10,5,34,15,14,9,10,10,5,0
+2026,regular,2026-05-05,822743,away,MIN,WSN,Minnesota Twins,11,10,1,4,6,37,17,17,3,6,10,3,0
+2026,regular,2026-05-05,822743,home,WSN,MIN,Washington Nationals,3,6,0,10,3,33,10,16,11,10,4,6,1
+2026,regular,2026-05-05,823553,away,TEX,NYY,Texas Rangers,4,10,0,8,5,35,13,22,7,9,7,3,3
+2026,regular,2026-05-05,823553,home,NYY,TEX,New York Yankees,7,9,3,7,3,33,21,11,4,10,8,5,0
+2026,regular,2026-05-05,824682,away,CIN,CHC,Cincinnati Reds,2,6,2,9,2,37,12,10,3,8,7,7,1
+2026,regular,2026-05-05,824682,home,CHC,CIN,Chicago Cubs,3,8,1,7,7,35,11,24,2,6,9,2,2
+2026,regular,2026-05-05,824119,away,CLE,KCR,Cleveland Guardians,3,4,1,5,2,31,7,5,5,8,10,2,2
+2026,regular,2026-05-05,824119,home,KCR,CLE,Kansas City Royals,5,8,2,10,2,31,16,12,3,4,5,2,1
+2026,regular,2026-05-05,824200,away,LAD,HOU,Los Angeles Dodgers,1,6,0,6,4,32,8,14,2,4,9,0,2
+2026,regular,2026-05-05,824200,home,HOU,LAD,Houston Astros,2,4,2,9,0,28,10,4,1,6,6,4,0
+2026,regular,2026-05-05,824040,away,CHW,LAA,Chicago White Sox,3,8,1,9,4,35,12,20,4,7,5,2,3
+2026,regular,2026-05-05,824040,home,LAA,CHW,Los Angeles Angels,4,7,3,5,2,29,17,5,3,8,9,4,1
+2026,regular,2026-05-05,825092,away,PIT,ARI,Pittsburgh Pirates,0,2,0,9,3,29,4,10,9,9,4,7,0
+2026,regular,2026-05-05,825092,home,ARI,PIT,Arizona Diamondbacks,9,9,0,4,7,30,15,16,0,2,9,3,0
+2026,regular,2026-05-05,823142,away,ATL,SEA,Atlanta Braves,3,6,1,9,2,32,10,10,2,3,16,3,1
+2026,regular,2026-05-05,823142,home,SEA,ATL,Seattle Mariners,2,3,1,16,3,29,6,9,3,6,9,2,1
+2026,regular,2026-05-05,823227,away,SDP,SFG,San Diego Padres,10,14,1,5,2,39,23,12,5,8,8,0,2
+2026,regular,2026-05-05,823227,home,SFG,SDP,San Francisco Giants,5,8,2,8,0,35,14,7,10,14,5,2,1
+2026,regular,2026-05-06,822985,away,TOR,TBR,Toronto Blue Jays,0,4,0,7,1,31,6,8,3,6,3,5,0
+2026,regular,2026-05-06,822985,home,TBR,TOR,Tampa Bay Rays,3,6,0,3,5,28,7,13,0,4,7,1,0
+2026,regular,2026-05-06,823063,away,MIL,STL,Milwaukee Brewers,6,11,1,6,3,36,15,13,2,4,9,4,0
+2026,regular,2026-05-06,823063,home,STL,MIL,St. Louis Cardinals,2,4,0,9,4,30,6,15,6,11,6,3,1
+2026,regular,2026-05-06,824198,away,LAD,HOU,Los Angeles Dodgers,12,14,3,9,5,40,28,17,2,5,8,0,1
+2026,regular,2026-05-06,824198,home,HOU,LAD,Houston Astros,2,5,1,8,0,31,8,6,12,14,9,5,3
+2026,regular,2026-05-06,823226,away,SDP,SFG,San Diego Padres,5,6,2,4,4,33,15,14,1,3,13,0,1
+2026,regular,2026-05-06,823226,home,SFG,SDP,San Francisco Giants,1,3,1,13,0,30,6,3,5,6,4,4,2
+2026,regular,2026-05-06,824036,away,CHW,LAA,Chicago White Sox,2,4,0,10,5,29,5,14,8,8,5,6,1
+2026,regular,2026-05-06,824036,home,LAA,CHW,Los Angeles Angels,8,8,1,5,6,29,14,16,2,4,10,5,0
+2026,regular,2026-05-06,823141,away,ATL,SEA,Atlanta Braves,1,4,0,12,2,29,4,6,3,9,9,2,1
+2026,regular,2026-05-06,823141,home,SEA,ATL,Seattle Mariners,3,9,1,9,2,32,15,11,1,4,12,2,0
+2026,regular,2026-05-06,824282,away,BOS,DET,Boston Red Sox,4,4,0,15,7,30,5,19,0,4,7,5,0
+2026,regular,2026-05-06,824282,home,DET,BOS,Detroit Tigers,0,4,0,7,5,30,5,13,4,4,15,7,0
+2026,regular,2026-05-06,823470,away,ATH,PHI,Athletics,3,7,1,8,4,34,12,17,6,12,6,1,1
+2026,regular,2026-05-06,823470,home,PHI,ATH,Philadelphia Phillies,6,12,1,6,1,36,18,17,3,7,8,4,1
+2026,regular,2026-05-06,823872,away,BAL,MIA,Baltimore Orioles,7,7,1,9,7,32,16,14,4,6,7,4,0
+2026,regular,2026-05-06,823872,home,MIA,BAL,Miami Marlins,4,6,0,7,4,32,8,7,7,7,9,7,1
+2026,regular,2026-05-06,822740,away,MIN,WSN,Minnesota Twins,2,3,1,5,0,31,7,5,15,14,7,5,4
+2026,regular,2026-05-06,822740,home,WSN,MIN,Washington Nationals,15,14,4,7,5,38,33,14,2,3,5,0,1
+2026,regular,2026-05-06,823550,away,TEX,NYY,Texas Rangers,6,8,2,14,5,34,15,15,1,3,9,1,1
+2026,regular,2026-05-06,823550,home,NYY,TEX,New York Yankees,1,3,1,9,1,29,6,4,6,8,14,5,2
+2026,regular,2026-05-06,824683,away,CIN,CHC,Cincinnati Reds,6,10,2,8,4,37,16,21,7,10,10,4,2
+2026,regular,2026-05-06,824683,home,CHC,CIN,Chicago Cubs,7,10,2,10,4,36,17,13,6,10,8,4,2
+2026,regular,2026-05-06,824118,away,CLE,KCR,Cleveland Guardians,3,6,0,8,6,31,8,17,1,4,8,5,0
+2026,regular,2026-05-06,824118,home,KCR,CLE,Kansas City Royals,1,4,0,8,5,28,4,14,3,6,8,6,0
+2026,regular,2026-05-06,824361,away,NYM,COL,New York Mets,10,15,2,3,4,38,26,15,5,13,8,3,2
+2026,regular,2026-05-06,824361,home,COL,NYM,Colorado Rockies,5,13,2,8,3,39,21,25,10,15,3,4,2
+2026,regular,2026-05-06,825091,away,PIT,ARI,Pittsburgh Pirates,1,7,1,7,2,33,12,15,0,2,8,1,0
+2026,regular,2026-05-06,825091,home,ARI,PIT,Arizona Diamondbacks,0,2,0,8,1,29,2,4,1,7,7,2,1

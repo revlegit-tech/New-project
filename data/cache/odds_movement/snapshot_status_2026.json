@@ -1,10 +1,10 @@
 {
   "season": 2026,
-  "date": "2026-05-07",
+  "date": "2026-05-06",
   "market": "",
-  "snapshotId": "20260507T074601Z",
-  "snapshotAt": "2026-05-07T07:46:01.258206+00:00",
+  "snapshotId": "20260507T082745Z",
+  "snapshotAt": "2026-05-07T08:27:45.091137+00:00",
   "rowsSnapshotted": 0,
   "snapshotFile": "/home/runner/work/New-project/New-project/data/cache/odds_movement/prop_snapshots_2026.csv",
-  "updatedAt": "2026-05-07T07:46:01.258674+00:00"
+  "updatedAt": "2026-05-07T08:27:45.091687+00:00"
 }

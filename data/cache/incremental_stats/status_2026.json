@@ -1,33 +1,33 @@
 {
   "season": 2026,
   "startDate": "2026-03-01",
-  "endDate": "2026-05-04",
+  "endDate": "2026-05-06",
   "force": false,
   "seasonPhase": "regular",
   "regularSeasonStart": "2026-03-25",
   "maxDates": 0,
-  "processedDates": 41,
-  "gamesSeen": 531,
-  "finalGamesSeen": 525,
-  "skippedFinalCached": 0,
-  "boxscoresRead": 525,
-  "liveFeedsRead": 525,
+  "processedDates": 43,
+  "gamesSeen": 561,
+  "finalGamesSeen": 553,
+  "skippedFinalCached": 525,
+  "boxscoresRead": 28,
+  "liveFeedsRead": 28,
   "upserts": {
     "games": {
-      "inputRows": 531,
-      "netNewRows": 525
+      "inputRows": 561,
+      "netNewRows": 30
     },
     "batters": {
-      "inputRows": 11015,
-      "netNewRows": 11015
+      "inputRows": 596,
+      "netNewRows": 596
     },
     "pitchers": {
-      "inputRows": 4484,
-      "netNewRows": 4484
+      "inputRows": 227,
+      "netNewRows": 227
     },
     "teams": {
-      "inputRows": 1050,
-      "netNewRows": 1050
+      "inputRows": 56,
+      "netNewRows": 56
     },
     "bvp": {
       "inputRows": 0,
@@ -35,7 +35,7 @@
     }
   },
   "indexes": {
-    "players": 1021,
+    "players": 1036,
     "teams": 30,
     "playerIndex": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/player_index_2026.csv",
     "teamIndex": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/team_index_2026.csv"
@@ -45,18 +45,20 @@
     "phase": "regular",
     "regularSeasonStart": "2026-03-25",
     "inputRows": {
-      "batters": 11015,
-      "pitchers": 4484,
-      "teams": 1050,
+      "batters": 11611,
+      "pitchers": 4711,
+      "teams": 1106,
       "bvp": 0
     },
     "outputRows": {
-      "batterTotals": 491,
-      "pitcherTotals": 564,
+      "batterTotals": 499,
+      "pitcherTotals": 575,
       "teamTotals": 30,
       "bvpTotals": 0,
-      "batterRecent": 491,
-      "pitcherRecent": 564
+      "batterRecent": 499,
+      "batterRecentVsHand": 11534,
+      "pitcherRecent": 575,
+      "bullpenRecent": 1096
     },
     "files": {
       "batters": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/batter_game_logs_2026.csv",
@@ -68,18 +70,20 @@
       "teamTotals": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/team_totals_2026.csv",
       "bvpTotals": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/bvp_totals_2026.csv",
       "batterRecent": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/batter_recent_2026.csv",
+      "batterRecentVsHand": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/batter_recent_vs_hand_2026.csv",
       "pitcherRecent": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/pitcher_recent_2026.csv",
+      "bullpenRecent": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/bullpen_recent_2026.csv",
       "status": "/home/runner/work/New-project/New-project/data/cache/incremental_stats/feature_status_2026.json"
     },
-    "updatedAt": "2026-05-05T05:21:15.066261+00:00"
+    "updatedAt": "2026-05-07T08:27:44.997955+00:00"
   },
   "rowCounts": {
-    "games": 525,
-    "batters": 11015,
-    "pitchers": 4484,
-    "teams": 1050,
+    "games": 555,
+    "batters": 11611,
+    "pitchers": 4711,
+    "teams": 1106,
     "bvp": 0,
-    "players": 1021,
+    "players": 1036,
     "teamIndex": 30
   },
   "files": {
@@ -94,6 +98,6 @@
   },
   "errors": [],
   "errorCount": 0,
-  "updatedAt": "2026-05-05T05:21:15.132674+00:00",
+  "updatedAt": "2026-05-07T08:27:45.083271+00:00",
   "inProgress": false
 }
