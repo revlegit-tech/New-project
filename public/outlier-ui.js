@@ -59,6 +59,15 @@
     WSH: "#ab0003", MLB: "#18d99c",
   };
 
+  const TEAM_NORM = {
+    SFG: "SF", CWS: "CHW", KCR: "KC", TBR: "TB", SDP: "SD", WSN: "WSH",
+    SLN: "STL", CHN: "CHC", ANA: "LAA", MON: "WSH",
+  };
+
+  const NAV_ICONS = {
+    Insights: "◉", Popular: "↑", Games: "◇", Props: "▤", "EV+": "+", Boosts: "⚡", Arbitrage: "⇄", "Middle Bets": "⟺",
+  };
+
   const PITCH_COLORS = {
     FA: "#3b82f6", FF: "#3b82f6", SI: "#eab308", FT: "#eab308",
     SL: "#f97316", ST: "#f97316", CU: "#ef4444", KC: "#ef4444",
@@ -161,6 +170,7 @@
     loading: false,
     source: "loading",
     hitRateSource: "",
+    bookLines: new Map(),
     detailStatTab: 0,
     detailPeriod: "L10",
     detailChartMode: "bar",
@@ -194,6 +204,7 @@
     insightsTimer: null,
     railTab: "Matchup",
     railOpen: false,
+    activeDetailController: null,
   };
 
   function $(selector, root = document) {
@@ -244,6 +255,11 @@
       .toLowerCase()
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  function normalizeTeam(value) {
+    const team = clean(value).toUpperCase();
+    return TEAM_NORM[team] || team;
   }
 
   function number(value, fallback = 0) {
@@ -326,8 +342,8 @@
     return [
       normalizeName(row.player),
       normalizeMarket(row.market),
-      clean(row.team).toUpperCase(),
-      clean(row.opponent).toUpperCase(),
+      normalizeTeam(row.team),
+      normalizeTeam(row.opponent),
       canonicalLine(row),
       canonicalSide(row),
     ].join("|");
@@ -347,6 +363,10 @@
 
   function selectedKey(row) {
     return [row.player, row.market, row.team, row.opponent, row.line, row.americanOdds].map(clean).join("|");
+  }
+
+  function lineShopKey(row) {
+    return [normalizeName(row.player || row.team), normalizeMarket(row.market), normalizeTeam(row.team), normalizeTeam(row.opponent), canonicalLine(row)].join("|");
   }
 
   function isAltMarket(row) {
@@ -498,6 +518,7 @@
         return payload;
       } catch (error) {
         lastError = error;
+        if (error && error.name === "AbortError") throw error;
         if (attempt >= attempts) break;
         await wait(1000 * Math.pow(2, attempt - 1));
       }
@@ -544,7 +565,9 @@
       state.selected = state.rows[0] || null;
     } finally {
       state.loading = false;
+      state.bookLines = new Map();
       render();
+      loadLineShopChips(state.rows);
     }
   }
 
@@ -571,6 +594,34 @@
         },
       };
     });
+  }
+
+  async function loadLineShopChips(rows) {
+    const candidates = (rows || []).filter((row) => clean(row.player || row.team) && clean(row.market)).slice(0, 50);
+    if (!candidates.length) return;
+    const requests = candidates.map((row) => {
+      const params = new URLSearchParams({
+        season: detailSeason(),
+        date: state.date,
+        market: normalizeMarket(row.market),
+        player: clean(row.player || row.team),
+        team: normalizeTeam(row.team),
+        opponent: normalizeTeam(row.opponent),
+        pitcher: clean(row.pitcher),
+        model_probability_percent: clean(row.finalProbabilityPercent || row.probabilityPercent),
+      });
+      return getJson(`/api/stage3/line-comparison?${params.toString()}`, {}, 1)
+        .then((payload) => ({ row, books: Array.isArray(payload.books) ? payload.books : [] }))
+        .catch(() => ({ row, books: [] }));
+    });
+    const results = await Promise.allSettled(requests);
+    let changed = false;
+    results.forEach((result) => {
+      if (result.status !== "fulfilled" || !result.value.books.length) return;
+      state.bookLines.set(lineShopKey(result.value.row), result.value.books.slice(0, 3));
+      changed = true;
+    });
+    if (changed && state.nav === "Props") renderBoardOnly();
   }
 
   function createShell() {
@@ -604,7 +655,7 @@
 
     root.innerHTML = `
       ${renderSidebar(rows.length, positive, avgEdge)}
-      <main class="ob-main">
+      <main class="ob-main ob-page-wrap">
         ${mainContent}
       </main>
       ${renderRightRail(rows)}
@@ -652,6 +703,12 @@
   }
 
   function afterRender() {
+    const mainEl = $(".ob-main");
+    if (mainEl) {
+      mainEl.classList.remove("ob-page-wrap");
+      void mainEl.offsetWidth;
+      mainEl.classList.add("ob-page-wrap");
+    }
     if (state.nav === "PropDetail") {
       window.requestAnimationFrame(drawDetailCanvases);
     }
@@ -680,8 +737,8 @@
         <nav class="ob-nav">
           ${NAV_ITEMS.map((item) => `
             <button type="button" class="${navIsActive(item) ? "is-active" : ""}" data-nav="${escapeHtml(item)}" aria-label="${escapeHtml(item)}">
-              <span class="ob-nav-icon" aria-hidden="true"></span>
-              <span>${escapeHtml(item)}</span>
+              <span class="ob-nav-icon" aria-hidden="true">${escapeHtml(NAV_ICONS[item] || "•")}</span>
+              <span class="ob-nav-label">${escapeHtml(item)}</span>
             </button>
           `).join("")}
         </nav>
@@ -869,7 +926,7 @@
               <th>${sortableHeader("Proposition", "proposition")}</th>
               <th>${sortableHeader("Line", "line")}</th>
               <th>${sortableHeader("Odds", "odds")}</th>
-              <th>${sortableHeader("IP", "ip")}</th>
+              <th title="Implied Probability — the sportsbook's implied win probability based on the current odds">${sortableHeader("IP%", "ip")}</th>
               ${HIT_COLUMNS.map(([key, label]) => `<th>${sortableHeader(label, key)}</th>`).join("")}
             </tr>
           </thead>
@@ -903,12 +960,34 @@
     `;
   }
 
+  function renderBookChips(row) {
+    const books = state.bookLines.get(lineShopKey(row)) || [];
+    if (!books.length) {
+      const edge = rowSignals(row).edge;
+      return `<span class="${edgeClass(edge)}">${escapeHtml(signed(edge))}</span>`;
+    }
+    return `<div class="ob-book-chip-row">${books.slice(0, 3).map((book) => `
+      <span class="ob-book-chip"><b>${escapeHtml(bookAbbr(book.sportsbook || book.bookmaker))}</b>${escapeHtml(formatOdds(book.americanOdds))}</span>
+    `).join("")}</div>`;
+  }
+
+  function bookAbbr(value) {
+    const text = clean(value);
+    if (!text) return "BK";
+    const normalized = text.toLowerCase();
+    if (normalized.includes("draft")) return "DK";
+    if (normalized.includes("fanduel")) return "FD";
+    if (normalized.includes("mgm")) return "MGM";
+    if (normalized.includes("caesars")) return "CZR";
+    if (normalized.includes("bovada")) return "BOV";
+    return text.replace(/[^A-Za-z0-9]/g, "").slice(0, 4).toUpperCase();
+  }
+
   function renderRow(row, index) {
     const signals = rowSignals(row);
     const selected = state.selected && selectedKey(state.selected) === selectedKey(row);
     const saved = state.saved.has(selectedKey(row));
     const matchup = gameLabel(row) || "Matchup unavailable";
-    const pitcher = clean(row.pitcher) ? `vs ${clean(row.pitcher)}` : "Starter pending";
 
     return `
       <tr class="${selected ? "is-selected" : ""}" data-row-index="${index}">
@@ -920,7 +999,6 @@
               <div>
                 <div class="ob-player-name">${escapeHtml(clean(row.player) || clean(row.team) || "MLB")}</div>
                 <div class="ob-player-sub">${escapeHtml(matchup)}</div>
-                <div class="ob-player-sub ob-player-pitcher">${escapeHtml(pitcher)}</div>
               </div>
             </div>
           </div>
@@ -929,12 +1007,11 @@
           <div class="ob-cell">
             <div>
               <div class="ob-prop-title">${escapeHtml(proposition(row))}</div>
-              <div class="ob-prop-sub">${escapeHtml(clean(row.recommendation) || marketLabel(row.market))}</div>
             </div>
           </div>
         </td>
         <td><div class="ob-cell ob-number">${escapeHtml(clean(row.line) || "--")}</div></td>
-        <td><div class="ob-cell ob-odds"><span>${escapeHtml(formatOdds(row.americanOdds))}</span><span class="${edgeClass(signals.edge)}">${escapeHtml(signed(signals.edge))}</span></div></td>
+        <td><div class="ob-cell ob-odds"><span>${escapeHtml(formatOdds(row.americanOdds))}</span>${renderBookChips(row)}</div></td>
         <td><div class="ob-cell ob-ip">${escapeHtml(percent(signals.ip))}</div></td>
         ${HIT_COLUMNS.map(([key]) => renderHitCell(row, key)).join("")}
       </tr>
@@ -993,7 +1070,7 @@
   }
 
   function teamColor(team) {
-    return TEAM_COLORS[clean(team).toUpperCase()] || TEAM_COLORS.MLB;
+    return TEAM_COLORS[normalizeTeam(team)] || TEAM_COLORS.MLB;
   }
 
   function hexToRgb(hex) {
@@ -1013,7 +1090,7 @@
   }
 
   function currentDetail() {
-    return state.detail || { loadingCard: false, loadingLogs: false, loadingGame: false, propCard: null, gameLogs: [], gameContext: null, errors: {} };
+    return state.detail || { loadingCard: false, loadingLogs: false, loadingGame: false, loadingLineup: false, propCard: null, gameLogs: [], gameContext: null, lineup: [], errors: {} };
   }
 
   function detailSeason() {
@@ -1207,25 +1284,26 @@
     };
   }
 
-  async function postJson(path, body) {
+  async function postJson(path, body, signal) {
     return getJson(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body || {}),
+      signal,
     });
   }
 
-  async function fetchPropCard(row) {
+  async function fetchPropCard(row, signal) {
     const body = detailRequestBody(row);
     try {
-      return await postJson("/api/unified-prop-card/predict", body);
+      return await postJson("/api/unified-prop-card/predict", body, signal);
     } catch (error) {
       const params = new URLSearchParams(body);
-      return getJson(`/api/unified-prop-card/predict?${params.toString()}`);
+      return getJson(`/api/unified-prop-card/predict?${params.toString()}`, { signal });
     }
   }
 
-  async function fetchDetailLogs(row) {
+  async function fetchDetailLogs(row, signal) {
     const params = new URLSearchParams({
       season: detailSeason(),
       kind: normalizeMarket(row.market).startsWith("pitcher_") ? "pitcher" : "batter",
@@ -1235,18 +1313,28 @@
       market: activeStatTab(row).market,
       limit: "80",
     });
-    return getJson(`/api/incremental-stats/lookup?${params.toString()}`);
+    return getJson(`/api/incremental-stats/lookup?${params.toString()}`, { signal });
   }
 
-  async function fetchDetailGameContext(row) {
+  async function fetchDetailGameContext(row, signal) {
     const params = new URLSearchParams({
       season: detailSeason(),
       date: state.date,
-      team: clean(row.team),
-      opponent: clean(row.opponent),
+      team: normalizeTeam(row.team),
+      opponent: normalizeTeam(row.opponent),
       limit: "5",
     });
-    return getJson(`/api/game-context?${params.toString()}`);
+    return getJson(`/api/game-context?${params.toString()}`, { signal });
+  }
+
+  async function fetchDetailLineup(row, signal) {
+    const params = new URLSearchParams({
+      season: detailSeason(),
+      date: state.date,
+      team: normalizeTeam(row.team),
+      opponent: normalizeTeam(row.opponent),
+    });
+    return getJson(`/api/game/lineup?${params.toString()}`, { signal });
   }
 
   function openPropDetail(row) {
@@ -1268,60 +1356,85 @@
 
   function loadDetailData(row) {
     const key = detailKey(row);
+    if (state.activeDetailController) state.activeDetailController.abort();
+    state.activeDetailController = new AbortController();
+    const signal = state.activeDetailController.signal;
+
     state.detail = {
       key,
       loadingCard: true,
       loadingLogs: true,
       loadingGame: true,
+      loadingLineup: true,
       propCard: null,
       gameLogs: [],
       gameContext: null,
+      lineup: [],
+      lineupPayload: null,
       errors: {},
     };
     render();
 
-    fetchPropCard(row)
+    const ignoreAbort = (error) => error && error.name === "AbortError";
+
+    fetchPropCard(row, signal)
       .then((payload) => {
         if (!detailCacheMatches(row)) return;
         state.detail.propCard = payload;
       })
       .catch((error) => {
-        if (!detailCacheMatches(row)) return;
+        if (ignoreAbort(error) || !detailCacheMatches(row)) return;
         state.detail.errors.card = error.message || "Prop card failed to load.";
       })
       .finally(() => {
-        if (!detailCacheMatches(row)) return;
+        if (signal.aborted || !detailCacheMatches(row)) return;
         state.detail.loadingCard = false;
         render();
       });
 
-    fetchDetailLogs(row)
+    fetchDetailLogs(row, signal)
       .then((payload) => {
         if (!detailCacheMatches(row)) return;
         state.detail.gameLogs = extractGameLogs(payload);
       })
       .catch((error) => {
-        if (!detailCacheMatches(row)) return;
+        if (ignoreAbort(error) || !detailCacheMatches(row)) return;
         state.detail.errors.logs = error.message || "Game logs failed to load.";
       })
       .finally(() => {
-        if (!detailCacheMatches(row)) return;
+        if (signal.aborted || !detailCacheMatches(row)) return;
         state.detail.loadingLogs = false;
         render();
       });
 
-    fetchDetailGameContext(row)
+    fetchDetailGameContext(row, signal)
       .then((payload) => {
         if (!detailCacheMatches(row)) return;
         state.detail.gameContext = payload;
       })
       .catch((error) => {
-        if (!detailCacheMatches(row)) return;
+        if (ignoreAbort(error) || !detailCacheMatches(row)) return;
         state.detail.errors.game = error.message || "Game context failed to load.";
       })
       .finally(() => {
-        if (!detailCacheMatches(row)) return;
+        if (signal.aborted || !detailCacheMatches(row)) return;
         state.detail.loadingGame = false;
+        render();
+      });
+
+    fetchDetailLineup(row, signal)
+      .then((payload) => {
+        if (!detailCacheMatches(row)) return;
+        state.detail.lineupPayload = payload;
+        state.detail.lineup = Array.isArray(payload.lineup) ? payload.lineup : [];
+      })
+      .catch((error) => {
+        if (ignoreAbort(error) || !detailCacheMatches(row)) return;
+        state.detail.errors.lineup = error.message || "Lineup failed to load.";
+      })
+      .finally(() => {
+        if (signal.aborted || !detailCacheMatches(row)) return;
+        state.detail.loadingLineup = false;
         render();
       });
   }
@@ -1565,7 +1678,7 @@
     return `
       <section class="ob-detail-card ob-matchup-card">
         <div class="ob-card-heading"><h2>Key Matchup Stats</h2><span>${escapeHtml(clean(row.pitcher) ? `vs. ${clean(row.pitcher)}` : "Matchup")}</span></div>
-        ${bvp ? renderBvpRow(bvp) : `<p class="ob-muted-line">Split data unavailable for this matchup. Season context is shown below.</p>`}
+        ${bvp ? renderBvpRow(bvp) : `<p class="ob-muted-line">Career splits unavailable — showing 2026 season context.</p>`}
         <div class="ob-split-grid">
           <div>${renderContextTable(`${initials(row.player)} Batter`, [
             ["PA", batter.plateAppearances], ["AVG", formatDecimal(batter.avg)], ["H/G", batter.hitsPerGame], ["TB/G", batter.totalBasesPerGame], ["K/G", batter.strikeoutsPerGame]
@@ -1671,15 +1784,27 @@
     const detail = currentDetail();
     const tab = activeStatTab(row);
     const logs = periodLogs(detail.gameLogs || [], state.detailPeriod, row);
-    const main = $('[data-detail-canvas="main"]');
-    if (main) drawBarChart(main, logs, tab, currentLine(row), currentSide(row));
-    document.querySelectorAll('[data-detail-canvas="support"]').forEach((canvas) => drawSupportingChart(canvas, logs, canvas.dataset.supportKey));
-    const pitchMix = $('[data-detail-canvas="pitchMix"]');
-    if (pitchMix) drawPitchMix(pitchMix, ((((detail.propCard || {}).savant || {}).pitcher || {}).pitchMix || []));
-    const zonePitcher = $('[data-detail-canvas="zonePitcher"]');
-    if (zonePitcher) drawZoneChart(zonePitcher, (((((detail.propCard || {}).savant || {}).pitcher || {}).zoneFrequency || {})[state.heatmapPitcherHand]) || [], "Pitch Location");
-    const zoneBatter = $('[data-detail-canvas="zoneBatter"]');
-    if (zoneBatter) drawZoneChart(zoneBatter, (((((detail.propCard || {}).savant || {}).batter || {}).zonePerformance || {})[state.heatmapBatterHand]) || [], "Batter Performance");
+
+    const safeDraw = (canvas, draw) => {
+      if (!canvas) return;
+      try {
+        draw(canvas);
+      } catch (error) {
+        console.warn("Chart render failed:", error);
+        const parent = canvas.parentElement;
+        if (parent) parent.innerHTML = '<p class="ob-muted-line">Chart unavailable</p>';
+      }
+    };
+
+    const pitchMix = ((((detail.propCard || {}).savant || {}).pitcher || {}).pitchMix || []);
+    const zonePitcher = (((((detail.propCard || {}).savant || {}).pitcher || {}).zoneFrequency || {})[state.heatmapPitcherHand]) || [];
+    const zoneBatter = (((((detail.propCard || {}).savant || {}).batter || {}).zonePerformance || {})[state.heatmapBatterHand]) || [];
+
+    safeDraw($('[data-detail-canvas="main"]'), (canvas) => drawBarChart(canvas, logs, tab, currentLine(row), currentSide(row)));
+    document.querySelectorAll('[data-detail-canvas="support"]').forEach((canvas) => safeDraw(canvas, () => drawSupportingChart(canvas, logs, canvas.dataset.supportKey)));
+    safeDraw($('[data-detail-canvas="pitchMix"]'), (canvas) => drawPitchMix(canvas, pitchMix));
+    safeDraw($('[data-detail-canvas="zonePitcher"]'), (canvas) => drawZoneChart(canvas, zonePitcher, "Pitch Location"));
+    safeDraw($('[data-detail-canvas="zoneBatter"]'), (canvas) => drawZoneChart(canvas, zoneBatter, "Batter Performance"));
   }
 
   function setCanvasSize(canvas, height) {
@@ -1689,6 +1814,7 @@
     canvas.width = Math.floor(width * ratio);
     canvas.height = Math.floor(height * ratio);
     const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context unavailable");
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
@@ -1710,7 +1836,7 @@
     const gap = 4;
     const barW = Math.max(7, chartW / Math.max(logs.length, 1) - gap);
     const green = cssVar("--ob-green", "#18d99c");
-    const miss = cssVar("--ob-panel-2", "#171919");
+    const miss = "rgba(255,255,255,0.12)";
     const text = cssVar("--ob-muted", "#98a4a0");
 
     ctx.strokeStyle = "rgba(255,255,255,0.08)";
@@ -1786,7 +1912,7 @@
     const chartW = width - 16;
     const chartH = height - 24;
     const barW = Math.max(7, chartW / Math.max(values.length, 1) - 4);
-    ctx.fillStyle = cssVar("--ob-panel-2", "#171919");
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
     values.forEach((value, index) => {
       const h = Math.max(2, (value / maxValue) * chartH);
       const x = leftPad + index * (barW + 4);
@@ -1798,7 +1924,10 @@
   function drawPitchMix(canvas, pitchMix) {
     const { ctx, width, height } = setCanvasSize(canvas, 170);
     ctx.clearRect(0, 0, width, height);
-    const items = (pitchMix || []).filter((item) => number(item.percentage) > 0).slice(0, 7);
+    const rawItems = (pitchMix || []).map((item) => ({ ...item, percentage: number(item.percentage ?? item.pct) })).filter((item) => item.percentage > 0);
+    const major = rawItems.filter((item) => item.percentage >= 3).slice(0, 6);
+    const otherPct = rawItems.filter((item) => item.percentage < 3).reduce((sum, item) => sum + item.percentage, 0);
+    const items = otherPct > 0 ? [...major, { pitchType: "OTH", label: "Other", percentage: otherPct }] : major;
     if (!items.length) return;
     const cx = Math.min(width * 0.38, 90);
     const cy = height / 2;
@@ -2245,9 +2374,150 @@
   }
 
   function renderRailContent(tab, selected, top) {
+    if (state.nav === "PropDetail") return renderDetailRail(selected);
     if (tab === "Injuries") return renderRailInjuries(selected, top);
     if (tab === "Insights") return renderRailInsights(selected, top);
     return renderRailMatchup(selected, top);
+  }
+
+  function activeGameContext() {
+    const payload = currentDetail().gameContext || {};
+    const games = Array.isArray(payload.games) ? payload.games : [];
+    const team = normalizeTeam((state.selected || {}).team);
+    const opponent = normalizeTeam((state.selected || {}).opponent);
+    return games.find((game) => {
+      const teams = (game.teams || []).map(normalizeTeam);
+      return team && teams.includes(team) && (!opponent || teams.includes(opponent));
+    }) || games[0] || {};
+  }
+
+  function contextSide(game, side) {
+    return (game || {})[side] || {};
+  }
+
+  function renderDetailRail(selected) {
+    const detail = currentDetail();
+    const game = activeGameContext();
+    return `
+      ${renderStartingPitcherCard(game)}
+      ${renderBullpenCard(game, selected)}
+      ${renderBatterStatsCard(selected, detail)}
+      ${renderStadiumCard(game)}
+    `;
+  }
+
+  function statCellClass(label, value) {
+    const n = number(value, NaN);
+    if (!Number.isFinite(n)) return "";
+    if (label === "ERA" && n > 5) return "is-bad";
+    if (label === "K/9" && n >= 9) return "is-good";
+    if (label === "WHIP" && n > 1.4) return "is-watch";
+    return "";
+  }
+
+  function formatStatValue(value, decimals = 2) {
+    if (value === undefined || value === null || value === "") return "--";
+    const n = Number(value);
+    if (!Number.isFinite(n)) return clean(value) || "--";
+    return n.toFixed(decimals).replace(/\.00$/, "");
+  }
+
+  function renderTeamBadge(team) {
+    const color = teamColor(team);
+    return `<span class="ob-sp-team-badge" style="--team-color:${escapeHtml(color)}; --team-bg:${escapeHtml(rgba(color, 0.22))}">${escapeHtml(normalizeTeam(team) || "MLB")}</span>`;
+  }
+
+  function renderStartingPitcherCard(game) {
+    const away = contextSide(game, "away");
+    const home = contextSide(game, "home");
+    const rows = [
+      ["Record", "record", 0], ["ERA", "era", 2], ["Innings Pitched", "ip", 1],
+      ["Hits/9", "h9", 2], ["K/9", "k9", 2], ["Walks+Hits/IP", "whip", 3],
+    ];
+    const awayStats = away.pitcherSeasonStats || {};
+    const homeStats = home.pitcherSeasonStats || {};
+    return `
+      <section class="ob-rail-card ob-sp-card">
+        <div class="ob-rail-card-header"><h3>Starting Pitchers</h3><span>${escapeHtml(clean((game || {}).date) || state.date)}</span></div>
+        <div class="ob-rail-body">
+          <div class="ob-sp-matchup">
+            <div>${renderTeamBadge(away.team)}<strong>${escapeHtml(clean(away.probablePitcher) || "TBD")}</strong></div>
+            <div>${renderTeamBadge(home.team)}<strong>${escapeHtml(clean(home.probablePitcher) || "TBD")}</strong></div>
+          </div>
+          <table class="ob-mini-stat-table"><tbody>
+            ${rows.map(([label, key, decimals]) => `
+              <tr>
+                <th>${escapeHtml(label)}</th>
+                <td class="${statCellClass(label, awayStats[key])}">${escapeHtml(formatStatValue(awayStats[key], decimals))}</td>
+                <td class="${statCellClass(label, homeStats[key])}">${escapeHtml(formatStatValue(homeStats[key], decimals))}</td>
+              </tr>
+            `).join("")}
+          </tbody></table>
+          <p class="ob-rail-footnote"><span>◆</span> compared to season stats</p>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderBullpenCard(game, selected) {
+    const selectedTeam = normalizeTeam(selected.team);
+    const preferredSide = normalizeTeam((game.away || {}).team) === selectedTeam ? "away" : "home";
+    const side = preferredSide;
+    const ctx = contextSide(game, side);
+    const rows = Array.isArray(ctx.bullpenPitchers) ? ctx.bullpenPitchers : [];
+    return `
+      <section class="ob-rail-card ob-bullpen-card">
+        <div class="ob-rail-card-header"><h3>Bullpen Stats</h3><span>${escapeHtml(normalizeTeam(ctx.team) || "MLB")}</span></div>
+        <div class="ob-rail-body">
+          ${rows.length ? `<table class="ob-bullpen-table"><thead><tr><th>NAME</th><th>2026 PC</th><th>PC L3</th><th>PC L5</th><th>REST</th><th>ERA</th><th>K%</th></tr></thead><tbody>${rows.map((p) => `
+            <tr class="${number(p.daysRest, 99) === 0 ? "is-rest-risk" : ""}">
+              <td><span class="ob-mini-avatar" style="--team-color:${escapeHtml(teamColor(ctx.team))}; --team-bg:${escapeHtml(rgba(teamColor(ctx.team), 0.22))}">${escapeHtml(initials(p.name))}</span>${escapeHtml(clean(p.name))}</td>
+              <td>${escapeHtml(formatStatValue(p.pitchCountYTD, 0))}</td><td>${escapeHtml(formatStatValue(p.pitchCountL3, 0))}</td><td>${escapeHtml(formatStatValue(p.pitchCountL5, 0))}</td><td>${escapeHtml(formatStatValue(p.daysRest, 0))}</td><td>${escapeHtml(formatStatValue(p.era, 2))}</td><td>${escapeHtml(formatStatValue(p.kPct, 1))}</td>
+            </tr>`).join("")}</tbody></table>` : `<p class="ob-muted-line">No bullpen data available.</p>`}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderBatterStatsCard(selected, detail) {
+    const lineup = Array.isArray(detail.lineup) ? detail.lineup : [];
+    const team = normalizeTeam(selected.team);
+    return `
+      <section class="ob-rail-card ob-batter-card">
+        <div class="ob-rail-card-header"><h3>Batter Stats</h3><span>${escapeHtml(team || "MLB")}</span></div>
+        <div class="ob-rail-body">
+          <div class="ob-mini-tabs ob-rail-mini-tabs"><button type="button" class="is-active">2026</button><button type="button" disabled>vs. LHP</button><button type="button" disabled>vs. Pitcher</button></div>
+          ${detail.loadingLineup ? `<span class="ob-skeleton ob-skel-block"></span>` : lineup.length ? `<table class="ob-batter-table"><thead><tr><th>#</th><th>Player</th><th>AVG</th><th>HR</th><th>RBI</th><th>OPS</th></tr></thead><tbody>${lineup.map((b) => {
+            const stats = b.stats || {};
+            const isSelected = normalizeName(b.player) === normalizeName(selected.player);
+            return `<tr class="${isSelected ? "is-selected-batter" : ""}"><td>${escapeHtml(clean(b.battingOrder) || "-")}</td><td><strong>${escapeHtml(clean(b.player))}</strong><span>${escapeHtml(clean(b.position) || clean(b.hand))}</span></td><td>${escapeHtml(formatStatValue(stats.avg, 3))}</td><td>${escapeHtml(formatStatValue(stats.homeRuns ?? stats.hr, 0))}</td><td>${escapeHtml(formatStatValue(stats.rbi, 0))}</td><td>${escapeHtml(formatStatValue(stats.ops, 3))}</td></tr>`;
+          }).join("")}</tbody></table>` : `<p class="ob-muted-line">Lineup data unavailable for this team.</p>`}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderStadiumCard(game) {
+    const weather = Array.isArray((game || {}).weather) ? (game.weather[0] || {}) : {};
+    const summary = (game || {}).summary || {};
+    const venue = clean(weather.venue) || clean(summary.venue) || "Ballpark";
+    const roof = clean(weather.roof).toLowerCase();
+    const indoor = roof.includes("closed") || roof.includes("indoor") || roof.includes("dome");
+    const temp = clean(weather.temperatureF ?? weather.temperature);
+    const wind = clean(weather.windMph);
+    const windDir = clean(weather.windDirection || weather.windDir);
+    const boost = !indoor && number(wind, 0) > 10 && /out/i.test(windDir);
+    return `
+      <section class="ob-rail-card ob-stadium-card">
+        <div class="ob-rail-card-header"><h3>Ballpark</h3><span class="${indoor ? "is-watch" : ""}">${indoor ? "INDOOR" : "OUTDOOR"}</span></div>
+        <div class="ob-rail-body">
+          <strong class="ob-venue-name">${escapeHtml(venue)}</strong>
+          <span class="ob-muted-line">${escapeHtml(clean(summary.awayName) && clean(summary.homeName) ? `${summary.awayName} at ${summary.homeName}` : "MLB venue")}</span>
+          ${indoor ? `<p class="ob-muted-line"><em>Weather conditions have no impact.</em></p>` : `<div class="ob-weather-grid"><span>${escapeHtml(temp ? `${temp}°F` : "Temp --")}</span><span>${escapeHtml(wind ? `${wind} mph ${windDir}` : "Wind --")}</span></div>`}
+          ${boost ? `<p class="ob-weather-alert">Wind blowing out at ${escapeHtml(wind)} mph — slight HR boost</p>` : ""}
+        </div>
+      </section>
+    `;
   }
 
   function renderRailMatchup(selected, top) {

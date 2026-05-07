@@ -37,6 +37,15 @@ TEAM_MARKET_STATS = {
 
 WINDOW_KEYS = ("L5", "L10", "L20", "H2H", "season", "prevSeason")
 
+# StatsAPI, legacy Lahman-style feeds, and playerboard exports do not always
+# agree on team abbreviations. Normalize at the source so hit-rate joins keep
+# their six-part key intact across playerboard and game-log caches.
+TEAM_NORM = {
+    "SFG": "SF", "CWS": "CHW", "KCR": "KC", "TBR": "TB",
+    "SDP": "SD", "WSN": "WSH", "SLN": "STL", "CHN": "CHC",
+    "ANA": "LAA", "MON": "WSH",
+}
+
 
 def clean(value: Any) -> str:
     return str(value or "").strip()
@@ -77,7 +86,8 @@ def normalize_name(value: Any) -> str:
 
 
 def normalize_team(value: Any) -> str:
-    return clean(value).upper()
+    team = clean(value).upper()
+    return TEAM_NORM.get(team, team)
 
 
 def parse_date(value: Any) -> date | None:

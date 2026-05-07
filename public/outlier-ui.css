@@ -2931,3 +2931,271 @@ body.outlier-mode {
     display: block;
   }
 }
+
+/* Premium integration patches — detail rail, icon nav, transitions, responsive polish */
+@keyframes ob-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.outlier-mode .ob-page-wrap {
+  animation: ob-fade-in 0.15s ease-out;
+}
+
+.outlier-mode .ob-nav-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border: 0;
+  border-radius: 0;
+  color: currentColor;
+  font-size: 0.9rem;
+  font-weight: 1000;
+  line-height: 1;
+  opacity: 0.86;
+}
+
+.outlier-mode .ob-nav-icon::after {
+  display: none;
+}
+
+.outlier-mode .ob-sp-matchup {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.outlier-mode .ob-sp-matchup > div {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  min-width: 0;
+  border: 1px solid var(--ob-line-soft);
+  border-radius: 14px;
+  padding: 10px 6px;
+  background: rgba(255,255,255,0.03);
+  text-align: center;
+}
+
+.outlier-mode .ob-sp-matchup strong {
+  color: var(--ob-text);
+  font-size: 0.76rem;
+  line-height: 1.15;
+}
+
+.outlier-mode .ob-sp-team-badge,
+.outlier-mode .ob-mini-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--team-color) 60%, transparent);
+  color: var(--team-color);
+  background: var(--team-bg);
+  font-weight: 1000;
+}
+
+.outlier-mode .ob-sp-team-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 0.66rem;
+}
+
+.outlier-mode .ob-mini-avatar {
+  width: 22px;
+  height: 22px;
+  margin-right: 7px;
+  border-radius: 999px;
+  font-size: 0.55rem;
+  vertical-align: middle;
+}
+
+.outlier-mode .ob-mini-stat-table,
+.outlier-mode .ob-bullpen-table,
+.outlier-mode .ob-batter-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--ob-text);
+  font-size: 0.72rem;
+}
+
+.outlier-mode .ob-mini-stat-table th,
+.outlier-mode .ob-mini-stat-table td,
+.outlier-mode .ob-bullpen-table th,
+.outlier-mode .ob-bullpen-table td,
+.outlier-mode .ob-batter-table th,
+.outlier-mode .ob-batter-table td {
+  border-bottom: 1px solid var(--ob-line-soft);
+  padding: 7px 4px;
+}
+
+.outlier-mode .ob-mini-stat-table th,
+.outlier-mode .ob-bullpen-table th,
+.outlier-mode .ob-batter-table th {
+  color: var(--ob-muted);
+  font-size: 0.62rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.outlier-mode .ob-mini-stat-table th,
+.outlier-mode .ob-bullpen-table th:first-child,
+.outlier-mode .ob-batter-table th:nth-child(2),
+.outlier-mode .ob-bullpen-table td:first-child,
+.outlier-mode .ob-batter-table td:nth-child(2) {
+  text-align: left;
+}
+
+.outlier-mode .ob-mini-stat-table td,
+.outlier-mode .ob-bullpen-table td,
+.outlier-mode .ob-batter-table td,
+.outlier-mode .ob-bullpen-table th:not(:first-child),
+.outlier-mode .ob-batter-table th:not(:nth-child(2)) {
+  text-align: right;
+}
+
+.outlier-mode .ob-mini-stat-table td.is-good { color: var(--ob-green); }
+.outlier-mode .ob-mini-stat-table td.is-bad { color: var(--ob-red); }
+.outlier-mode .ob-mini-stat-table td.is-watch { color: var(--ob-amber); }
+
+.outlier-mode .ob-rail-card-header span.is-watch,
+.outlier-mode .ob-weather-alert {
+  color: var(--ob-amber);
+}
+
+.outlier-mode .ob-rail-footnote {
+  margin: 9px 0 0;
+  color: var(--ob-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.outlier-mode .ob-rail-footnote span { color: var(--ob-green); }
+
+.outlier-mode .ob-bullpen-table tr.is-rest-risk td {
+  background: rgba(246,196,83,0.08);
+  color: var(--ob-amber);
+}
+
+.outlier-mode .ob-rail-mini-tabs {
+  margin-bottom: 9px;
+}
+
+.outlier-mode .ob-rail-mini-tabs button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.outlier-mode .ob-batter-table tr.is-selected-batter td {
+  background: rgba(24,217,156,0.06);
+}
+
+.outlier-mode .ob-batter-table tr.is-selected-batter td:first-child {
+  border-left: 3px solid var(--ob-green);
+}
+
+.outlier-mode .ob-batter-table td strong,
+.outlier-mode .ob-venue-name {
+  display: block;
+  color: var(--ob-text);
+  font-size: 0.82rem;
+}
+
+.outlier-mode .ob-batter-table td span {
+  display: block;
+  margin-top: 2px;
+  color: var(--ob-muted);
+  font-size: 0.64rem;
+}
+
+.outlier-mode .ob-weather-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.outlier-mode .ob-weather-grid span {
+  border: 1px solid var(--ob-line-soft);
+  border-radius: 12px;
+  padding: 9px;
+  color: var(--ob-text);
+  background: rgba(255,255,255,0.03);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.outlier-mode .ob-weather-alert {
+  margin: 10px 0 0;
+  border: 1px solid rgba(246,196,83,0.25);
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(246,196,83,0.08);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+@media (min-width: 1920px) {
+  .outlier-mode .outlier-app {
+    max-width: 1920px;
+    margin: 0 auto;
+  }
+}
+
+@media (max-width: 1279px) {
+  .outlier-mode .ob-right-rail {
+    position: fixed;
+    right: 0;
+    top: 0;
+    height: 100vh;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    z-index: 200;
+  }
+  .outlier-mode .outlier-app.is-rail-open .ob-right-rail,
+  .outlier-mode .ob-right-rail.is-open {
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 1023px) and (min-width: 641px) {
+  .outlier-mode .ob-sidebar { width: 48px; }
+  .outlier-mode .ob-nav-label { display: none; }
+  .outlier-mode .ob-sidebar-footer { display: none; }
+}
+
+@media (max-width: 639px) {
+  .outlier-mode .ob-table-scroll { display: none; }
+  .outlier-mode .ob-mobile-card { display: block; }
+}
+
+.outlier-mode .ob-book-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.outlier-mode .ob-book-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--ob-panel-2);
+  border: 1px solid var(--ob-line);
+  font-size: 0.68rem;
+  color: var(--ob-muted);
+  margin: 0 2px;
+}
+
+.outlier-mode .ob-book-chip b {
+  color: var(--ob-text);
+  font-size: 0.62rem;
+  letter-spacing: 0.03em;
+}

@@ -16,6 +16,13 @@ UMPIRE_DIR = DATA_DIR / "cache" / "umpires"
 ODDS_MOVEMENT_DIR = DATA_DIR / "cache" / "odds_movement"
 INCREMENTAL_STATS_DIR = DATA_DIR / "cache" / "incremental_stats"
 CLOUD_SUMMARIES_DIR = DATA_DIR / "cloud" / "summaries"
+IMPORTS_DIR = DATA_DIR / "imports"
+
+TEAM_NORM = {
+    "SFG": "SF", "CWS": "CHW", "KCR": "KC", "TBR": "TB",
+    "SDP": "SD", "WSN": "WSH", "SLN": "STL", "CHN": "CHC",
+    "ANA": "LAA", "MON": "WSH", "OAK": "ATH",
+}
 
 GAME_MARKETS = {
     "moneyline",
@@ -46,6 +53,11 @@ TEAM_PROP_MARKETS = {
 
 def clean(value: Any) -> str:
     return str(value or "").strip()
+
+
+def normalize_team(value: Any) -> str:
+    team = clean(value).upper()
+    return TEAM_NORM.get(team, team)
 
 
 def to_float(value: Any, default: float | None = None) -> float | None:
@@ -233,8 +245,50 @@ def bullpen_pitchers_payload(season: int, team: str, starting_pitcher: str, as_o
     return output[:10]
 
 
+def pitcher_season_stats(season: int, team: str, pitcher_name: str) -> dict[str, Any]:
+    team = normalize_team(team)
+    pitcher_norm = norm_name(pitcher_name)
+    if not team or not pitcher_norm:
+        return {}
+
+    totals = read_csv(INCREMENTAL_STATS_DIR / f"pitcher_totals_{season}.csv")
+    total_row = next(
+        (row for row in totals if norm_name(row.get("player")) == pitcher_norm and normalize_team(row.get("team")) == team),
+        {},
+    )
+
+    logs = [
+        row for row in read_csv(INCREMENTAL_STATS_DIR / f"pitcher_game_logs_{season}.csv")
+        if norm_name(row.get("player")) == pitcher_norm and normalize_team(row.get("team")) == team
+    ]
+
+    wins = sum(to_int(row.get("wins"), 0) or 0 for row in logs)
+    losses = sum(to_int(row.get("losses"), 0) or 0 for row in logs)
+    ip = to_float(total_row.get("ip"), None)
+    if ip is None and logs:
+        ip = sum(innings_to_float(row.get("inningsPitched")) for row in logs)
+
+    hits_allowed = to_float(total_row.get("hitsAllowed"), None)
+    if hits_allowed is None and logs:
+        hits_allowed = sum(to_float(row.get("hits"), 0.0) or 0.0 for row in logs)
+    h9 = to_float(total_row.get("hitsPer9") or total_row.get("hPer9"), None)
+    if h9 is None and ip:
+        h9 = (hits_allowed or 0.0) * 9.0 / ip
+
+    return compact_row({
+        "record": f"{wins}-{losses}" if logs else "",
+        "era": to_float(total_row.get("era"), None),
+        "ip": round(ip, 1) if ip is not None else None,
+        "h9": round(h9, 2) if h9 is not None else None,
+        "k9": to_float(total_row.get("kPer9"), None),
+        "bb9": to_float(total_row.get("bbPer9"), None),
+        "whip": to_float(total_row.get("whip"), None),
+        "games": to_int(total_row.get("games"), None),
+    })
+
+
 def team_side_payload(side: str, team: str, summary: dict[str, Any], season: int, date_label: str) -> dict[str, Any]:
-    team = clean(team).upper()
+    team = normalize_team(team)
     pitcher_key = "homeProbablePitcher" if side == "home" else "awayProbablePitcher"
     name_key = "homeName" if side == "home" else "awayName"
     probable_pitcher = clean(summary.get(pitcher_key))
@@ -243,6 +297,7 @@ def team_side_payload(side: str, team: str, summary: dict[str, Any], season: int
         "team": team,
         "teamName": clean(summary.get(name_key)),
         "probablePitcher": probable_pitcher,
+        "pitcherSeasonStats": pitcher_season_stats(season, team, probable_pitcher),
         "bullpenPitchers": bullpen_pitchers_payload(season, team, probable_pitcher, date_label),
     })
 
@@ -339,7 +394,7 @@ def projected_lineup_from_summary(date_label: str, team: str, opponent: str = ""
 def lineup_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     season = int(query.get("season", ["2026"])[0])
     date_label = clean(query.get("date", [datetime.now().strftime("%Y-%m-%d")])[0])
-    team = clean(query.get("team", [""])[0]).upper()
+    team = normalize_team(query.get("team", [""])[0])
     opponent = clean(query.get("opponent", [""])[0]).upper()
     game_pk = clean(query.get("gamePk", query.get("fixtureId", [""]))[0])
 
@@ -391,22 +446,95 @@ def lineup_payload(query: dict[str, list[str]]) -> dict[str, Any]:
 
 
 def latest_game_market_files() -> list[Path]:
-    if not ODDSPAPI_DIR.exists():
+    files: list[Path] = []
+    if ODDSPAPI_DIR.exists():
+        files.extend(ODDSPAPI_DIR.glob("historical_game_markets_pregame_latest_*.csv"))
+        files.extend(ODDSPAPI_DIR.glob("historical_game_markets_pregame_latest_*_season*.csv"))
+    if ODDS_MOVEMENT_DIR.exists():
+        files.extend(ODDS_MOVEMENT_DIR.glob("prop_snapshots_*.csv"))
+    if IMPORTS_DIR.exists():
+        files.extend(IMPORTS_DIR.glob("game_odds_template_*.csv"))
+    return sorted(set(files))
+
+
+def _market_row(base: dict[str, str], market: str, team: str, opponent: str, odds: Any = "", line: Any = "", outcome: str = "", book: str = "Manual") -> dict[str, str]:
+    return {
+        "fixtureId": clean(base.get("fixtureId") or base.get("gamePk")),
+        "date": clean(base.get("date"))[:10],
+        "startTime": clean(base.get("startTime") or base.get("gameDate")),
+        "market": market,
+        "team": normalize_team(team),
+        "opponent": normalize_team(opponent),
+        "line": clean(line),
+        "outcomeName": outcome,
+        "americanOdds": clean(odds),
+        "bookmaker": clean(base.get("bookmaker") or base.get("sportsbook") or book),
+        "createdAt": clean(base.get("createdAt") or base.get("snapshotAt")),
+    }
+
+
+def rows_from_game_odds_template(row: dict[str, str]) -> list[dict[str, str]]:
+    team = normalize_team(row.get("team"))
+    opponent = normalize_team(row.get("opponent"))
+    if not team or not opponent:
         return []
-    return sorted(ODDSPAPI_DIR.glob("historical_game_markets_pregame_latest_*.csv"))
+    output: list[dict[str, str]] = []
+    team_ml = clean(row.get("team_moneyline") or row.get("close_team_moneyline"))
+    opponent_ml = clean(row.get("opponent_moneyline"))
+    if team_ml:
+        output.append(_market_row(row, "moneyline", team, opponent, team_ml, "", team))
+    if opponent_ml:
+        output.append(_market_row(row, "moneyline", opponent, team, opponent_ml, "", opponent))
+    total = clean(row.get("game_total") or row.get("close_game_total"))
+    if total:
+        over_odds = clean(row.get("over_odds") or row.get("game_total_over_odds") or row.get("total_over_odds") or "-110")
+        under_odds = clean(row.get("under_odds") or row.get("game_total_under_odds") or row.get("total_under_odds") or "-110")
+        output.append(_market_row(row, "game_total_runs", team, opponent, over_odds, total, "Over"))
+        output.append(_market_row(row, "game_total_runs", team, opponent, under_odds, total, "Under"))
+    return output
+
+
+def normalize_game_market_file_rows(path: Path, rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    if path.name.startswith("game_odds_template_"):
+        output: list[dict[str, str]] = []
+        for row in rows:
+            output.extend(rows_from_game_odds_template(row))
+        return output
+
+    output = []
+    for row in rows:
+        market = clean(row.get("market"))
+        if market in {"h2h", "money_line", "ml"}:
+            market = "moneyline"
+        elif market in {"spreads", "spread"}:
+            market = "run_line"
+        elif market in {"totals", "total"}:
+            market = "game_total_runs"
+        if market not in GAME_MARKETS:
+            continue
+        item = dict(row)
+        item["market"] = market
+        item["team"] = normalize_team(item.get("team"))
+        item["opponent"] = normalize_team(item.get("opponent"))
+        if "bookmaker" not in item and "sportsbook" in item:
+            item["bookmaker"] = item.get("sportsbook", "")
+        if "createdAt" not in item and "snapshotAt" in item:
+            item["createdAt"] = item.get("snapshotAt", "")
+        output.append(item)
+    return output
 
 
 def load_game_market_rows(date_label: str = "", season: int = 2026) -> tuple[list[dict[str, str]], list[str]]:
     rows: list[dict[str, str]] = []
     sources: list[str] = []
     for path in latest_game_market_files():
-        file_rows = read_csv(path)
+        file_rows = normalize_game_market_file_rows(path, read_csv(path))
         if not file_rows:
             continue
         if date_label:
             file_rows = [row for row in file_rows if clean(row.get("date"))[:10] == date_label]
         elif season:
-            file_rows = [row for row in file_rows if clean(row.get("date")).startswith(str(season))]
+            file_rows = [row for row in file_rows if clean(row.get("date")).startswith(str(season)) or clean(row.get("season")) == str(season)]
         if file_rows:
             sources.append(str(path))
             rows.extend(file_rows)
@@ -414,7 +542,9 @@ def load_game_market_rows(date_label: str = "", season: int = 2026) -> tuple[lis
 
 
 def load_weather_rows(season: int) -> list[dict[str, str]]:
-    return read_csv(WEATHER_DIR / f"weather_features_{season}.csv")
+    rows = read_csv(WEATHER_DIR / f"weather_features_{season}.csv")
+    rows.extend(read_csv(WEATHER_DIR / f"game_weather_{season}.csv"))
+    return rows
 
 
 def load_umpire_rows(season: int) -> list[dict[str, str]]:
@@ -442,13 +572,18 @@ def group_key(row: dict[str, str]) -> tuple[str, str, str, str]:
     return (
         clean(row.get("fixtureId")),
         clean(row.get("date"))[:10],
-        clean(row.get("team")).upper(),
-        clean(row.get("opponent")).upper(),
+        normalize_team(row.get("team")),
+        normalize_team(row.get("opponent")),
     )
 
 
 def game_key(row: dict[str, str]) -> tuple[str, str]:
-    return (clean(row.get("fixtureId")), clean(row.get("date"))[:10])
+    fixture = clean(row.get("fixtureId"))
+    date_label = clean(row.get("date"))[:10]
+    if fixture:
+        return (fixture, date_label)
+    teams = sorted({normalize_team(row.get("team")), normalize_team(row.get("opponent"))} - {""})
+    return ("-".join(teams), date_label)
 
 
 def summarize_moneyline(rows: list[dict[str, str]]) -> dict[str, Any]:
@@ -459,7 +594,7 @@ def summarize_moneyline(rows: list[dict[str, str]]) -> dict[str, Any]:
         odds = to_float(row.get("americanOdds"))
         if odds is None:
             continue
-        team = clean(row.get("team")).upper()
+        team = normalize_team(row.get("team"))
         by_team[team].append(odds)
         by_team_books[team].append({
             "bookmaker": clean(row.get("bookmaker")),
@@ -488,8 +623,8 @@ def summarize_line(rows: list[dict[str, str]], market: str) -> list[dict[str, An
             continue
         out.append(compact_row({
             "bookmaker": clean(row.get("bookmaker")),
-            "team": clean(row.get("team")).upper(),
-            "opponent": clean(row.get("opponent")).upper(),
+            "team": normalize_team(row.get("team")),
+            "opponent": normalize_team(row.get("opponent")),
             "line": to_float(row.get("line")),
             "outcomeName": clean(row.get("outcomeName")),
             "americanOdds": to_int(row.get("americanOdds")),
@@ -502,12 +637,12 @@ def summarize_line(rows: list[dict[str, str]], market: str) -> list[dict[str, An
 def game_context_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     season = int(query.get("season", ["2026"])[0])
     date_label = clean(query.get("date", [datetime.now().strftime("%Y-%m-%d")])[0])
-    team_filter = clean(query.get("team", [""])[0]).upper()
+    team_filter = normalize_team(query.get("team", [""])[0])
     limit = int(query.get("limit", ["100"])[0])
 
     rows, sources = load_game_market_rows(date_label, season)
     if team_filter:
-        rows = [row for row in rows if team_filter in {clean(row.get("team")).upper(), clean(row.get("opponent")).upper()}]
+        rows = [row for row in rows if team_filter in {normalize_team(row.get("team")), normalize_team(row.get("opponent"))}]
 
     summaries = load_summary_games(date_label)
     games: dict[tuple[str, str], dict[str, Any]] = {}
@@ -532,8 +667,8 @@ def game_context_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     # game context so Stage 7/8 screens can render instead of going blank.
     if not games and summaries:
         for item in summaries:
-            away = clean(item.get("away")).upper()
-            home = clean(item.get("home")).upper()
+            away = normalize_team(item.get("away"))
+            home = normalize_team(item.get("home"))
             if team_filter and team_filter not in {away, home}:
                 continue
             key = (clean(item.get("gamePk")), date_label)
@@ -546,17 +681,23 @@ def game_context_payload(query: dict[str, list[str]]) -> dict[str, Any]:
             }
             rows_by_game[key] = []
 
-    weather_by_date_team = {(clean(row.get("date"))[:10], clean(row.get("team")).upper()): row for row in load_weather_rows(season)}
+    weather_by_date_team: dict[tuple[str, str], dict[str, str]] = {}
+    for row in load_weather_rows(season):
+        weather_date = clean(row.get("date"))[:10]
+        for team_key in [row.get("team"), row.get("home"), row.get("away")]:
+            team = normalize_team(team_key)
+            if weather_date and team:
+                weather_by_date_team[(weather_date, team)] = row
     umpire_by_date_game = {(clean(row.get("date"))[:10], clean(row.get("gamePk"))): row for row in load_umpire_rows(season)}
 
     out_games = []
     for key, game in games.items():
         game_rows = rows_by_game[key]
         summary = match_summary_game(game, game_rows, summaries)
-        away_team = clean(summary.get("away")).upper()
-        home_team = clean(summary.get("home")).upper()
+        away_team = normalize_team(summary.get("away"))
+        home_team = normalize_team(summary.get("home"))
         if not away_team or not home_team:
-            teams = [clean(team).upper() for team in game.get("teams", []) if clean(team)]
+            teams = [normalize_team(team) for team in game.get("teams", []) if clean(team)]
             away_team = away_team or (teams[0] if teams else "")
             home_team = home_team or (teams[1] if len(teams) > 1 else "")
 
@@ -599,13 +740,20 @@ def game_context_payload(query: dict[str, list[str]]) -> dict[str, Any]:
             "endpoint": "/api/game/lineup",
             "note": "Projected lineups are used when present; otherwise /api/game/lineup falls back to top batters by AB/PA.",
         }
-        game["weather"] = [compact_row({
-            "team": team,
-            "temperature": weather_by_date_team.get((game["date"], team), {}).get("temperature"),
-            "windMph": weather_by_date_team.get((game["date"], team), {}).get("wind_mph"),
-            "roof": weather_by_date_team.get((game["date"], team), {}).get("roof"),
-            "venue": weather_by_date_team.get((game["date"], team), {}).get("venue") or clean(summary.get("venue")),
-        }) for team in game.get("teams", [])]
+        weather_items = []
+        for team in game.get("teams", []):
+            weather_row = weather_by_date_team.get((game["date"], normalize_team(team)), {})
+            weather_items.append(compact_row({
+                "team": normalize_team(team),
+                "temperatureF": weather_row.get("temperatureF") or weather_row.get("temperature"),
+                "temperature": weather_row.get("temperatureF") or weather_row.get("temperature"),
+                "windMph": weather_row.get("windMph") or weather_row.get("wind_mph"),
+                "windDirection": weather_row.get("windDirection") or weather_row.get("wind_dir"),
+                "roof": weather_row.get("roof"),
+                "venue": weather_row.get("venue") or clean(summary.get("venue")),
+                "weatherSummary": weather_row.get("weatherSummary"),
+            }))
+        game["weather"] = weather_items
         game["umpire"] = compact_row(umpire_by_date_game.get((game["date"], clean(game.get("fixtureId"))), {}))
         out_games.append(game)
 
@@ -647,8 +795,8 @@ def odds_market_signals_payload(query: dict[str, list[str]]) -> dict[str, Any]:
             "bookmaker": clean(row.get("bookmaker")),
             "market": clean(row.get("market")),
             "marketLabel": market_label(clean(row.get("market"))),
-            "team": clean(row.get("team")).upper(),
-            "opponent": clean(row.get("opponent")).upper(),
+            "team": normalize_team(row.get("team")),
+            "opponent": normalize_team(row.get("opponent")),
             "line": to_float(row.get("line")),
             "outcomeName": clean(row.get("outcomeName")),
             "americanOdds": to_int(row.get("americanOdds")),
@@ -698,8 +846,8 @@ def team_props_payload(query: dict[str, list[str]]) -> dict[str, Any]:
             "bookmaker": clean(row.get("bookmaker")),
             "market": clean(row.get("market")),
             "marketLabel": market_label(clean(row.get("market"))),
-            "team": clean(row.get("team")).upper(),
-            "opponent": clean(row.get("opponent")).upper(),
+            "team": normalize_team(row.get("team")),
+            "opponent": normalize_team(row.get("opponent")),
             "line": to_float(row.get("line")),
             "outcomeName": clean(row.get("outcomeName")),
             "americanOdds": to_int(row.get("americanOdds")),
@@ -731,8 +879,8 @@ def expanded_prop_search_payload(query: dict[str, list[str]]) -> dict[str, Any]:
             "type": "game_market",
             "label": f"{clean(row.get('market')).replace('_',' ')} {clean(row.get('team')) or clean(row.get('outcomeName'))} {clean(row.get('line'))} {clean(row.get('bookmaker'))}",
             "market": clean(row.get("market")),
-            "team": clean(row.get("team")).upper(),
-            "opponent": clean(row.get("opponent")).upper(),
+            "team": normalize_team(row.get("team")),
+            "opponent": normalize_team(row.get("opponent")),
             "bookmaker": clean(row.get("bookmaker")),
             "line": to_float(row.get("line")),
             "americanOdds": to_int(row.get("americanOdds")),

@@ -224,28 +224,28 @@ def season_adjustment(market: str, line: float, batter: dict[str, Any], pitcher:
         hpg = to_float(batter.get("hitsPerGame"))
         if hpg >= 1.05:
             amount += 0.025
-            add("Cached batter hits", 0.025, f"{hpg} hits/game in cached season logs")
+            add("Cached batter hits", 0.025, f"{batter.get('player') or 'This batter'} is averaging {hpg:.1f} hits per game in the cached {market.replace('_', ' ')} sample.")
         elif hpg <= 0.65:
             amount -= 0.02
-            add("Cached batter hits", -0.02, f"{hpg} hits/game in cached season logs")
+            add("Cached batter hits", -0.02, f"{batter.get('player') or 'This batter'} is averaging {hpg:.1f} hits per game in the cached {market.replace('_', ' ')} sample.")
 
     if market == "batter_total_bases" and batter.get("available"):
         tbpg = to_float(batter.get("totalBasesPerGame"))
         if tbpg >= 1.65:
             amount += 0.025
-            add("Cached total bases", 0.025, f"{tbpg} total bases/game in cached logs")
+            add("Cached total bases", 0.025, f"{batter.get('player') or 'This batter'} is averaging {tbpg:.1f} total bases per game in the cached season sample.")
         elif tbpg <= 0.85:
             amount -= 0.02
-            add("Cached total bases", -0.02, f"{tbpg} total bases/game in cached logs")
+            add("Cached total bases", -0.02, f"{batter.get('player') or 'This batter'} is averaging {tbpg:.1f} total bases per game in the cached season sample.")
 
     if market == "batter_home_runs" and batter.get("available"):
         hrpg = to_float(batter.get("homeRunsPerGame"))
         if hrpg >= 0.20:
             amount += 0.015
-            add("Cached HR profile", 0.015, f"{hrpg} HR/game in cached logs")
+            add("Cached HR profile", 0.015, f"{batter.get('player') or 'This batter'} is averaging {hrpg:.2f} HR per game, which meaningfully shifts home-run volatility.")
         elif hrpg <= 0.04:
             amount -= 0.01
-            add("Cached HR profile", -0.01, f"{hrpg} HR/game in cached logs")
+            add("Cached HR profile", -0.01, f"{batter.get('player') or 'This batter'} is averaging {hrpg:.2f} HR per game, which meaningfully shifts home-run volatility.")
 
     if market == "pitcher_strikeouts" and pitcher.get("available"):
         kpg = to_float(pitcher.get("strikeoutsPerGame"))
@@ -278,19 +278,19 @@ def season_adjustment(market: str, line: float, batter: dict[str, Any], pitcher:
         rpg = to_float(team.get("runsPerGame"))
         if rpg >= 5.0:
             amount += 0.01
-            add("Cached team offense", 0.01, f"{team.get('team')} scores {rpg} runs/game")
+            add("Cached team offense", 0.01, f"{team.get('team')} enters with a {rpg:.1f} runs-per-game scoring environment supporting batter volume.")
         elif rpg <= 3.6:
             amount -= 0.01
-            add("Cached team offense", -0.01, f"{team.get('team')} scores {rpg} runs/game")
+            add("Cached team offense", -0.01, f"{team.get('team')} enters with a {rpg:.1f} runs-per-game scoring environment supporting batter volume.")
 
     if market.startswith("batter") and opponent.get("available"):
         rag = to_float(opponent.get("runsAllowedPerGame"))
         if rag >= 5.0:
             amount += 0.01
-            add("Cached opponent pitching", 0.01, f"{opponent.get('team')} allows {rag} runs/game")
+            add("Cached opponent pitching", 0.01, f"{opponent.get('team')} allows {rag:.1f} runs per game, adding matchup support for hitter props.")
         elif rag <= 3.6:
             amount -= 0.01
-            add("Cached opponent pitching", -0.01, f"{opponent.get('team')} allows {rag} runs/game")
+            add("Cached opponent pitching", -0.01, f"{opponent.get('team')} allows {rag:.1f} runs per game, adding matchup support for hitter props.")
 
     if market in TEAM_GAME_MARKETS:
         team_rpg = to_float(team.get("runsPerGame"))
@@ -301,17 +301,17 @@ def season_adjustment(market: str, line: float, batter: dict[str, Any], pitcher:
         if market in {"moneyline", "moneyline_first_five", "run_line", "run_line_first_five", "run_line_first_inning", "team_first_to_score"}:
             if team_rpg and opp_rpg and team_rpg >= opp_rpg + 0.6:
                 amount += 0.015
-                add("Cached team form", 0.015, f"{team.get('team')} scores {team_rpg}/game vs opponent {opp_rpg}/game")
+                add("Cached team form", 0.015, f"{team.get('team')} has the stronger scoring profile ({team_rpg:.1f}/game vs {opp_rpg:.1f}/game).")
             elif team_rpg and opp_rpg and team_rpg <= opp_rpg - 0.6:
                 amount -= 0.015
-                add("Cached team form", -0.015, f"{team.get('team')} scores {team_rpg}/game vs opponent {opp_rpg}/game")
+                add("Cached team form", -0.015, f"{team.get('team')} has the stronger scoring profile ({team_rpg:.1f}/game vs {opp_rpg:.1f}/game).")
 
             if team_allowed and opp_allowed and team_allowed <= opp_allowed - 0.5:
                 amount += 0.01
-                add("Cached run prevention", 0.010, f"{team.get('team')} allows fewer runs/game than opponent")
+                add("Cached run prevention", 0.010, f"{team.get('team')} has allowed fewer runs per game than its opponent, improving run-prevention context.")
             elif team_allowed and opp_allowed and team_allowed >= opp_allowed + 0.5:
                 amount -= 0.01
-                add("Cached run prevention", -0.010, f"{team.get('team')} allows more runs/game than opponent")
+                add("Cached run prevention", -0.010, f"{team.get('team')} has allowed more runs per game than its opponent, raising downside risk.")
 
         if market in {"team_total_runs", "game_total_runs", "first_five_total_runs", "first_inning_total_runs"}:
             if team_rpg >= 5.0 or opp_allowed >= 5.0:
@@ -667,22 +667,36 @@ def build_insights(
     weather_context: dict[str, Any],
 ) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
+    label = market.replace("_", " ")
+
+    def add_item(text: str, source: str, typ: str = "analysis") -> None:
+        text = clean(text)
+        if text and not any(clean(item.get("text")) == text for item in items):
+            items.append({"type": typ, "text": text, "source": source})
+
     for adjustment in (cache_adjustments or [])[:3]:
         reason = clean(adjustment.get("reason"))
         if reason:
-            items.append({"type": "analysis", "text": reason, "source": "cached_stats"})
+            add_item(reason, "cached_stats")
+
     for adjustment in (savant_adjustments or [])[:3]:
         reason = clean(adjustment.get("reason"))
         if reason:
-            items.append({"type": "analysis", "text": reason, "source": "savant"})
+            add_item(reason, "savant")
+
     if weather_context:
-        venue = clean(weather_context.get("venue"))
+        venue = clean(weather_context.get("venue")) or "this park"
         wind = clean(weather_context.get("wind_mph") or weather_context.get("windMph"))
-        if venue or wind:
-            items.append({"type": "insight", "text": f"Weather context is available for {venue or 'this game'}{f' with wind {wind} mph' if wind else ''}.", "source": "weather"})
+        roof = clean(weather_context.get("roof"))
+        if roof and "closed" in roof.lower():
+            add_item(f"{venue} is playing indoors, so weather should not move this prop materially.", "weather", "insight")
+        elif wind:
+            add_item(f"{venue} weather is live in the model with wind at {wind} mph; review late movement if direction changes.", "weather", "insight")
+        elif venue:
+            add_item(f"{venue} context is available for park and weather adjustments.", "weather", "insight")
+
     if not items:
-        label = market.replace("_", " ")
-        items.append({"type": "insight", "text": f"{player or 'This player'} is priced at {label} line {line}; recommendation is {recommendation.lower()}.", "source": "model"})
+        add_item(f"{player or 'This player'} is priced at {label} line {line}; current model recommendation is {recommendation.lower()}.", "model", "insight")
     return items[:5]
 
 

@@ -370,21 +370,41 @@ def _team_recent_trends(season: int, limit: int = 8) -> list[dict[str, Any]]:
 
 
 def insights_feed_payload(query: dict[str, list[str]]) -> dict[str, Any]:
-    """Aggregate premium feed cards for the Outlier-style insights rail/page."""
+    """Aggregate premium feed cards for the Outlier-style insights rail/page.
+
+    Card scoring mirrors the audit plan:
+      score = L10 hit rate + streak length × 5 + edge percent × 3 + steam flag × 20
+    The feed intentionally mixes streak, H2H, split/recent-form, steam, and team-form cards.
+    """
     season = _int(query.get("season", ["2026"])[0], 2026)
     date = _clean(query.get("date", [""])[0])
     limit = _int(query.get("limit", ["40"])[0], 40)
     cards: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
 
     playerboard = _latest_playerboard_lookup(season, date)
 
+    def add_card(card: dict[str, Any]) -> None:
+        key = (_clean(card.get("type")), _norm(card.get("player")), _clean(card.get("market")))
+        if key in seen:
+            return
+        seen.add(key)
+        cards.append(card)
+
+    def card_score(l10_pct: float, streak_length: int = 0, edge_percent: float = 0.0, steam_flag: bool = False) -> float:
+        return l10_pct + (streak_length * 5.0) + (edge_percent * 3.0) + (20.0 if steam_flag else 0.0)
+
     try:
         from player_hit_rates import player_hit_rates_payload
-        hit_payload = player_hit_rates_payload({"season": [str(season)], "date": [date], "limit": ["750"]})
+        hit_payload = player_hit_rates_payload({"season": [str(season)], "date": [date], "limit": ["1000"]})
         for row in hit_payload.get("rows", []):
-            window = _pct_window(row, "L10")
-            if not window or _float(window.get("pct")) < 80:
+            l10 = _pct_window(row, "L10")
+            if not l10:
                 continue
+            l10_pct = _float(l10.get("pct"))
+            if l10_pct < 60:
+                continue
+
             player = _clean(row.get("player")) or _clean(row.get("team"))
             team = _clean(row.get("team")).upper()
             opponent = _clean(row.get("opponent")).upper()
@@ -392,25 +412,67 @@ def insights_feed_payload(query: dict[str, list[str]]) -> dict[str, Any]:
             lookup = playerboard.get((_norm(player), _norm(market), team), {})
             side = _clean(row.get("rawLabel") or lookup.get("rawLabel") or "Under").title()
             line = row.get("line") if row.get("line") not in (None, "") else lookup.get("line")
-            average = ""
+            edge = _float(lookup.get("finalEdgePercent"))
+            l10_hits = _int(l10.get("hits"))
+            l10_total = _int(l10.get("total"))
+            misses = max(0, l10_total - l10_hits)
+            streak_length = l10_hits if misses == 0 else max(0, l10_hits - misses)
+            market_text = f"{side} {line} {_market_display(market)}"
+            game_text = f"{team} @ {opponent}" if opponent else team
+
+            if l10_pct >= 80:
+                add_card({
+                    "type": "streak",
+                    "player": player,
+                    "team": team,
+                    "game": game_text,
+                    "gameTime": "Today",
+                    "text": f"{player} has cleared this {market_text} profile in {l10_hits} of the last {l10_total} logged games.",
+                    "market": market_text,
+                    "odds": _clean(lookup.get("americanOdds")),
+                    "hitRateBar": {"pct": round(l10_pct), "total": l10_total},
+                    "badge": _badge_for_pct(l10_pct),
+                    "sortScore": card_score(l10_pct, streak_length, edge),
+                })
+
+            h2h = _pct_window(row, "H2H")
+            if h2h and _int(h2h.get("total")) >= 3:
+                h2h_pct = _float(h2h.get("pct"))
+                add_card({
+                    "type": "h2h",
+                    "player": player,
+                    "team": team,
+                    "game": game_text,
+                    "gameTime": "Matchup history",
+                    "text": f"{player} has cleared this line in {_int(h2h.get('hits'))} of {_int(h2h.get('total'))} matchups against {opponent or 'today’s opponent'}.",
+                    "market": market_text,
+                    "odds": _clean(lookup.get("americanOdds")),
+                    "hitRateBar": {"pct": round(h2h_pct), "total": _int(h2h.get("total"))},
+                    "badge": _badge_for_pct(h2h_pct),
+                    "sortScore": card_score(l10_pct, streak_length, edge) + 8,
+                })
+
             season_window = _pct_window(row, "season")
-            if season_window and _int(season_window.get("total")):
-                average = f" Season hit rate is {_float(season_window.get('pct')):.0f}%."
-            cards.append({
-                "type": "streak",
-                "player": player,
-                "team": team,
-                "game": f"{team} @ {opponent}" if opponent else team,
-                "gameTime": "Today",
-                "text": f"{player} has hit {side} {line} {_market_display(market)} in {_int(window.get('hits'))} of last {_int(window.get('total'))} games.{average}",
-                "market": f"{side} {line} {_market_display(market)}",
-                "odds": _clean(lookup.get("americanOdds")),
-                "hitRateBar": {"pct": round(_float(window.get("pct"))), "total": _int(window.get("total"))},
-                "badge": _badge_for_pct(_float(window.get("pct"))),
-                "sortScore": _float(window.get("pct")) + min(_int(window.get("total")), 20) / 10.0,
-            })
+            if season_window and _int(season_window.get("total")) >= 10:
+                season_pct = _float(season_window.get("pct"))
+                delta = l10_pct - season_pct
+                if abs(delta) >= 15:
+                    direction = "well above" if delta > 0 else "well below"
+                    add_card({
+                        "type": "split",
+                        "player": player,
+                        "team": team,
+                        "game": game_text,
+                        "gameTime": "Recent split",
+                        "text": f"{player}'s last-10 hit rate is {abs(delta):.0f} points {direction} his {season} season baseline for this market.",
+                        "market": market_text,
+                        "odds": _clean(lookup.get("americanOdds")),
+                        "hitRateBar": {"pct": round(l10_pct), "total": l10_total},
+                        "badge": "ob-green" if delta > 0 else "ob-amber",
+                        "sortScore": card_score(l10_pct, streak_length, edge) + abs(delta) / 2,
+                    })
     except Exception as error:
-        cards.append({
+        add_card({
             "type": "streak",
             "player": "Hit-rate engine",
             "team": "MLB",
@@ -433,25 +495,29 @@ def insights_feed_payload(query: dict[str, list[str]]) -> dict[str, Any]:
             player = _clean(alert.get("player")) or "Market steam"
             team = _clean(alert.get("team")).upper()
             opponent = _clean(alert.get("opponent")).upper()
-            cards.append({
+            line_move = _float(alert.get("lineMove"))
+            text = _clean(alert.get("movementSummary"))
+            if not text:
+                text = f"{player} moved {line_move:+.1f} points on the line and {move:+.0f} cents in price across {_int(alert.get('snapshots'))} snapshots."
+            add_card({
                 "type": "steam",
                 "player": player,
                 "team": team or "MLB",
                 "game": f"{team} @ {opponent}" if team and opponent else "MLB slate",
                 "gameTime": _clean(alert.get("latestSnapshotAt")) or "Latest move",
-                "text": _clean(alert.get("movementSummary")) or f"{player} saw notable market movement with an odds move of {move:+.0f}.",
+                "text": text,
                 "market": f"{_market_display(alert.get('market'))} {alert.get('latestLine')}",
                 "odds": str(int(latest_odds)) if isinstance(latest_odds, (int, float)) and latest_odds else _clean(latest_odds),
                 "hitRateBar": {"pct": max(5, min(100, round(pct_move * 4))), "total": _int(alert.get("snapshots"))},
                 "badge": "ob-amber" if _clean(alert.get("tone")) == "drift" else "ob-green",
-                "sortScore": 75 + abs(move) / 10.0 + pct_move,
+                "sortScore": card_score(55 + pct_move, abs(round(line_move)), 0, True) + abs(move) / 10.0,
             })
     except Exception:
         pass
 
     for card in _team_recent_trends(season, limit=8):
         card["sortScore"] = _float(card.get("hitRateBar", {}).get("pct"), 50)
-        cards.append(card)
+        add_card(card)
 
     cards.sort(key=lambda card: _float(card.get("sortScore")), reverse=True)
     for card in cards:
