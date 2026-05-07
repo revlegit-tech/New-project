@@ -820,12 +820,25 @@ def normalize_prop_row(row: dict[str, Any], date_label: str) -> dict[str, Any]:
             line = ladder_line
             label = ladder_label
 
-    row_date = first_value(row, ["date", "game_date", "gameDate", "start_date", "commence_time"]) or date_label
+    # PropLine stores the real local slate date in eventDateLocal while date/commenceTime
+    # can be UTC (for example 2026-05-07T01:20:00Z for a 2026-05-06 ET slate).
+    # Playerboard must use the local slate date or late games disappear from the UI.
+    row_date = first_value(row, [
+        "eventDateLocal", "event_date_local", "localDate", "local_date",
+        "date", "game_date", "gameDate", "start_date", "commence_time", "commenceTime"
+    ]) or date_label
+
+    home_team = first_value(row, ["homeTeam", "home_team", "home"])
+    away_team = first_value(row, ["awayTeam", "away_team", "away"])
+    game_text = first_value(row, ["game", "matchup", "event", "eventName"])
 
     market = classify_prop_market(market, label, line, odds)
 
     return {
         "date": row_date,
+        "game": game_text,
+        "homeTeam": home_team,
+        "awayTeam": away_team,
         "market": market,
         "marketDisplay": market_display_label(market, label),
         "originalMarket": original_market,
@@ -1021,6 +1034,76 @@ def can_use_direct_team_game_card(prop: dict[str, Any]) -> bool:
     return clean(prop.get("americanOdds")) != ""
 
 
+def american_implied_percent(value: Any) -> float:
+    odds = to_float(value)
+    if odds == 0:
+        return 50.0
+    if odds > 0:
+        return 100.0 / (odds + 100.0) * 100.0
+    return abs(odds) / (abs(odds) + 100.0) * 100.0
+
+
+def game_context_from_prop(prop: dict[str, Any]) -> tuple[str, str, str]:
+    """Return fallback team/opponent/game text when PropLine omits player team.
+
+    This is display-safe: we mark the resulting card as odds-only instead of
+    pretending the model knows the player's actual side.
+    """
+    team = clean(prop.get("team")).upper()
+    opponent = clean(prop.get("opponent")).upper()
+    home = clean(prop.get("homeTeam"))
+    away = clean(prop.get("awayTeam"))
+    game = clean(prop.get("game"))
+
+    if team and opponent:
+        return team, opponent, game
+
+    if away and home:
+        return away.upper(), home.upper(), game or f"{away} @ {home}"
+
+    if game and " @ " in game:
+        away_text, home_text = [part.strip() for part in game.split(" @ ", 1)]
+        return away_text.upper(), home_text.upper(), game
+
+    return team, opponent, game
+
+
+def odds_only_player_card(prop: dict[str, Any]) -> dict[str, Any]:
+    team, opponent, game = game_context_from_prop(prop)
+    implied = american_implied_percent(prop.get("americanOdds"))
+    missing = [
+        "PropLine did not provide player team/opponent, so this row is shown as odds-only.",
+        "Fill/verify team context before relying on model probability.",
+    ]
+    if game:
+        missing.append(f"Game: {game}")
+
+    return {
+        "player": clean(prop.get("player")),
+        "market": normalize_market(prop.get("market")),
+        "marketDisplay": clean(prop.get("marketDisplay")) or market_display_label(prop.get("market"), prop.get("rawLabel")),
+        "baseMarket": base_market(prop.get("market")),
+        "isAltMarket": str(clean(prop.get("market")).endswith("_alt")),
+        "team": team,
+        "opponent": opponent,
+        "pitcher": clean(prop.get("pitcher")),
+        "line": clean(prop.get("line")) or "0.5",
+        "americanOdds": clean(prop.get("americanOdds")),
+        "finalProbabilityPercent": round(implied, 2),
+        "sportsbookImpliedPercent": round(implied, 2),
+        "finalEdgePercent": 0.0,
+        "confidence": "Odds only",
+        "recommendation": "Needs team context",
+        "weatherAdjustmentPercent": "",
+        "savantAdjustmentPercent": "",
+        "oddsMovementAdjustmentPercent": "",
+        "missingData": missing,
+        "originalMarket": clean(prop.get("originalMarket")),
+        "rawLabel": clean(prop.get("rawLabel")),
+        "marketFamily": clean(prop.get("marketFamily")) or market_family(prop.get("market")),
+    }
+
+
 def build_playerboard(season: int = 2026, date_label: str = "", market: str = "", limit: int = 5000, save: bool = True) -> dict[str, Any]:
     from unified_prop_card import unified_prop_card
 
@@ -1039,6 +1122,8 @@ def build_playerboard(season: int = 2026, date_label: str = "", market: str = ""
             return team_game_prop_to_playerboard_card(prop), None
 
         if not prop.get("team") or not prop.get("opponent"):
+            if clean(prop.get("americanOdds")):
+                return odds_only_player_card(prop), None
             return None, None
 
         row = {

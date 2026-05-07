@@ -31,6 +31,17 @@ PROP_MARKETS = [
     "batter_hits",
     "batter_total_bases",
     "batter_home_runs",
+    "batter_rbis",
+    "batter_stolen_bases",
+    "batter_walks",
+    "batter_singles",
+    "batter_doubles",
+    "batter_runs",
+    "batter_2plus_hits",
+    "batter_2plus_home_runs",
+    "batter_2plus_rbis",
+    "batter_3plus_rbis",
+    "pitcher_outs",
     "pitcher_hits_allowed",
     "pitcher_earned_runs",
 ]
@@ -105,6 +116,18 @@ def before_game(date_label: str) -> None:
     print(f"Events: {props.get('eventCount', '--')}")
     print(f"Props: {props.get('propCount', '--')}")
     print(f"Saved: {props.get('savedPath', '--')}")
+
+    board = request_json(
+        f"/api/playerboard?season={season_from_date(date_label)}&date={urllib.parse.quote(date_label)}&limit=500&refresh=1&save=1",
+    )
+
+    print("")
+    print("Playerboard built")
+    print("-----------------")
+    print(f"Props loaded: {board.get('propsLoaded', '--')}")
+    print(f"Cards built: {board.get('cardsBuilt', '--')}")
+    if board.get("saved"):
+        print(f"Saved: {board.get('saved', {}).get('file', '--')}")
 
     template = request_json(
         f"/api/pipeline/create-template?date={urllib.parse.quote(date_label)}",

@@ -2374,7 +2374,7 @@
       if (resultBox) resultBox.innerHTML = "";
 
       const board = await getJson(
-        `/api/playerboard?season=2026&date=${encodeURIComponent(date)}&market=${encodeURIComponent(market)}&limit=500`
+        `/api/playerboard?season=2026&date=${encodeURIComponent(date)}&market=${encodeURIComponent(market)}&limit=500&buildIfMissing=1`
       );
 
       topPlayerboardRows = board.top || [];
@@ -2412,7 +2412,7 @@
     try {
       if (statusBox) statusBox.textContent = "Loading today's board...";
       const board = await getJson(
-        `/api/playerboard?season=2026&date=${encodeURIComponent(form.date)}&market=${encodeURIComponent(market)}&limit=30`
+        `/api/playerboard?season=2026&date=${encodeURIComponent(form.date)}&market=${encodeURIComponent(market)}&limit=30&buildIfMissing=1`
       );
 
       resultBox.innerHTML = renderPlayerboardTable(board.top || []);
