@@ -1,8 +1,8 @@
 {
-  "runId": "20260507T180109Z",
+  "runId": "20260507T204753Z",
   "date": "2026-05-06",
   "runType": "grading",
-  "startedAt": "2026-05-07T18:01:09.288483+00:00",
+  "startedAt": "2026-05-07T20:47:53.771397+00:00",
   "finishedAt": "",
   "success": false,
   "includeSavant": false,
@@ -308,7 +308,7 @@
   "cloudExport": null,
   "error": "",
   "traceback": "",
-  "logPath": "/home/runner/work/New-project/New-project/data/warehouse/logs/season_collector_grading_2026-05-06_20260507T180109Z.json",
+  "logPath": "/home/runner/work/New-project/New-project/data/warehouse/logs/season_collector_grading_2026-05-06_20260507T204753Z.json",
   "weatherFeatures": {
     "collect": {
       "season": 2026,
@@ -323,33 +323,33 @@
       },
       "errors": [
         {
-          "gamePk": "823727",
-          "date": "2026-04-07",
-          "venue": "Target Field",
+          "gamePk": "824379",
+          "date": "2026-04-05",
+          "venue": "Coors Field",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "824691",
-          "date": "2026-04-19",
-          "venue": "Wrigley Field",
+          "gamePk": "824373",
+          "date": "2026-04-17",
+          "venue": "Coors Field",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "822825",
-          "date": "2026-04-27",
-          "venue": "Rogers Centre",
+          "gamePk": "823635",
+          "date": "2026-04-26",
+          "venue": "Citi Field",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "823553",
+          "gamePk": "823469",
           "date": "2026-05-05",
-          "venue": "Yankee Stadium",
+          "venue": "Citizens Bank Park",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
-          "gamePk": "824036",
+          "gamePk": "823063",
           "date": "2026-05-06",
-          "venue": "Angel Stadium",
+          "venue": "Busch Stadium",
           "error": "<urlopen error _ssl.c:993: The handshake operation timed out>"
         },
         {
@@ -361,7 +361,7 @@
       ],
       "errorCount": 6,
       "weatherFile": "/home/runner/work/New-project/New-project/data/cache/weather/game_weather_2026.csv",
-      "updatedAt": "2026-05-07T18:05:21.071483+00:00"
+      "updatedAt": "2026-05-07T20:52:09.910704+00:00"
     },
     "features": {
       "season": 2026,
@@ -369,7 +369,7 @@
       "inputWeatherRows": 549,
       "featureRows": 549,
       "featureFile": "/home/runner/work/New-project/New-project/data/cache/weather/weather_features_2026.csv",
-      "updatedAt": "2026-05-07T18:05:21.091152+00:00"
+      "updatedAt": "2026-05-07T20:52:09.925279+00:00"
     }
   },
   "savantFeatures": {
@@ -381,11 +381,11 @@
       "season": 2026,
       "date": "2026-05-06",
       "market": "",
-      "snapshotId": "20260507T180521Z",
-      "snapshotAt": "2026-05-07T18:05:21.098407+00:00",
+      "snapshotId": "20260507T205209Z",
+      "snapshotAt": "2026-05-07T20:52:09.931253+00:00",
       "rowsSnapshotted": 0,
       "snapshotFile": "/home/runner/work/New-project/New-project/data/cache/odds_movement/prop_snapshots_2026.csv",
-      "updatedAt": "2026-05-07T18:05:21.098873+00:00"
+      "updatedAt": "2026-05-07T20:52:09.931741+00:00"
     },
     "movement": {
       "season": 2026,
@@ -393,7 +393,7 @@
       "movementRows": 161,
       "snapshotFile": "/home/runner/work/New-project/New-project/data/cache/odds_movement/prop_snapshots_2026.csv",
       "movementFile": "/home/runner/work/New-project/New-project/data/cache/odds_movement/prop_movement_2026.csv",
-      "updatedAt": "2026-05-07T18:05:21.105497+00:00"
+      "updatedAt": "2026-05-07T20:52:09.937139+00:00"
     }
   },
   "playerboard": {
@@ -408,7 +408,7 @@
   },
   "playerboardBacktest": {
     "season": 2026,
-    "updatedAt": "2026-05-07T18:05:28.382735+00:00",
+    "updatedAt": "2026-05-07T20:52:15.738363+00:00",
     "props": 16372,
     "graded": 3068,
     "ungraded": 13304,
@@ -929,7 +929,7 @@
   },
   "modelAudit": {
     "season": 2026,
-    "updatedAt": "2026-05-07T18:05:28.839887+00:00",
+    "updatedAt": "2026-05-07T20:52:16.118824+00:00",
     "rows": 16372,
     "graded": 3068,
     "ungraded": 13304,
@@ -2103,7 +2103,7 @@
   },
   "mlExport": {
     "season": 2026,
-    "updatedAt": "2026-05-07T18:05:29.246001+00:00",
+    "updatedAt": "2026-05-07T20:52:16.485046+00:00",
     "source": "/home/runner/work/New-project/New-project/data/backtests/playerboard_backtest_2026.csv",
     "trainingFile": "/home/runner/work/New-project/New-project/data/ml/playerboard_training_2026.csv",
     "summaryFile": "/home/runner/work/New-project/New-project/data/ml/playerboard_training_summary_2026.json",
@@ -2160,6 +2160,6 @@
     "winRate": 0,
     "predictionFile": "/home/runner/work/New-project/New-project/data/predictions/prediction_history_2026.csv",
     "gradesFile": "/home/runner/work/New-project/New-project/data/predictions/prediction_grades_2026.csv",
-    "updatedAt": "2026-05-07T18:05:29.274498+00:00"
+    "updatedAt": "2026-05-07T20:52:16.519838+00:00"
   }
 }
