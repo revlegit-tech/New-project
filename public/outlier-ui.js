@@ -317,14 +317,29 @@
     return found ? found[1] : clean(value).replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
+
   function sideLabel(row) {
+    const explicit = clean(row.side);
+    if (/\b(under|no)\b/i.test(explicit)) return "Under";
+    if (/\b(over|yes)\b/i.test(explicit)) return "Over";
+
     const raw = clean(row.rawLabel);
-    if (/under/i.test(raw)) return "Under";
-    if (/over/i.test(raw)) return "Over";
-    if (/\d+\s*\+/.test(raw)) return "Over";
     const display = clean(row.marketDisplay);
-    if (/under/i.test(display)) return "Under";
-    if (/over/i.test(display)) return "Over";
+    const market = normalizeMarket(row.market || row.marketDisplay);
+    const combined = `${raw} ${display}`;
+    const odds = number(row.americanOdds || row.odds, 0);
+
+    if (/\b(under|no)\b/i.test(combined)) return "Under";
+    if (/\b(over|yes)\b/i.test(combined)) return "Over";
+
+    // Ladder / yes-only rows like "1+ Home Runs", "2+ Home Runs", "Yes",
+    // or just the player name are one-sided HR prices. They are Over/Yes.
+    if (market === "batter_home_runs" || market === "batter_home_runs_alt") {
+      return odds < 0 && /\b(no|under)\b/i.test(combined) ? "Under" : "Over";
+    }
+
+    if (/\d+\s*\+/.test(raw)) return "Over";
+
     return "Under";
   }
 
@@ -333,9 +348,20 @@
     return Number.isFinite(parsed) ? String(parsed) : clean(row.line);
   }
 
+
   function canonicalSide(row) {
-    const raw = clean(row.rawLabel);
-    return raw ? raw.toLowerCase() : sideLabel(row).toLowerCase();
+    const market = normalizeMarket(row.market || row.marketDisplay);
+
+    if (market === "batter_home_runs" || market === "batter_home_runs_alt") {
+      return sideLabel(row).toLowerCase();
+    }
+
+    const raw = clean(row.rawLabel).toLowerCase();
+    if (raw && /\b(under|no)\b/i.test(raw)) return "under";
+    if (raw && /\b(over|yes)\b/i.test(raw)) return "over";
+    if (raw && /\d+\s*\+/.test(raw)) return "over";
+
+    return raw ? raw : sideLabel(row).toLowerCase();
   }
 
   function hitRateKey(row) {
@@ -1167,8 +1193,18 @@
     return clean(state.activeLine) || canonicalLine(row);
   }
 
+
   function currentSide(row) {
-    return clean(state.activeSide) || sideLabel(row);
+    const active = clean(state.activeSide);
+    if (active) {
+      const line = clean(state.activeLine) || canonicalLine(row);
+      const hasActiveSide = matchingLineRows(row).some((item) =>
+        canonicalLine(item) === String(line) &&
+        sideLabel(item).toLowerCase() === active.toLowerCase()
+      );
+      if (hasActiveSide) return active;
+    }
+    return sideLabel(row);
   }
 
   function currentOdds(row) {
@@ -1186,11 +1222,20 @@
     return state.rows.filter((item) => samePropFamily(item, row));
   }
 
+
   function oddsFor(row, side, line) {
     const targetSide = clean(side).toLowerCase();
     const targetLine = String(line);
-    const match = matchingLineRows(row).find((item) => sideLabel(item).toLowerCase() === targetSide && canonicalLine(item) === targetLine);
-    return match ? clean(match.americanOdds) : clean(row.americanOdds);
+
+    const matches = matchingLineRows(row).filter((item) =>
+      sideLabel(item).toLowerCase() === targetSide &&
+      canonicalLine(item) === targetLine
+    );
+
+    if (!matches.length) return "";
+
+    matches.sort((a, b) => number(b.americanOdds) - number(a.americanOdds));
+    return clean(matches[0].americanOdds);
   }
 
   function hitInDirection(value, line, direction) {
@@ -1484,16 +1529,25 @@
     `;
   }
 
+
   function renderLineSelector(row) {
     const line = currentLine(row);
-    const side = currentSide(row);
-    const underOdds = oddsFor(row, "Under", line) || currentOdds(row);
-    const overOdds = oddsFor(row, "Over", line) || currentOdds(row);
+    const availableSides = ["Under", "Over"].filter((side) => oddsFor(row, side, line));
+    let side = currentSide(row);
+
+    if (availableSides.length && !availableSides.includes(side)) {
+      side = availableSides[0];
+    }
+
+    const sidesToRender = availableSides.length ? availableSides : [side];
+
     const altRows = matchingLineRows(row)
       .filter((item) => canonicalLine(item) && (canonicalLine(item) !== canonicalLine(row) || isAltMarket(item)))
       .sort((a, b) => number(a.line) - number(b.line));
+
     const unique = [];
     const seen = new Set();
+
     altRows.forEach((item) => {
       const key = `${sideLabel(item)}|${canonicalLine(item)}|${clean(item.americanOdds)}`;
       if (!seen.has(key)) {
@@ -1501,11 +1555,16 @@
         unique.push(item);
       }
     });
+
     return `
       <div class="ob-line-selector">
         <div class="ob-line-pills" role="group" aria-label="Line side">
-          <button type="button" class="${side === "Under" ? "is-active" : ""}" data-detail-side="Under">Under ${escapeHtml(line)} <strong>${escapeHtml(formatOdds(underOdds))}</strong></button>
-          <button type="button" class="${side === "Over" ? "is-active" : ""}" data-detail-side="Over">Over ${escapeHtml(line)} <strong>${escapeHtml(formatOdds(overOdds))}</strong></button>
+          ${sidesToRender.map((buttonSide) => `
+            <button type="button" class="${side === buttonSide ? "is-active" : ""}" data-detail-side="${escapeHtml(buttonSide)}">
+              ${escapeHtml(buttonSide)} ${escapeHtml(line)}
+              <strong>${escapeHtml(formatOdds(oddsFor(row, buttonSide, line) || currentOdds(row)))}</strong>
+            </button>
+          `).join("")}
         </div>
         <div class="ob-alt-lines ${state.lineDropdownOpen ? "is-open" : ""}">
           <button class="ob-alt-trigger" type="button" data-action="toggleAltDropdown">ALT LINES <span>${escapeHtml(String(unique.length))}</span></button>
