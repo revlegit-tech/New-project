@@ -1,16 +1,16 @@
 {
   "season": 2026,
-  "updatedAt": "2026-05-07T16:29:53.481110+00:00",
-  "rows": 14837,
+  "updatedAt": "2026-05-07T18:05:28.839887+00:00",
+  "rows": 16372,
   "graded": 3068,
-  "ungraded": 11769,
+  "ungraded": 13304,
   "wins": 548,
   "losses": 2520,
   "pushes": 0,
   "profitUnits": -1904.9633,
   "winRate": 17.86,
   "roiPercent": -62.09,
-  "warningRows": 1497,
+  "warningRows": 1614,
   "auditCsv": "/home/runner/work/New-project/New-project/data/audit/model_audit_2026.csv",
   "auditJson": "/home/runner/work/New-project/New-project/data/audit/model_audit_2026.json",
   "topWarnings": [
@@ -669,7 +669,7 @@
     {
       "bucket": "source",
       "name": "playerboard_backtest",
-      "rows": 14837,
+      "rows": 16372,
       "graded": 3068,
       "wins": 548,
       "losses": 2520,
@@ -705,7 +705,7 @@
     {
       "bucket": "market",
       "name": "team_first_to_score",
-      "rows": 182,
+      "rows": 204,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -717,7 +717,7 @@
     {
       "bucket": "market",
       "name": "moneyline",
-      "rows": 492,
+      "rows": 545,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -729,7 +729,7 @@
     {
       "bucket": "market",
       "name": "run_line",
-      "rows": 2532,
+      "rows": 2773,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -741,7 +741,7 @@
     {
       "bucket": "market",
       "name": "game_total_runs",
-      "rows": 4617,
+      "rows": 5151,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -753,7 +753,7 @@
     {
       "bucket": "market",
       "name": "first_five_total_runs",
-      "rows": 2244,
+      "rows": 2557,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -765,7 +765,7 @@
     {
       "bucket": "market",
       "name": "first_inning_total_runs",
-      "rows": 708,
+      "rows": 786,
       "graded": 0,
       "wins": 0,
       "losses": 0,
@@ -861,7 +861,7 @@
     {
       "bucket": "market",
       "name": "team_total_runs",
-      "rows": 2140,
+      "rows": 2434,
       "graded": 1287,
       "wins": 0,
       "losses": 1287,
@@ -873,7 +873,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "45-50%",
-      "rows": 1139,
+      "rows": 1237,
       "graded": 424,
       "wins": 147,
       "losses": 277,
@@ -885,7 +885,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "65-70%",
-      "rows": 784,
+      "rows": 873,
       "graded": 100,
       "wins": 14,
       "losses": 86,
@@ -897,7 +897,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "60-65%",
-      "rows": 818,
+      "rows": 917,
       "graded": 210,
       "wins": 81,
       "losses": 129,
@@ -909,7 +909,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "50-55%",
-      "rows": 1498,
+      "rows": 1624,
       "graded": 424,
       "wins": 156,
       "losses": 268,
@@ -921,7 +921,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "55-60%",
-      "rows": 1169,
+      "rows": 1277,
       "graded": 325,
       "wins": 102,
       "losses": 223,
@@ -933,7 +933,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "70%+",
-      "rows": 3459,
+      "rows": 3851,
       "graded": 423,
       "wins": 8,
       "losses": 415,
@@ -945,7 +945,7 @@
     {
       "bucket": "probabilityBucket",
       "name": "<45%",
-      "rows": 5970,
+      "rows": 6593,
       "graded": 1162,
       "wins": 40,
       "losses": 1122,
@@ -1017,7 +1017,7 @@
     {
       "bucket": "edgeBucket",
       "name": "0-2%",
-      "rows": 10411,
+      "rows": 11946,
       "graded": 1223,
       "wins": 43,
       "losses": 1180,
@@ -1089,7 +1089,7 @@
     {
       "bucket": "confidence",
       "name": "Unmodeled",
-      "rows": 9946,
+      "rows": 11481,
       "graded": 922,
       "wins": 0,
       "losses": 922,
@@ -1161,7 +1161,7 @@
     {
       "bucket": "recommendation",
       "name": "Odds only",
-      "rows": 9946,
+      "rows": 11481,
       "graded": 922,
       "wins": 0,
       "losses": 922,
