@@ -15,6 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from build_game_odds_template import TEAM_NAME_TO_ABBR as MLB_TEAM_NAME_TO_ABBR
+except Exception:
+    MLB_TEAM_NAME_TO_ABBR = {}
+
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 WAREHOUSE_DIR = DATA_DIR / "warehouse"
@@ -67,7 +72,15 @@ TEAM_ALIASES = {
 
 
 def normalize_team(value: Any) -> str:
-    text = clean(value).upper()
+    raw = clean(value)
+    text = raw.upper()
+    if not text:
+        return ""
+
+    name_map = {str(name).upper(): abbr for name, abbr in MLB_TEAM_NAME_TO_ABBR.items()}
+    if text in name_map:
+        return name_map[text]
+
     return TEAM_ALIASES.get(text, text)
 
 
@@ -272,9 +285,12 @@ def prop_rows_payload(date_label: str, market: str = "") -> dict[str, Any]:
         player = first_value(row, ["player", "description", "name", "selection"])
         team = first_value(row, ["team", "player_team", "team_abbr"])
         opponent = first_value(row, ["opponent", "opp", "opponent_team"])
+        home_team = first_value(row, ["homeTeam", "home_team", "home"])
+        away_team = first_value(row, ["awayTeam", "away_team", "away"])
         pitcher = first_value(row, ["pitcher", "probable_pitcher", "opposing_pitcher"])
         line = first_value(row, ["line", "point", "points"], "0.5")
         odds = first_value(row, ["americanOdds", "american_odds", "odds", "price"], "-110")
+        game = first_value(row, ["game"], "") or f"{away_team} @ {home_team}".strip()
 
         label_bits = [
             player or f"Row {i + 1}",
@@ -282,6 +298,7 @@ def prop_rows_payload(date_label: str, market: str = "") -> dict[str, Any]:
             f"line {line}",
             f"odds {odds}",
             f"{team} vs {opponent}".strip(),
+            game,
         ]
 
         rows.append({
@@ -292,6 +309,9 @@ def prop_rows_payload(date_label: str, market: str = "") -> dict[str, Any]:
             "player": player,
             "team": team,
             "opponent": opponent,
+            "homeTeam": home_team,
+            "awayTeam": away_team,
+            "game": game,
             "pitcher": pitcher,
             "line": line,
             "americanOdds": odds,
@@ -468,11 +488,18 @@ def prop_rows_for_game_payload(date_label: str, market: str = "", away: str = ""
     for row in all_rows:
         team = normalize_team(row.get("team"))
         opponent = normalize_team(row.get("opponent"))
+        home_team = normalize_team(row.get("homeTeam") or (row.get("raw") or {}).get("homeTeam"))
+        away_team = normalize_team(row.get("awayTeam") or (row.get("raw") or {}).get("awayTeam"))
+        event_teams = {home_team, away_team} - {""}
 
-        # Keep rows that clearly belong to this game.
+        # Keep rows that clearly belong to this game. Player-team fields are
+        # best when present; PropLine often only gives event home/away teams,
+        # so use those too instead of making the UI fall back to every game.
         if team in teams and (not opponent or opponent in teams):
             filtered.append(row)
         elif opponent in teams and team in teams:
+            filtered.append(row)
+        elif len(event_teams) == 2 and event_teams == teams:
             filtered.append(row)
 
     payload["away"] = away_norm

@@ -190,7 +190,7 @@
       const date = pipelineDate();
       return runStep(
         "Pull all supported props",
-        `/api/propline/props?markets=pitcher_strikeouts,batter_hits,batter_total_bases,batter_home_runs,pitcher_hits_allowed,pitcher_earned_runs&date=${encodeURIComponent(date)}`
+        `/api/propline/props?markets=pitcher_strikeouts,batter_hits,batter_total_bases,batter_home_runs,batter_rbis,batter_stolen_bases,batter_walks,batter_singles,batter_doubles,batter_runs,batter_2plus_hits,batter_2plus_home_runs,batter_2plus_rbis,batter_3plus_rbis,pitcher_outs,pitcher_hits_allowed,pitcher_earned_runs&date=${encodeURIComponent(date)}`
       );
     });
 

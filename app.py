@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, urlencode, urlparse
+from zoneinfo import ZoneInfo
 
 
 def pipeline_date_from_query(query: dict[str, list[str]]) -> str:
@@ -6813,12 +6814,24 @@ ACTION_HEADER_VALUE = "1"
 PROPLINE_SPORT = "baseball_mlb"
 PROPLINE_MARKETS = [
     "batter_hits",
-    "batter_home_runs",
     "batter_total_bases",
+    "batter_home_runs",
+    "batter_rbis",
+    "batter_stolen_bases",
+    "batter_walks",
+    "batter_singles",
+    "batter_doubles",
+    "batter_runs",
+    "batter_2plus_hits",
+    "batter_2plus_home_runs",
+    "batter_2plus_rbis",
+    "batter_3plus_rbis",
     "pitcher_strikeouts",
+    "pitcher_outs",
     "pitcher_hits_allowed",
     "pitcher_earned_runs",
 ]
+PROPLINE_LOCAL_TZ = os.environ.get("PROPLINE_LOCAL_TZ", "America/New_York")
 
 
 class PropLineApiError(Exception):
@@ -6839,17 +6852,55 @@ def propline_client() -> Any:
     return PropLine(api_key)
 
 
+def propline_local_timezone() -> ZoneInfo:
+    try:
+        return ZoneInfo(PROPLINE_LOCAL_TZ)
+    except Exception:
+        return ZoneInfo("America/New_York")
+
+
+def propline_event_datetime(event: dict[str, Any]) -> datetime | None:
+    raw = str(event.get("commence_time") or event.get("commenceTime") or event.get("date") or "").strip()
+    if not raw:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(propline_local_timezone())
+
+
+def clean_propline_player(value: Any) -> tuple[str, str]:
+    text = str(value or "").strip()
+    match = re.match(r"^(?P<player>.+?)\s+\((?P<team>[A-Z]{2,4})\)$", text)
+    if not match:
+        return text, ""
+    return match.group("player").strip(), match.group("team").strip()
+
+
 def normalize_propline_prop(event: dict[str, Any], bookmaker: dict[str, Any], market: dict[str, Any], outcome: dict[str, Any]) -> dict[str, Any]:
+    player, player_team = clean_propline_player(outcome.get("description") or outcome.get("player") or "")
+    local_dt = propline_event_datetime(event)
+    commence_time = event.get("commence_time") or event.get("commenceTime") or event.get("date") or ""
+
     return {
-        "date": event.get("commence_time") or "",
+        "date": commence_time,
+        "eventDateLocal": local_dt.strftime("%Y-%m-%d") if local_dt else propline_event_date(event),
+        "commenceTime": commence_time,
         "eventId": event.get("id", ""),
         "game": f"{event.get('away_team', '')} @ {event.get('home_team', '')}".strip(),
         "homeTeam": event.get("home_team", ""),
         "awayTeam": event.get("away_team", ""),
+        "team": player_team,
+        "opponent": "",
         "book": bookmaker.get("title") or bookmaker.get("key") or "",
         "bookKey": bookmaker.get("key", ""),
         "market": market.get("key", ""),
-        "player": outcome.get("description") or outcome.get("player") or "",
+        "player": player,
         "side": outcome.get("name", ""),
         "line": outcome.get("point", ""),
         "americanOdds": outcome.get("price", ""),
@@ -6864,10 +6915,14 @@ def save_propline_props_csv(props: list[dict[str, Any]], date_label: str) -> str
 
     columns = [
         "date",
+        "eventDateLocal",
+        "commenceTime",
         "eventId",
         "game",
         "homeTeam",
         "awayTeam",
+        "team",
+        "opponent",
         "book",
         "bookKey",
         "market",
@@ -6896,6 +6951,9 @@ def propline_date_from_query(query: dict[str, list[str]]) -> str:
 
 
 def propline_event_date(event: dict[str, Any]) -> str:
+    local_dt = propline_event_datetime(event)
+    if local_dt:
+        return local_dt.strftime("%Y-%m-%d")
     raw = str(event.get("commence_time") or event.get("commenceTime") or event.get("date") or "").strip()
     return raw[:10] if re.match(r"\d{4}-\d{2}-\d{2}", raw) else ""
 
@@ -6913,7 +6971,7 @@ def propline_props_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     save_csv = query.get("save", ["1"])[0].strip().lower() not in {"0", "false", "no"}
 
     # Tests and local diagnostics may monkeypatch app.propline_client().
-    # In normal runtime, use the token-aware guarded client.
+    # In normal runtime, use the token-aware direct REST client.
     use_mocked_client = inspect.getmodule(propline_client).__name__ != __name__
     client = propline_client() if use_mocked_client else None
 
@@ -6924,32 +6982,84 @@ def propline_props_payload(query: dict[str, list[str]]) -> dict[str, Any]:
         if not propline_event_date(event) or propline_event_date(event) == date_label
     ]
     props: list[dict[str, Any]] = []
+    event_errors: list[dict[str, Any]] = []
+    empty_events: list[dict[str, Any]] = []
+    event_summaries: list[dict[str, Any]] = []
+    attempted_events = 0
 
     for event in events:
         event_id = event.get("id")
         if not event_id:
             continue
+
+        attempted_events += 1
         try:
             odds = client.get_odds(sport, event_id=event_id, markets=markets) if client else get_event_player_props(str(event_id), markets=markets, sport=sport)
-        except Exception:
+        except Exception as error:
+            event_errors.append({
+                "eventId": str(event_id),
+                "game": f"{event.get('away_team', '')} @ {event.get('home_team', '')}".strip(),
+                "commenceTime": event.get("commence_time") or event.get("commenceTime") or event.get("date") or "",
+                "error": str(error),
+            })
             continue
 
-        for bookmaker in odds.get("bookmakers", []) or []:
+        bookmakers = odds.get("bookmakers", []) if isinstance(odds, dict) else []
+        event_prop_count = 0
+        market_counts: dict[str, int] = {}
+
+        for bookmaker in bookmakers or []:
             for market in bookmaker.get("markets", []) or []:
-                for outcome in market.get("outcomes", []) or []:
+                market_key = str(market.get("key") or "")
+                outcomes = market.get("outcomes", []) or []
+                market_counts[market_key] = market_counts.get(market_key, 0) + len(outcomes)
+                for outcome in outcomes:
                     props.append(normalize_propline_prop(event, bookmaker, market, outcome))
+                    event_prop_count += 1
+
+        event_summary = {
+            "eventId": str(event_id),
+            "game": f"{event.get('away_team', '')} @ {event.get('home_team', '')}".strip(),
+            "eventDateLocal": propline_event_date(event),
+            "commenceTime": event.get("commence_time") or event.get("commenceTime") or event.get("date") or "",
+            "bookmakers": len(bookmakers or []),
+            "props": event_prop_count,
+            "markets": market_counts,
+        }
+        event_summaries.append(event_summary)
+
+        if event_prop_count == 0:
+            empty_events.append(event_summary)
+
+    if attempted_events and len(event_errors) == attempted_events:
+        first = event_errors[0]["error"] if event_errors else "unknown error"
+        raise PropLineApiError(f"PropLine player-prop calls failed for all {attempted_events} events. First error: {first}", 502)
 
     saved_path = save_propline_props_csv(props, date_label) if save_csv else ""
+
+    warnings: list[str] = []
+    if not events and all_events:
+        warnings.append(f"PropLine returned {len(all_events)} total events, but none matched {date_label} in {PROPLINE_LOCAL_TZ}.")
+    if events and not props and not event_errors:
+        warnings.append("PropLine returned events, but no outcomes for the selected player-prop markets. Try fewer markets or check event market availability.")
+    if event_errors:
+        warnings.append(f"{len(event_errors)} PropLine event calls failed; returned props from successful events only.")
 
     return {
         "date": date_label,
         "sport": sport,
+        "timezone": PROPLINE_LOCAL_TZ,
         "markets": markets,
         "eventCount": len(events),
         "totalEventCount": len(all_events),
+        "attemptedEventCount": attempted_events,
         "tokenGuard": value_client_status().get("tokenGuard", {}),
         "propCount": len(props),
         "savedPath": saved_path,
+        "warnings": warnings,
+        "eventErrors": event_errors[:20],
+        "emptyEvents": empty_events[:20],
+        "eventsPreview": event_summaries[:20],
         "props": props[:300],
     }
 
