@@ -68,6 +68,7 @@ class PropLineSyncRequest:
     markets: tuple[str, ...] = tuple(PROPLINE_MARKETS)
     save: bool = True
     snapshot: bool = True
+    max_events: int = 0
 
 
 def _clean(value: Any) -> str:
@@ -175,6 +176,8 @@ def sync_propline_props(request: PropLineSyncRequest) -> dict[str, Any]:
 
     all_events = get_events(request.sport)
     events = [event for event in all_events if not event_date(event) or event_date(event) == date_label]
+    if request.max_events and request.max_events > 0:
+        events = events[: request.max_events]
 
     props: list[dict[str, Any]] = []
     event_errors: list[dict[str, Any]] = []
@@ -252,6 +255,7 @@ def sync_propline_props(request: PropLineSyncRequest) -> dict[str, Any]:
         "eventCount": len(events),
         "totalEventCount": len(all_events),
         "attemptedEventCount": attempted_events,
+        "maxEvents": request.max_events,
         "propCount": len(props),
         "savedPath": saved.get("savedPath", ""),
         "snapshotPath": saved.get("snapshotPath", ""),

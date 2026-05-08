@@ -76,8 +76,20 @@ def normalize_name(value: Any) -> str:
     return re.sub(r"\s+", " ", ascii_text).strip()
 
 
+TEAM_ABBR_ALIASES = {
+    "SD": "SDP",
+    "SF": "SFG",
+    "CWS": "CHW",
+    "WSH": "WSN",
+    "TB": "TBR",
+    "KC": "KCR",
+    "OAK": "ATH",
+}
+
+
 def normalize_team(value: Any) -> str:
-    return clean(value).upper()
+    text = clean(value).upper()
+    return TEAM_ABBR_ALIASES.get(text, text)
 
 
 def parse_date(value: Any) -> date | None:
@@ -125,13 +137,18 @@ def logs_for_source(season: int, source: str) -> list[dict[str, str]]:
 
 def direction_for_row(row: dict[str, Any]) -> str:
     text = f"{clean(row.get('rawLabel'))} {clean(row.get('marketDisplay'))}".lower()
-    if "under" in text:
+    label = clean(row.get('rawLabel')).casefold()
+    if "under" in text or label in {"no", "n"}:
         return "under"
-    if "over" in text:
+    if "over" in text or label in {"yes", "y"}:
         return "over"
     if re.search(r"\d+\s*\+", text):
         return "over"
-    return "under"
+    # PropLine may return player name as outcome label for one-sided player props.
+    # Treat unlabeled player/stat props as Over the displayed line.
+    if normalize_market(row.get("market")).startswith(("batter_", "pitcher_")):
+        return "over"
+    return "over"
 
 
 def subject_rows(
@@ -198,9 +215,6 @@ def canonical_line(row: dict[str, Any]) -> str:
 
 
 def canonical_side(row: dict[str, Any]) -> str:
-    raw = clean(row.get("rawLabel"))
-    if raw:
-        return raw.casefold()
     return "under" if direction_for_row(row) == "under" else "over"
 
 
@@ -256,6 +270,54 @@ def response_for_row(row: dict[str, Any], season: int, target_date: date | None)
         "prevSeason": hit_summary(prior_logs, stat_key, line, direction),
     })
     return payload
+
+
+
+
+def hit_profile_for_row(row: dict[str, Any], season: int, target_date: date | None) -> dict[str, Any]:
+    """Return window hit rates plus recent game values for an exact prop row.
+
+    This is the data contract used by the Outlier UI. It is derived from the
+    local StatsAPI/incremental game-log cache, not placeholder frontend math.
+    Missing logs produce empty windows and an explicit source status.
+    """
+    profile = response_for_row(row, season, target_date)
+    market = normalize_market(row.get("market"))
+    source = source_for_market(market)
+    profile["sourceStatus"] = "missing_source" if source is None else "missing_logs"
+    profile["recentGames"] = []
+
+    if source is None:
+        return profile
+
+    source_name, stat_key = source
+    line = to_float(row.get("line"), 0.5)
+    if line is None:
+        line = 0.5
+    direction = direction_for_row(row)
+    current_logs = subject_rows(logs_for_source(season, source_name), source_name, row, target_date)
+    if not current_logs:
+        return profile
+
+    recent = []
+    for item in current_logs[-20:]:
+        value = to_float(item.get(stat_key), None)
+        if value is None:
+            continue
+        hit = value < line if direction == "under" else value >= line
+        recent.append({
+            "date": clean(item.get("date")),
+            "opponent": normalize_team(item.get("opponent")),
+            "value": value,
+            "hit": bool(hit),
+            "line": line,
+            "direction": direction,
+            "statKey": stat_key,
+        })
+
+    profile["recentGames"] = recent
+    profile["sourceStatus"] = "ok" if recent else "missing_values"
+    return profile
 
 
 def single_query_row(query: dict[str, list[str]]) -> dict[str, Any] | None:

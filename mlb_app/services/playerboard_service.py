@@ -142,13 +142,15 @@ class PlayerboardService:
         save = str((query.get("save") or ["0"])[0]).lower() in {"1", "true", "yes"}
         refresh = str((query.get("refresh") or ["0"])[0]).lower() in {"1", "true", "yes"}
         build_if_missing = str((query.get("buildIfMissing") or ["0"])[0]).lower() in {"1", "true", "yes"}
+        replace_date = str((query.get("replaceDate") or ["0"])[0]).lower() in {"1", "true", "yes"}
+        source_mode = str((query.get("sourceMode") or ["auto"])[0] or "auto")
 
-        if not save and not refresh:
+        if not save and not refresh and not replace_date:
             cached = load_saved_playerboard(season=season, date_label=date_label, market=market, limit=limit)
             if cached.get("cacheHit") or not build_if_missing:
                 return self._attach_trust(cached, query)
 
-        payload = build_playerboard(season=season, date_label=date_label, market=market, limit=limit, save=save)
+        payload = build_playerboard(season=season, date_label=date_label, market=market, limit=limit, save=save, replace_date=replace_date, source_mode=source_mode)
         return self._attach_trust(payload, query)
 
     def _attach_trust(self, payload: dict[str, Any], query: dict[str, list[str]]) -> dict[str, Any]:

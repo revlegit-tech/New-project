@@ -149,8 +149,20 @@ export function normalizeRows(payload) {
   return [];
 }
 
+export function displaySide(row) {
+  const raw = text(row?.side || row?.rawLabel || row?.pickSide, "").toLowerCase();
+  const player = text(row?.player || row?.playerName, "").toLowerCase();
+  const market = text(row?.market || row?.baseMarket || "", "").toLowerCase();
+  if (raw.includes("under") || raw === "no" || raw === "n") return "Under";
+  if (raw.includes("over") || raw === "yes" || raw === "y") return "Over";
+  if (/\b\d+\s*\+/.test(raw)) return "Over";
+  if (player && raw.includes(player)) return "Over";
+  if (market.startsWith("batter_") || market.startsWith("pitcher_")) return "Over";
+  return text(row?.side || row?.rawLabel || row?.pickSide, "");
+}
+
 export function propLabel(row) {
-  const side = text(row?.side || row?.rawLabel || row?.pickSide, "");
+  const side = displaySide(row);
   const line = text(row?.line || row?.propLine, "");
   const market = text(row?.marketDisplay || row?.market || row?.propType, "Prop");
   return [side, line, market].filter(Boolean).join(" ");

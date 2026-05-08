@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from mlb_app.services.propline_props_service import PROPLINE_MARKETS, PropLineSyncRequest, sync_propline_props
 
@@ -14,6 +20,7 @@ def main() -> None:
     parser.add_argument("--markets", default=",".join(PROPLINE_MARKETS))
     parser.add_argument("--no-save", action="store_true")
     parser.add_argument("--no-snapshot", action="store_true")
+    parser.add_argument("--max-events", type=int, default=0, help="Optional cap for event detail calls. 0 means all matching events.")
     args = parser.parse_args()
 
     markets = tuple(part.strip() for part in args.markets.split(",") if part.strip())
@@ -24,6 +31,7 @@ def main() -> None:
             markets=markets,
             save=not args.no_save,
             snapshot=not args.no_snapshot,
+            max_events=args.max_events,
         )
     )
     print(json.dumps(payload, indent=2, ensure_ascii=False))

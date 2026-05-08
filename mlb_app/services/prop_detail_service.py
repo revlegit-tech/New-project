@@ -175,6 +175,7 @@ class PropDetailService:
                 "opponentSplit": _context_value(row, "opponentSplit", "vsOpponent", "bvp", "batterVsPitcher"),
                 "note": "Unavailable fields mean the current board row did not carry that split into the pregame detail contract.",
             },
+            "trendProfile": _trend_profile(row, lookup, board),
             "gameContext": {
                 "park": _context_value(row, "park", "venue", "ballpark"),
                 "weather": _context_value(row, "weather", "weatherSummary", "weatherContext"),
@@ -351,6 +352,40 @@ def _context_value(row: dict[str, Any], *keys: str) -> str:
                 return "Available"
             return str(value)
     return "Not available"
+
+
+def _trend_profile(row: dict[str, Any], lookup: dict[str, str], board: dict[str, Any]) -> dict[str, Any]:
+    profile = row.get("hitRates") if isinstance(row.get("hitRates"), dict) else {}
+    recent_games = row.get("recentGames") if isinstance(row.get("recentGames"), list) else []
+
+    if not profile or not recent_games:
+        try:
+            from player_hit_rates import hit_profile_for_row, parse_date
+            season = int(_clean(row.get("season") or lookup.get("season") or board.get("season") or "2026"))
+            target_date = parse_date(row.get("date") or lookup.get("date") or board.get("date"))
+            computed = hit_profile_for_row(row, season, target_date)
+            if not profile:
+                profile = {
+                    "L5": computed.get("L5"),
+                    "L10": computed.get("L10"),
+                    "L20": computed.get("L20"),
+                    "H2H": computed.get("H2H"),
+                    "season": computed.get("season"),
+                    "prevSeason": computed.get("prevSeason"),
+                    "sourceStatus": computed.get("sourceStatus"),
+                }
+            if not recent_games:
+                recent_games = computed.get("recentGames") or []
+        except Exception as error:  # noqa: BLE001 - diagnostic only
+            profile = dict(profile or {})
+            profile.setdefault("sourceStatus", "error")
+            profile.setdefault("error", str(error))
+
+    return {
+        "windows": profile or {},
+        "recentGames": recent_games or [],
+        "source": "cached_game_logs",
+    }
 
 
 def american_implied_probability(value: Any) -> float | None:

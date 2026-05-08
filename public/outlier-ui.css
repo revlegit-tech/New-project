@@ -3234,3 +3234,11 @@ body.outlier-mode .ob-rail-overlay { display: none; }
   font-size: 0.72rem;
   font-weight: 850;
 }
+
+.outlier-mode .ob-book-count {
+  color: var(--ob-dim);
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}

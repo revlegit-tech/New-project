@@ -4,6 +4,7 @@ import {
   jsonFetch,
   normalizeRows,
   propLabel,
+  displaySide,
   replaceChildren,
   signedPercent,
   text,
@@ -231,6 +232,7 @@ function hydrateDetailDataset(button, row) {
     line: row.line || row.propLine,
     odds: row.americanOdds || row.odds,
     book: row.book,
+    bookCount: row.bookCount,
     decision: row.decisionLabel || row.recommendation,
     readiness: row.readinessLabel || row.readiness || row.confidence,
     confidence: row.confidence,
@@ -239,6 +241,9 @@ function hydrateDetailDataset(button, row) {
     const valueText = text(value, "");
     if (valueText) button.dataset[key] = valueText;
   });
+  if (Array.isArray(row.books) && row.books.length) {
+    button.dataset.books = JSON.stringify(row.books);
+  }
   button.dataset.propDetailOpen = "1";
 }
 
@@ -277,7 +282,7 @@ function applyFilters() {
   const selectedSide = String(boardState.side || "").toLowerCase();
   boardState.filteredRows = boardState.rows.filter((row) => {
     const marketMatch = !boardState.market || row.market === boardState.market || row.marketDisplay === boardState.market;
-    const side = String(row.rawLabel || row.side || row.pickSide || "").toLowerCase();
+    const side = String(displaySide(row) || row.rawLabel || row.side || row.pickSide || "").toLowerCase();
     const sideMatch = !selectedSide || side.includes(selectedSide);
     const game = gameLabel(row);
     const gameMatch = !boardState.game || game === boardState.game;
@@ -414,13 +419,20 @@ function playerCell(row) {
 }
 
 function propCell(row) {
-  return td(createElement("div", { className: "ob-cell" }, [createElement("div", {}, [createElement("div", { className: "ob-prop-title", text: propLabel(row) }), createElement("div", { className: "ob-prop-sub", text: text(row.recommendation || row.marketDisplay || row.market, "Research only") })])]));
+  const sub = [text(row.recommendation || row.marketDisplay || row.market, "Research only")];
+  const bookCount = Number(row.bookCount || (Array.isArray(row.books) ? row.books.length : 0));
+  if (bookCount > 1) sub.push(`${bookCount} books`);
+  return td(createElement("div", { className: "ob-cell" }, [createElement("div", {}, [createElement("div", { className: "ob-prop-title", text: propLabel(row) }), createElement("div", { className: "ob-prop-sub", text: sub.filter(Boolean).join(" · ") })])]));
 }
 
 function oddsCell(row) {
   const edge = edgeValue(row);
   const className = edge >= 5 ? "ob-edge-badge is-good" : edge >= 0 ? "ob-edge-badge is-watch" : "ob-edge-badge is-bad";
-  return td(createElement("div", { className: "ob-cell ob-odds" }, [createElement("span", { text: formatOdds(row.americanOdds ?? row.odds) }), createElement("span", { className, text: signedPercent(edge) })]));
+  const bookCount = Number(row.bookCount || (Array.isArray(row.books) ? row.books.length : 0));
+  const bookLabel = bookCount > 1 ? `Best of ${bookCount}` : text(row.book || row.sportsbook, "");
+  const children = [createElement("span", { text: formatOdds(row.americanOdds ?? row.odds) }), createElement("span", { className, text: signedPercent(edge) })];
+  if (bookLabel) children.push(createElement("span", { className: "ob-book-count", text: bookLabel }));
+  return td(createElement("div", { className: "ob-cell ob-odds" }, children));
 }
 
 function hitCell(row, key) {

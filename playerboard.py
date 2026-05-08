@@ -32,6 +32,10 @@ PLAYERBOARD_FIELDS = [
     "pitcher",
     "line",
     "americanOdds",
+    "book",
+    "bookKey",
+    "bookCount",
+    "books",
     "finalProbabilityPercent",
     "sportsbookImpliedPercent",
     "finalEdgePercent",
@@ -44,6 +48,8 @@ PLAYERBOARD_FIELDS = [
     "originalMarket",
     "rawLabel",
     "marketFamily",
+    "hitRates",
+    "recentGames",
 ]
 
 ODDS_DIRS = [
@@ -319,6 +325,26 @@ MLB_TEAM_ABBRS = {
     "OAK", "PHI", "PIT", "SD", "SEA", "SF", "STL", "TB", "TEX", "TOR", "WSH",
 }
 
+TEAM_ABBR_ALIASES = {
+    "SD": "SDP",
+    "SF": "SFG",
+    "CWS": "CHW",
+    "CHW": "CHW",
+    "WSH": "WSN",
+    "WSN": "WSN",
+    "TB": "TBR",
+    "TBR": "TBR",
+    "KC": "KCR",
+    "KCR": "KCR",
+    "ATH": "ATH",
+    "OAK": "ATH",
+}
+
+
+def canonical_team_abbr(value: Any) -> str:
+    text = clean(value).upper()
+    return TEAM_ABBR_ALIASES.get(text, text)
+
 
 def csv_header(path: Path) -> list[str]:
     if not path.exists():
@@ -454,6 +480,17 @@ def append_csv(path: Path, fieldnames: list[str], rows: list[dict[str, Any]]) ->
     invalidate_path_cache(path)
 
 
+
+def write_csv_rows(path: Path, fieldnames: list[str], rows: list[dict[str, Any]]) -> None:
+    """Rewrite a CSV file with a fixed schema and invalidate local caches."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field, "") for field in fieldnames})
+    invalidate_path_cache(path)
+
 def playerboard_file(season: int) -> Path:
     return PLAYERBOARD_DIR / f"playerboard_{season}.csv"
 
@@ -472,7 +509,28 @@ def invalidate_path_cache(path: Path) -> None:
         _SAVED_PLAYERBOARD_CACHE.pop(key, None)
 
 
-def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str, Any]]) -> dict[str, Any]:
+def prune_playerboard_snapshot(season: int, date_label: str, market: str = "") -> int:
+    """Remove existing saved rows for an exact slate before writing fresh rows."""
+    path = playerboard_file(season)
+    if not path.exists():
+        return 0
+    target_market = normalize_market(market) if market else ""
+    kept: list[dict[str, Any]] = []
+    removed = 0
+    for row in read_csv_rows(path):
+        same_season = not clean(row.get("season")) or int(to_float(row.get("season"))) == int(season)
+        same_date = clean(row.get("date")) == clean(date_label)
+        same_market = not target_market or normalize_market(row.get("market")) == target_market
+        if same_season and same_date and same_market:
+            removed += 1
+        else:
+            kept.append(row)
+    if removed:
+        write_csv_rows(path, PLAYERBOARD_FIELDS, kept)
+    return removed
+
+
+def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str, Any]], *, replace_date: bool = False, market: str = "") -> dict[str, Any]:
     snapshot_at = now_iso()
     rows = []
 
@@ -491,6 +549,10 @@ def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str
             "pitcher": clean(card.get("pitcher")),
             "line": clean(card.get("line")),
             "americanOdds": clean(card.get("americanOdds")),
+            "book": clean(card.get("book")),
+            "bookKey": clean(card.get("bookKey")),
+            "bookCount": clean(card.get("bookCount")),
+            "books": json.dumps(card.get("books") or [], ensure_ascii=False),
             "finalProbabilityPercent": clean(card.get("finalProbabilityPercent")),
             "sportsbookImpliedPercent": clean(card.get("sportsbookImpliedPercent")),
             "finalEdgePercent": clean(card.get("finalEdgePercent")),
@@ -503,13 +565,19 @@ def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str
             "originalMarket": clean(card.get("originalMarket")),
             "rawLabel": clean(card.get("rawLabel")),
             "marketFamily": clean(card.get("marketFamily")),
+            "hitRates": json.dumps(card.get("hitRates") or {}, ensure_ascii=False),
+            "recentGames": json.dumps(card.get("recentGames") or [], ensure_ascii=False),
         })
 
+    removedRows = prune_playerboard_snapshot(season, date_label, market=market) if replace_date else 0
     append_csv(playerboard_file(season), PLAYERBOARD_FIELDS, rows)
 
     return {
         "snapshotAt": snapshot_at,
         "rowsSaved": len(rows),
+        "removedRows": removedRows,
+        "replaceDate": bool(replace_date),
+        "sourceMode": "canonical" if canonical_prop_files(date_label) else "legacy",
         "file": str(playerboard_file(season)),
     }
 
@@ -526,6 +594,16 @@ def rank_value(card: dict[str, Any]) -> tuple[float, float]:
     return (edge, prob)
 
 
+def parse_json_field(value: Any, default: Any) -> Any:
+    text = clean(value)
+    if not text:
+        return copy.deepcopy(default)
+    try:
+        return json.loads(text)
+    except Exception:
+        return copy.deepcopy(default)
+
+
 def saved_card_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "player": clean(row.get("player")),
@@ -538,6 +616,10 @@ def saved_card_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "pitcher": clean(row.get("pitcher")),
         "line": clean(row.get("line")),
         "americanOdds": clean(row.get("americanOdds")),
+        "book": clean(row.get("book")),
+        "bookKey": clean(row.get("bookKey")),
+        "bookCount": to_float(row.get("bookCount"), 0),
+        "books": parse_json_field(row.get("books"), []),
         "finalProbabilityPercent": clean(row.get("finalProbabilityPercent")),
         "sportsbookImpliedPercent": clean(row.get("sportsbookImpliedPercent")),
         "finalEdgePercent": clean(row.get("finalEdgePercent")),
@@ -550,6 +632,8 @@ def saved_card_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "originalMarket": clean(row.get("originalMarket")),
         "rawLabel": clean(row.get("rawLabel")),
         "marketFamily": clean(row.get("marketFamily")) or market_family(row.get("market")),
+        "hitRates": parse_json_field(row.get("hitRates"), {}),
+        "recentGames": parse_json_field(row.get("recentGames"), []),
     }
 
 
@@ -698,7 +782,40 @@ def is_ignored_prop_source(path: Path) -> bool:
     return any(token in name or token in full for token in ignored_tokens)
 
 
-def saved_prop_files(date_label: str) -> list[Path]:
+def canonical_prop_files(date_label: str) -> list[Path]:
+    """Return exact-date PropLine exports used as the trusted props source.
+
+    Old prototype folders can contain stale all_props/prop_snapshots files. Once
+    a canonical data/odds/propline_props_YYYY-MM-DD.csv exists, Playerboard
+    should not silently blend those legacy files into the same slate.
+    """
+    files: list[Path] = []
+    direct = ROOT / "data" / "odds" / f"propline_props_{date_label}.csv"
+    if direct.exists():
+        files.append(direct)
+
+    snapshot_root = ROOT / "data" / "warehouse" / "odds_snapshots"
+    if snapshot_root.exists():
+        files.extend(sorted(snapshot_root.glob(f"propline_props_{date_label}_*.csv")))
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in files:
+        key = str(path.resolve())
+        if key not in seen and not is_ignored_prop_source(path):
+            seen.add(key)
+            unique.append(path)
+    return unique
+
+
+def saved_prop_files(date_label: str, source_mode: str = "auto") -> list[Path]:
+    mode = clean(source_mode).lower() or "auto"
+    canonical = canonical_prop_files(date_label)
+    if mode in {"canonical", "propline"}:
+        return canonical
+    if mode == "auto" and canonical:
+        return canonical
+
     candidates = []
 
     for root in ODDS_DIRS:
@@ -788,15 +905,15 @@ def normalize_prop_row(row: dict[str, Any], date_label: str) -> dict[str, Any]:
     elif " under " in lower_player:
         player = player[:lower_player.index(" under ")].strip()
 
-    team = first_value(row, [
+    team = canonical_team_abbr(first_value(row, [
         "team", "teamAbbr", "team_abbr", "team_abbreviation",
         "playerTeam", "player_team", "home_team", "home"
-    ]).upper()
+    ]))
 
-    opponent = first_value(row, [
+    opponent = canonical_team_abbr(first_value(row, [
         "opponent", "opp", "opponentAbbr", "opponent_abbr",
         "opponent_abbreviation", "away_team", "away"
-    ]).upper()
+    ]))
 
     pitcher = first_value(row, [
         "pitcher", "opposingPitcher", "opposing_pitcher",
@@ -850,14 +967,120 @@ def normalize_prop_row(row: dict[str, Any], date_label: str) -> dict[str, Any]:
         "pitcher": pitcher,
         "line": line,
         "americanOdds": odds,
+        "book": first_value(row, ["book", "bookmaker", "sportsbook", "book_title", "sourceBook"]),
+        "bookKey": first_value(row, ["bookKey", "book_key", "bookmakerKey", "sportsbookKey"]),
+        "lastUpdate": first_value(row, ["lastUpdate", "last_update", "updatedAt", "snapshotAt"]),
     }
 
 
-def load_saved_props(date_label: str, markets: list[str] | None = None, limit: int = 5000) -> list[dict[str, Any]]:
+def side_for_prop(row: dict[str, Any]) -> str:
+    """Return a normalized betting side for grouping/display.
+
+    PropLine sometimes returns player name or "Yes" as the outcome name instead
+    of literal Over/Under. For player/stat props, those are Over-side prices.
+    "No" and explicit Under stay under.
+    """
+    label = clean(row.get("rawLabel") or row.get("side") or row.get("outcome")).casefold()
+    player = clean(row.get("player")).casefold()
+    market = normalize_market(row.get("market"))
+
+    if "under" in label or label in {"no", "n"}:
+        return "under"
+    if "over" in label or label in {"yes", "y"}:
+        return "over"
+    if re.search(r"\b\d+\s*\+", label):
+        return "over"
+    if player and player in label:
+        return "over"
+    if market.startswith(("batter_", "pitcher_")):
+        return "over"
+    return label or "over"
+
+
+def display_side_for_prop(row: dict[str, Any]) -> str:
+    side = side_for_prop(row)
+    if side == "under":
+        return "Under"
+    if side == "over":
+        return "Over"
+    return clean(row.get("rawLabel")) or side.title()
+
+
+def canonical_prop_line(row: dict[str, Any]) -> str:
+    parsed = to_float(row.get("line"), None)
+    if parsed is None:
+        return clean(row.get("line"))
+    return f"{parsed:g}"
+
+
+def book_price_row(row: dict[str, Any]) -> dict[str, Any]:
+    odds = clean(row.get("americanOdds"))
+    return {
+        "book": clean(row.get("book")) or "Book",
+        "bookKey": clean(row.get("bookKey")),
+        "americanOdds": odds,
+        "impliedProbabilityPercent": round(american_implied_percent(odds), 2) if odds else "",
+        "lastUpdate": clean(row.get("lastUpdate")),
+        "rawSource": clean(row.get("rawSource")),
+    }
+
+
+def odds_sort_value(value: Any) -> float:
+    parsed = to_float(value, None)
+    return parsed if parsed is not None else -999999.0
+
+
+def aggregate_book_prices(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse multi-book duplicates into one board row per prop identity.
+
+    Identity intentionally excludes sportsbook/odds. The selected row carries the
+    best available American odds and a `books` ladder for detail views.
+    """
+    groups: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    for row in rows:
+        key = (
+            clean(row.get("date"))[:10],
+            normalize_market(row.get("market")),
+            clean(row.get("player")).casefold(),
+            canonical_team_abbr(row.get("team")),
+            canonical_team_abbr(row.get("opponent")),
+            clean(row.get("pitcher")).casefold(),
+            canonical_prop_line(row),
+            side_for_prop(row),
+        )
+        groups.setdefault(key, []).append(row)
+
+    collapsed: list[dict[str, Any]] = []
+    for items in groups.values():
+        by_book: dict[str, dict[str, Any]] = {}
+        for item in items:
+            book_key = clean(item.get("bookKey") or item.get("book") or item.get("rawSource") or "book").casefold()
+            existing = by_book.get(book_key)
+            # Keep the best price per book if duplicate snapshots leak into the source.
+            if existing is None or odds_sort_value(item.get("americanOdds")) > odds_sort_value(existing.get("americanOdds")):
+                by_book[book_key] = item
+
+        unique_items = list(by_book.values())
+        unique_items.sort(key=lambda item: odds_sort_value(item.get("americanOdds")), reverse=True)
+        best = dict(unique_items[0])
+        books = [book_price_row(item) for item in unique_items]
+        best["americanOdds"] = clean(unique_items[0].get("americanOdds"))
+        best["book"] = clean(unique_items[0].get("book")) or "Best available"
+        best["bookKey"] = clean(unique_items[0].get("bookKey"))
+        best["bookCount"] = len(books)
+        best["books"] = books
+        best["rawLabel"] = display_side_for_prop(best)
+        best["line"] = canonical_prop_line(best) or clean(best.get("line"))
+        collapsed.append(best)
+
+    return collapsed
+
+
+def load_saved_props(date_label: str, markets: list[str] | None = None, limit: int = 5000, source_mode: str = "auto") -> list[dict[str, Any]]:
     market_set = {normalize_market(m) for m in (markets or DEFAULT_MARKETS)}
     rows = []
 
-    for path in saved_prop_files(date_label):
+    for path in saved_prop_files(date_label, source_mode=source_mode):
         for raw in read_csv_rows(path):
             prop = normalize_prop_row(raw, date_label)
 
@@ -885,24 +1108,7 @@ def load_saved_props(date_label: str, markets: list[str] | None = None, limit: i
     # They are cached in data/cache/oddspapi as latest-pregame rows.
     rows.extend(load_oddspapi_game_market_props(date_label, market_set, limit=limit))
 
-    # Dedupe by market/player/line/book-independent latest-ish identity.
-    out = []
-    seen = set()
-    for row in rows:
-        key = (
-            clean(row.get("date"))[:10],
-            clean(row.get("market")),
-            clean(row.get("player")).lower(),
-            clean(row.get("team")),
-            clean(row.get("opponent")),
-            clean(row.get("line")),
-            clean(row.get("americanOdds")),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(row)
-
+    out = aggregate_book_prices(rows)
     return out[:limit]
 
 
@@ -918,8 +1124,8 @@ def infer_missing_context(prop: dict[str, Any], season: int) -> dict[str, Any]:
         filled = autofill_player(season, clean(prop.get("date"))[:10], clean(prop.get("player")), role)
 
         if filled.get("foundGame"):
-            prop["team"] = prop.get("team") or filled.get("team", "")
-            prop["opponent"] = prop.get("opponent") or filled.get("opponent", "")
+            prop["team"] = canonical_team_abbr(prop.get("team") or filled.get("team", ""))
+            prop["opponent"] = canonical_team_abbr(prop.get("opponent") or filled.get("opponent", ""))
             prop["pitcher"] = prop.get("pitcher") or filled.get("pitcher", "")
 
     except Exception:
@@ -957,8 +1163,8 @@ def team_game_prop_to_playerboard_card(prop: dict[str, Any]) -> dict[str, Any]:
         "marketDisplay": clean(prop.get("marketDisplay")) or market_display_label(prop.get("market"), prop.get("rawLabel")),
         "baseMarket": base_market(prop.get("market")),
         "isAltMarket": "False",
-        "team": clean(prop.get("team")).upper(),
-        "opponent": clean(prop.get("opponent")).upper(),
+        "team": canonical_team_abbr(prop.get("team")),
+        "opponent": canonical_team_abbr(prop.get("opponent")),
         "pitcher": clean(prop.get("pitcher")),
         "line": clean(prop.get("line")),
         "americanOdds": clean(prop.get("americanOdds")),
@@ -974,6 +1180,10 @@ def team_game_prop_to_playerboard_card(prop: dict[str, Any]) -> dict[str, Any]:
         "originalMarket": clean(prop.get("originalMarket")),
         "rawLabel": clean(prop.get("rawLabel")),
         "marketFamily": clean(prop.get("marketFamily")) or market_family(prop.get("market")),
+        "book": clean(prop.get("book") or prop.get("bookmaker")),
+        "bookKey": clean(prop.get("bookKey")),
+        "bookCount": prop.get("bookCount") or len(prop.get("books") or []),
+        "books": prop.get("books") or [],
         "bookmaker": clean(prop.get("bookmaker")),
         "fixtureId": clean(prop.get("fixtureId")),
         "modelName": clean(prop.get("modelName")),
@@ -1101,17 +1311,40 @@ def odds_only_player_card(prop: dict[str, Any]) -> dict[str, Any]:
         "originalMarket": clean(prop.get("originalMarket")),
         "rawLabel": clean(prop.get("rawLabel")),
         "marketFamily": clean(prop.get("marketFamily")) or market_family(prop.get("market")),
+        "book": clean(prop.get("book")),
+        "bookKey": clean(prop.get("bookKey")),
+        "bookCount": prop.get("bookCount") or len(prop.get("books") or []),
+        "books": prop.get("books") or [],
     }
 
 
-def build_playerboard(season: int = 2026, date_label: str = "", market: str = "", limit: int = 5000, save: bool = True) -> dict[str, Any]:
+def build_playerboard(season: int = 2026, date_label: str = "", market: str = "", limit: int = 5000, save: bool = True, replace_date: bool = False, source_mode: str = "auto") -> dict[str, Any]:
     from unified_prop_card import unified_prop_card
 
     markets = [market] if market else DEFAULT_MARKETS
-    props = load_saved_props(date_label, markets=markets, limit=5000)
+    props = load_saved_props(date_label, markets=markets, limit=5000, source_mode=source_mode)
 
     cards = []
     errors = []
+
+    def attach_hit_profile(card: dict[str, Any], row_for_profile: dict[str, Any]) -> dict[str, Any]:
+        try:
+            from player_hit_rates import hit_profile_for_row, parse_date
+            profile = hit_profile_for_row(row_for_profile, season, parse_date(clean(row_for_profile.get("date"))[:10] or date_label))
+            card["hitRates"] = {
+                "L5": profile.get("L5"),
+                "L10": profile.get("L10"),
+                "L20": profile.get("L20"),
+                "H2H": profile.get("H2H"),
+                "season": profile.get("season"),
+                "prevSeason": profile.get("prevSeason"),
+                "sourceStatus": profile.get("sourceStatus"),
+            }
+            card["recentGames"] = profile.get("recentGames") or []
+        except Exception as error:
+            card["hitRates"] = {"sourceStatus": "error", "error": str(error)}
+            card["recentGames"] = []
+        return card
 
     def build_card(prop: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
         prop = infer_missing_context(prop, season)
@@ -1119,11 +1352,13 @@ def build_playerboard(season: int = 2026, date_label: str = "", market: str = ""
         if can_use_direct_team_game_card(prop):
             if not team_game_market_display_allowed(prop):
                 return None, "extreme_alt_line_filtered"
-            return team_game_prop_to_playerboard_card(prop), None
+            card = team_game_prop_to_playerboard_card(prop)
+            return attach_hit_profile(card, {**prop, **card, "date": clean(prop.get("date"))[:10] or date_label}), None
 
         if not prop.get("team") or not prop.get("opponent"):
             if clean(prop.get("americanOdds")):
-                return odds_only_player_card(prop), None
+                card = odds_only_player_card(prop)
+                return attach_hit_profile(card, {**prop, **card, "date": clean(prop.get("date"))[:10] or date_label}), None
             return None, None
 
         row = {
@@ -1144,7 +1379,7 @@ def build_playerboard(season: int = 2026, date_label: str = "", market: str = ""
 
         try:
             card = unified_prop_card(row)
-            return {
+            out = {
                 "player": card.get("player"),
                 "market": card.get("market"),
                 "marketDisplay": clean(prop.get("marketDisplay")) or market_display_label(card.get("market"), prop.get("rawLabel")),
@@ -1167,7 +1402,12 @@ def build_playerboard(season: int = 2026, date_label: str = "", market: str = ""
                 "originalMarket": clean(prop.get("originalMarket")),
                 "rawLabel": clean(prop.get("rawLabel")),
                 "marketFamily": clean(prop.get("marketFamily")) or market_family(prop.get("market")),
-            }, None
+                "book": clean(prop.get("book")),
+                "bookKey": clean(prop.get("bookKey")),
+                "bookCount": prop.get("bookCount") or len(prop.get("books") or []),
+                "books": prop.get("books") or [],
+            }
+            return attach_hit_profile(out, row), None
         except Exception as error:
             return None, {
                 "player": row["player"],
@@ -1185,32 +1425,12 @@ def build_playerboard(season: int = 2026, date_label: str = "", market: str = ""
             if error:
                 errors.append(error)
 
-    # Final dedupe after context inference/model card creation.
-    # This catches duplicate rows that came from multiple source files/snapshots.
-    deduped_cards = []
-    seen_cards = set()
-
-    for card in cards:
-        key = (
-            clean(card.get("market")),
-            clean(card.get("player")).lower(),
-            clean(card.get("team")).upper(),
-            clean(card.get("opponent")).upper(),
-            clean(card.get("pitcher")).lower(),
-            clean(card.get("line")),
-            clean(card.get("americanOdds")),
-        )
-
-        if key in seen_cards:
-            continue
-
-        seen_cards.add(key)
-        deduped_cards.append(card)
-
-    cards = sorted(deduped_cards, key=rank_value, reverse=True)
+    # Final aggregation after context inference/model card creation.
+    # This collapses remaining book/alias duplicates into one clean prop card.
+    cards = sorted(aggregate_book_prices(cards), key=rank_value, reverse=True)
 
     top_cards = cards[:limit]
-    saved = save_playerboard_snapshot(season, date_label, top_cards) if save and top_cards else None
+    saved = save_playerboard_snapshot(season, date_label, top_cards, replace_date=replace_date, market=market) if save and top_cards else None
 
     return {
         "season": season,
@@ -1220,6 +1440,8 @@ def build_playerboard(season: int = 2026, date_label: str = "", market: str = ""
         "cardsBuilt": len(cards),
         "errors": errors[:10],
         "saved": saved,
+        "sourceMode": source_mode,
+        "canonicalSourceFiles": [str(path) for path in canonical_prop_files(date_label)],
         "top": top_cards,
     }
 
