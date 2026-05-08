@@ -1,17 +1,19 @@
-import { createElement, replaceChildren, text, signedPercent, formatOdds, propLabel, dispatch, listen, number } from "/outlier-shared.js";
+import { createElement, replaceChildren, text, percent, signedPercent, formatOdds, propLabel, dispatch, listen, number } from "/outlier-shared.js";
 
-const detailState = { mounted: false, row: null, tab: "Matchup", index: null };
+const detailState = { mounted: false, row: null, tab: "Matchup" };
 const TREND_KEYS = [["l5", "L5"], ["l10", "L10"], ["l20", "L20"], ["h2h", "H2H"], ["season", "2026"], ["prevSeason", "2025"]];
 
 export async function mount() {
   if (detailState.mounted) return;
   detailState.mounted = true;
   listen("outlier:open-detail", (event) => {
-    openRow(event.detail?.row || null, event.detail?.index ?? null);
+    detailState.row = event.detail?.row || null;
+    detailState.tab = "Matchup";
+    renderDetail(detailState.row);
+    dispatch("outlier:rail-open", {});
   });
   listen("outlier:rail-close", () => {
     detailState.row = null;
-    detailState.index = null;
     renderDetail(null);
   });
   document.addEventListener("click", (event) => {
@@ -20,18 +22,6 @@ export async function mount() {
     detailState.tab = tab.dataset.railTab || "Matchup";
     renderDetail(detailState.row);
   });
-  if (window.__OUTLIER_SELECTED_ROW__?.row) {
-    openRow(window.__OUTLIER_SELECTED_ROW__.row, window.__OUTLIER_SELECTED_ROW__.index ?? null);
-  }
-}
-
-export function openRow(row, index = null) {
-  detailState.row = row || null;
-  detailState.index = index;
-  detailState.tab = detailState.tab || "Matchup";
-  if (row) window.__OUTLIER_SELECTED_ROW__ = { row, index };
-  renderDetail(detailState.row);
-  if (row) dispatch("outlier:rail-open", { row, index });
 }
 
 function renderDetail(row) {
@@ -45,7 +35,7 @@ function emptyPanel() {
     railTabs(),
     createElement("article", { className: "ob-rail-card" }, [
       createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "Select a prop" }), createElement("span", { text: "Research rail" })]),
-      createElement("div", { className: "ob-rail-body" }, [createElement("p", { className: "ob-pick-copy", text: "Click any board row to inspect matchup, sportsbook ladder, hit-rate graph, model probability, implied price, and data-readiness context without leaving the board." })]),
+      createElement("div", { className: "ob-rail-body" }, [createElement("p", { className: "ob-pick-copy", text: "Click any board row to inspect matchup, sportsbook ladder, hit-rate graph, model probability, implied price, and data-readiness context." })]),
     ]),
   ]);
 }
@@ -78,9 +68,9 @@ function railTabs() {
 
 function primaryMetrics(row) {
   return [
-    ["Model", formatPercent(row.finalProbabilityPercent ?? row.modelProbability ?? row.probability)],
-    ["Implied", formatPercent(row.sportsbookImpliedPercent ?? row.impliedProbability ?? row.ip)],
-    ["Edge", signedPercent(normalizePct(row.finalEdgePercent ?? row.edge))],
+    ["Model", percent(row.finalProbabilityPercent ?? row.modelProbability ?? row.probability)],
+    ["Implied", percent(row.sportsbookImpliedPercent ?? row.impliedProbability ?? row.ip)],
+    ["Edge", signedPercent(row.finalEdgePercent ?? row.edge)],
     ["Odds", formatOdds(row.americanOdds ?? row.odds)],
     ["Line", text(row.line ?? row.propLine)],
     ["Books", row.bookCount ? `Best of ${row.bookCount}` : text(row.book, "1")],
@@ -94,7 +84,7 @@ function metricGrid(rows) {
 function miniHitStrip(row) {
   return createElement("div", { className: "ob-rail-hit-strip" }, TREND_KEYS.slice(0, 3).map(([key, label]) => {
     const pct = hitPercent(row, key);
-    return createElement("span", { className: Number.isFinite(pct) ? "" : "is-empty" }, [createElement("b", { text: label }), createElement("em", { text: Number.isFinite(pct) ? formatPercent(pct) : "--" })]);
+    return createElement("span", { className: Number.isFinite(pct) ? "" : "is-empty" }, [createElement("b", { text: label }), createElement("em", { text: Number.isFinite(pct) ? percent(pct) : "--" })]);
   }));
 }
 
@@ -127,7 +117,7 @@ function trendBar(label, pct, sample) {
   const hasValue = Number.isFinite(pct);
   const width = hasValue ? Math.max(0, Math.min(100, pct)) : 0;
   return createElement("div", { className: "ob-trend-row" }, [
-    createElement("div", { className: "ob-trend-label" }, [createElement("span", { text: label }), createElement("b", { text: hasValue ? formatPercent(pct) : "--" }), createElement("em", { text: sample || "" })]),
+    createElement("div", { className: "ob-trend-label" }, [createElement("span", { text: label }), createElement("b", { text: hasValue ? percent(pct) : "--" }), createElement("em", { text: sample || "" })]),
     createElement("div", { className: "ob-trend-track" }, [createElement("span", { className: hasValue ? "" : "is-empty", attrs: { style: `width:${width}%` } })]),
   ]);
 }
@@ -149,7 +139,7 @@ function modelCard(row) {
     createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "Model Context" }), createElement("span", { text: text(row.confidence || card.status, "Research") })]),
     createElement("div", { className: "ob-rail-body" }, [
       metricGrid([
-        ["Final", formatPercent(row.finalProbabilityPercent ?? row.modelProbability)],
+        ["Final", percent(row.finalProbabilityPercent ?? row.modelProbability)],
         ["Market", text(row.marketDisplay || row.market)],
         ["Backtest", text(card.backtestRows ?? card.backtestCount ?? row.backtestRows)],
         ["Eligible", card.productionEligible === true ? "Yes" : "No"],
@@ -158,6 +148,8 @@ function modelCard(row) {
     ]),
   ]);
 }
+
+
 
 function gameContextCard(row) {
   const markers = gameContextMarkers(row);
@@ -168,17 +160,16 @@ function gameContextCard(row) {
       metricGrid([
         ["Team ML", formatOdds(row.teamMoneyline ?? row.team_moneyline)],
         ["Opp ML", formatOdds(row.opponentMoneyline ?? row.opponent_moneyline)],
-        ["Game Total", formatDecimal(row.gameTotal ?? row.game_total)],
-        ["ML IP", formatPercent(row.moneylineImpliedProbability ?? row.moneyline_implied_probability)],
-        ["Team Runs", formatDecimal(row.teamImpliedRuns ?? row.team_implied_runs, 2)],
-        ["Opp Runs", formatDecimal(row.opponentImpliedRuns ?? row.opponent_implied_runs, 2)],
-        ["Open ML", formatOdds(row.openTeamMoneyline ?? row.open_team_moneyline) || "Pending"],
-        ["ML Move", movement(row.moneylineMove ?? row.moneyline_move)],
-        ["Open Total", formatDecimal(row.openGameTotal ?? row.open_game_total) || "Pending"],
-        ["Total Move", movement(row.totalMove ?? row.total_move)],
-        ["Park", formatDecimal(row.parkFactor ?? row.park_factor, 2)],
+        ["Game Total", text(row.gameTotal ?? row.game_total, "Missing")],
+        ["ML IP", percent(row.moneylineImpliedProbability ?? row.moneyline_implied_probability)],
+        ["Open ML", formatOdds(row.openTeamMoneyline ?? row.open_team_moneyline)],
+        ["ML Move", lineMove(row.moneylineMove ?? row.moneyline_move)],
+        ["Open Total", text(row.openGameTotal ?? row.open_game_total, "Missing")],
+        ["Total Move", lineMove(row.totalMove ?? row.total_move)],
+        ["Team Runs", text(row.teamImpliedRuns ?? row.team_implied_runs, "Missing")],
+        ["Opp Runs", text(row.opponentImpliedRuns ?? row.opponent_implied_runs, "Missing")],
+        ["Park", text(row.parkFactor ?? row.park_factor, "Missing")],
         ["Weather", weatherSummary(row)],
-        ["Roof", titleCase(row.roofStatus ?? row.roof_status)],
       ]),
       createElement("div", { className: "ob-context-markers" }, markers.map((marker) => createElement("span", { className: marker.ready ? "is-ready" : "is-missing", text: marker.label }))),
       contextMissingList(row),
@@ -197,9 +188,9 @@ function gameContextMarkers(row) {
     });
   }
   return [
-    { label: "moneyline", ready: hasValue(row.teamMoneyline ?? row.team_moneyline) && hasValue(row.opponentMoneyline ?? row.opponent_moneyline) },
-    { label: "game total", ready: hasValue(row.gameTotal ?? row.game_total) },
-    { label: "implied runs", ready: hasValue(row.teamImpliedRuns ?? row.team_implied_runs) && hasValue(row.opponentImpliedRuns ?? row.opponent_implied_runs) },
+    { label: "moneyline", ready: Boolean(row.teamMoneyline || row.team_moneyline) && Boolean(row.opponentMoneyline || row.opponent_moneyline) },
+    { label: "game total", ready: Boolean(row.gameTotal || row.game_total) },
+    { label: "implied runs", ready: Boolean(row.teamImpliedRuns || row.team_implied_runs) && Boolean(row.opponentImpliedRuns || row.opponent_implied_runs) },
   ];
 }
 
@@ -211,17 +202,20 @@ function contextMissingList(row) {
 }
 
 function weatherSummary(row) {
-  const temp = cleanValue(row.weatherTemperatureF ?? row.weather_temperature_f);
-  const wind = cleanValue(row.weatherWindMph ?? row.weather_wind_mph);
-  const direction = cleanValue(row.weatherWindDirection ?? row.weather_wind_direction);
-  const humidity = cleanValue(row.weatherHumidity ?? row.weather_humidity);
-  const precip = cleanValue(row.weatherPrecipProbability ?? row.weather_precip_probability);
-  const parts = [];
-  if (temp) parts.push(`${formatDecimal(temp, 0)}°F`);
-  if (wind) parts.push(`Wind ${formatDecimal(wind, 1)} mph${direction ? ` ${direction}` : ""}`);
-  if (humidity) parts.push(`Humidity ${formatDecimal(humidity, 0)}%`);
-  if (precip) parts.push(`${formatDecimal(precip, 0)}% precip`);
-  return parts.length ? parts.join(" · ") : "Missing";
+  const temp = row.weatherTemperatureF ?? row.weather_temperature_f;
+  const wind = row.weatherWindMph ?? row.weather_wind_mph;
+  if (temp && wind) return `${temp}°F · ${wind} mph`;
+  if (temp) return `${temp}°F`;
+  if (wind) return `${wind} mph wind`;
+  return "Missing";
+}
+
+
+function lineMove(value) {
+  const parsed = number(value, NaN);
+  if (!Number.isFinite(parsed)) return "Missing";
+  if (parsed > 0) return `+${parsed}`;
+  return `${parsed}`;
 }
 
 function booksCard(row) {
@@ -232,7 +226,7 @@ function booksCard(row) {
     createElement("div", { className: "ob-rail-book-list" }, books.map((book, index) => createElement("div", { className: index === 0 ? "is-best" : "" }, [
       createElement("span", { text: text(book.book || book.sportsbook, "Book") }),
       createElement("strong", { text: formatOdds(book.americanOdds || book.odds || book.price) }),
-      createElement("em", { text: formatPercent(book.impliedProbabilityPercent || book.ip) }),
+      createElement("em", { text: percent(book.impliedProbabilityPercent || book.ip) }),
     ]))),
   ]);
 }
@@ -291,7 +285,9 @@ function hitWindow(row, key) {
 
 function hitPercent(row, key) {
   const value = hitWindow(row, key);
-  return normalizePct(value && typeof value === "object" ? value.pct ?? value.percent ?? value.rate ?? value.value : value);
+  if (value === null || value === undefined || value === "") return NaN;
+  if (typeof value === "object") return normalizePercent(value.pct ?? value.percent ?? value.rate ?? value.value);
+  return normalizePercent(value);
 }
 
 function sampleText(row, key) {
@@ -301,7 +297,7 @@ function sampleText(row, key) {
   return `${value.hits}/${value.total}`;
 }
 
-function normalizePct(value) {
+function normalizePercent(value) {
   if (value === null || value === undefined || value === "") return NaN;
   if (typeof value === "string") {
     const parsed = Number(value.replace("%", "").trim());
@@ -313,41 +309,4 @@ function normalizePct(value) {
   return parsed <= 1 && parsed >= -1 ? parsed * 100 : parsed;
 }
 
-function formatPercent(value, fallback = "--") {
-  const pct = normalizePct(value);
-  if (!Number.isFinite(pct)) return fallback;
-  const digits = Math.abs(pct) >= 10 ? 0 : 1;
-  return `${pct.toFixed(digits)}%`;
-}
-
-function formatDecimal(value, digits = 1) {
-  const raw = cleanValue(value);
-  if (!raw) return "--";
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return raw;
-  return parsed.toFixed(digits).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
-}
-
-function movement(value) {
-  const raw = cleanValue(value);
-  if (!raw) return "Pending";
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return raw;
-  return `${parsed > 0 ? "+" : ""}${formatDecimal(parsed, 1)}`;
-}
-
-function titleCase(value) {
-  const raw = cleanValue(value);
-  if (!raw) return "Missing";
-  return raw.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function hasValue(value) {
-  return cleanValue(value) !== "";
-}
-
-function cleanValue(value) {
-  return value === null || value === undefined ? "" : String(value).trim();
-}
-
-export const __testHooks = { detailState, renderDetail, hitPercent, openRow };
+export const __testHooks = { detailState, renderDetail, hitPercent };

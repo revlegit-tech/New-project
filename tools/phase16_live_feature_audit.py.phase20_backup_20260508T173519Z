@@ -12,8 +12,6 @@ from phase16_common import (
     AUDIT_DIR,
     DEFAULT_MARKETS,
     LIVE_FEATURES,
-    ADVISORY_LIVE_FEATURES,
-    coverage_value_metric,
     atomic_write_json,
     eligible_live_features,
     feature_coverage,
@@ -33,12 +31,8 @@ def audit_market(market: str, season: int, date: str | None = None) -> dict[str,
         if feature not in expected:
             expected.append(feature)
     coverage = feature_coverage(board_rows, expected)
-    missing_all = [item["feature"] for item in coverage["features"] if coverage_value_metric(item) == 0]
-    sparse_all = [item["feature"] for item in coverage["features"] if 0 < coverage_value_metric(item) < 0.8]
-    missing = [feature for feature in missing_all if feature not in ADVISORY_LIVE_FEATURES]
-    sparse = [feature for feature in sparse_all if feature not in ADVISORY_LIVE_FEATURES]
-    advisory_missing = [feature for feature in missing_all if feature in ADVISORY_LIVE_FEATURES]
-    advisory_sparse = [feature for feature in sparse_all if feature in ADVISORY_LIVE_FEATURES]
+    missing = [item["feature"] for item in coverage["features"] if item["numericCoverage"] == 0]
+    sparse = [item["feature"] for item in coverage["features"] if 0 < item["numericCoverage"] < 0.8]
     leakage = [feature for feature in model_features if feature not in eligible_model_features]
     return {
         "market": market,
@@ -52,8 +46,6 @@ def audit_market(market: str, season: int, date: str | None = None) -> dict[str,
         "coverage": coverage,
         "missingLiveFeatures": missing,
         "sparseLiveFeatures": sparse,
-        "advisoryMissingLiveFeatures": advisory_missing,
-        "advisorySparseLiveFeatures": advisory_sparse,
         "status": "ok" if board_rows and not missing else "warning",
     }
 
@@ -70,16 +62,10 @@ def build_report(markets: list[str], season: int, date: str | None = None, write
             for row in results
             if row["missingLiveFeatures"]
         ],
-        "blockedFeatureWarnings": [],
-        "blockedFeatureNotes": [
+        "blockedFeatureWarnings": [
             f"{row['market']}: model metadata contains non-live/leakage features {', '.join(row['blockedModelFeatures'])}"
             for row in results
             if row["blockedModelFeatures"]
-        ],
-        "advisoryWarnings": [
-            f"{row['market']}: advisory/movement fields pending {', '.join(row.get('advisoryMissingLiveFeatures', []))}"
-            for row in results
-            if row.get("advisoryMissingLiveFeatures")
         ],
     }
     if write:

@@ -29,8 +29,7 @@
   function pct(value) {
     const num = asNumber(value, NaN);
     if (!Number.isFinite(num)) return "Not available";
-    const pctValue = Math.abs(num) <= 1 ? num * 100 : num;
-    return `${pctValue.toFixed(Math.abs(pctValue) >= 10 ? 0 : 1)}%`;
+    return `${num.toFixed(Math.abs(num) >= 10 ? 0 : 1)}%`;
   }
 
   function signedPct(value) {

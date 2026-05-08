@@ -189,30 +189,19 @@ function bindLocalEvents(host) {
 }
 
 
-async function openRailRow(row, index) {
-  if (!row) return;
-  window.__OUTLIER_SELECTED_ROW__ = { row, index };
-  try {
-    const detailModule = await import("/outlier-detail.js");
-    await detailModule.mount?.();
-    if (detailModule.openRow) {
-      detailModule.openRow(row, index);
-    } else {
-      dispatch("outlier:open-detail", { row, index });
-      dispatch("outlier:rail-open", { row, index });
-    }
-  } catch (error) {
-    console.error("Could not update Outlier rail", error);
-    dispatch("outlier:open-detail", { row, index });
-    dispatch("outlier:rail-open", { row, index });
-  }
-}
-
 async function openAdvancedStats(index) {
   const row = boardState.filteredRows[index];
   if (!row) return;
+  window.__OUTLIER_SELECTED_ROW__ = { row, index, selectedAt: Date.now() };
+  try { document.dispatchEvent(new CustomEvent("phase20:row-selected", { detail: { row, index } })); } catch {}
 
-  await openRailRow(row, index);
+  try {
+    const detailModule = await import("/outlier-detail.js");
+    await detailModule.mount?.();
+    dispatch("outlier:open-detail", { row, index });
+  } catch (error) {
+    console.error("Could not update Outlier rail", error);
+  }
 
   try {
     await import("/prop-detail.js");
@@ -228,11 +217,13 @@ async function openAdvancedStats(index) {
       throw new Error("Prop detail module did not expose openFromButton");
     }
     launcher.remove();
+    setTimeout(() => {
+      try { dispatch("outlier:open-detail", { row, index, source: "phase20v2-post-modal" }); } catch {}
+      try { document.dispatchEvent(new CustomEvent("phase20:row-selected", { detail: { row, index } })); } catch {}
+    }, 0);
   } catch (error) {
     console.error("Could not open advanced prop detail", error);
-  } finally {
-    setTimeout(() => openRailRow(row, index), 25);
-    setTimeout(() => openRailRow(row, index), 200);
+    dispatch("outlier:open-detail", { row, index });
   }
 }
 

@@ -21,9 +21,6 @@ from phase17_common import (  # noqa: E402
 )
 
 
-ADVISORY_CONTEXT_FIELDS = {"open_team_moneyline", "moneyline_move", "open_game_total", "total_move"}
-
-
 def audit_market(market: str, season: int, date: str) -> dict[str, Any]:
     rows = filter_rows(read_csv_rows(playerboard_path(season)), market=market, date=date)
     coverage = feature_coverage(rows, CONTEXT_FIELDS, string_fields=STRING_CONTEXT_FIELDS)
@@ -35,10 +32,6 @@ def audit_market(market: str, season: int, date: str) -> dict[str, Any]:
             missing.append(item["feature"])
         elif item["numericCoverage"] < 0.8:
             sparse.append(item["feature"])
-    advisory_missing = [field for field in missing if field in ADVISORY_CONTEXT_FIELDS]
-    advisory_sparse = [field for field in sparse if field in ADVISORY_CONTEXT_FIELDS]
-    missing = [field for field in missing if field not in ADVISORY_CONTEXT_FIELDS]
-    sparse = [field for field in sparse if field not in ADVISORY_CONTEXT_FIELDS]
     critical_missing = [
         field
         for field in missing
@@ -60,8 +53,6 @@ def audit_market(market: str, season: int, date: str) -> dict[str, Any]:
         "coverage": coverage,
         "missingContextFeatures": missing,
         "sparseContextFeatures": sparse,
-        "advisoryMissingContextFeatures": advisory_missing,
-        "advisorySparseContextFeatures": advisory_sparse,
         "criticalMissingContextFeatures": critical_missing,
         "status": "ok" if rows and not critical_missing else "warning",
     }

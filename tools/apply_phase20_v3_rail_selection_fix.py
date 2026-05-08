@@ -1,4 +1,12 @@
-import { createElement, replaceChildren, text, signedPercent, formatOdds, propLabel, dispatch, listen, number } from "/outlier-shared.js";
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+PUBLIC = ROOT / "public"
+
+OUTLIER_DETAIL_JS = r'''import { createElement, replaceChildren, text, signedPercent, formatOdds, propLabel, dispatch, listen, number } from "/outlier-shared.js";
 
 const detailState = { mounted: false, row: null, tab: "Matchup", index: null };
 const TREND_KEYS = [["l5", "L5"], ["l10", "L10"], ["l20", "L20"], ["h2h", "H2H"], ["season", "2026"], ["prevSeason", "2025"]];
@@ -351,3 +359,172 @@ function cleanValue(value) {
 }
 
 export const __testHooks = { detailState, renderDetail, hitPercent, openRow };
+'''
+
+BOARD_OPEN_ADVANCED_REPLACEMENT = r'''async function openRailRow(row, index) {
+  if (!row) return;
+  window.__OUTLIER_SELECTED_ROW__ = { row, index };
+  try {
+    const detailModule = await import("/outlier-detail.js");
+    await detailModule.mount?.();
+    if (detailModule.openRow) {
+      detailModule.openRow(row, index);
+    } else {
+      dispatch("outlier:open-detail", { row, index });
+      dispatch("outlier:rail-open", { row, index });
+    }
+  } catch (error) {
+    console.error("Could not update Outlier rail", error);
+    dispatch("outlier:open-detail", { row, index });
+    dispatch("outlier:rail-open", { row, index });
+  }
+}
+
+async function openAdvancedStats(index) {
+  const row = boardState.filteredRows[index];
+  if (!row) return;
+
+  await openRailRow(row, index);
+
+  try {
+    await import("/prop-detail.js");
+    const launcher = document.createElement("button");
+    launcher.type = "button";
+    launcher.textContent = "Advanced stats";
+    launcher.style.display = "none";
+    hydrateDetailDataset(launcher, row);
+    document.body.appendChild(launcher);
+    if (window.MlbPropDetail?.openFromButton) {
+      await window.MlbPropDetail.openFromButton(launcher);
+    } else {
+      throw new Error("Prop detail module did not expose openFromButton");
+    }
+    launcher.remove();
+  } catch (error) {
+    console.error("Could not open advanced prop detail", error);
+  } finally {
+    setTimeout(() => openRailRow(row, index), 25);
+    setTimeout(() => openRailRow(row, index), 200);
+  }
+}'''
+
+CSS_APPEND = r'''
+
+/* Phase 20 v3: keep rail selection visible and reduce modal dead space. */
+.ob-app-rail,
+#outlierDetailHost {
+  min-width: 300px;
+}
+.ob-rail-card .ob-rail-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.ob-game-context-card .ob-rail-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.outlier-prop-detail-v2 .prop-detail-dialog {
+  width: min(1180px, calc(100vw - 64px));
+  max-width: 1180px;
+}
+.outlier-prop-detail-v2 .prop-detail-grid-v2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(380px, 0.92fr);
+  gap: 16px;
+  align-items: start;
+}
+.outlier-prop-detail-v2 #propDetailSportsbooks,
+.outlier-prop-detail-v2 #propDetailModel,
+.outlier-prop-detail-v2 #propDetailRisk {
+  grid-column: 1 / -1;
+}
+.outlier-prop-detail-v2 .prop-detail-panel {
+  min-width: 0;
+}
+.outlier-prop-detail-v2 .prop-detail-metric-row.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 980px) {
+  .outlier-prop-detail-v2 .prop-detail-dialog {
+    width: calc(100vw - 24px);
+  }
+  .outlier-prop-detail-v2 .prop-detail-grid-v2 {
+    grid-template-columns: 1fr;
+  }
+}
+'''
+
+
+def backup(path: Path) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = path.with_name(f"{path.name}.phase20v3_backup_{stamp}")
+    if path.exists():
+      backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    return backup_path
+
+
+def replace_function(source: str, function_name: str, replacement: str) -> str:
+    marker = f"async function {function_name}("
+    start = source.find(marker)
+    if start == -1:
+        raise RuntimeError(f"Could not find {function_name}")
+    brace = source.find("{", start)
+    if brace == -1:
+        raise RuntimeError(f"Could not find body for {function_name}")
+    depth = 0
+    end = None
+    for index in range(brace, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                end = index + 1
+                break
+    if end is None:
+        raise RuntimeError(f"Could not find end for {function_name}")
+    # Include a preceding openRailRow if a previous patch already inserted it.
+    prior = source.rfind("async function openRailRow(", 0, start)
+    if prior != -1 and source[prior:start].strip().startswith("async function openRailRow"):
+        start = prior
+    return source[:start] + replacement + source[end:]
+
+
+def main() -> None:
+    PUBLIC.mkdir(exist_ok=True)
+    detail = PUBLIC / "outlier-detail.js"
+    board = PUBLIC / "outlier-board.js"
+    css = PUBLIC / "outlier-ui.css"
+
+    result = {}
+
+    detail_backup = backup(detail)
+    detail.write_text(OUTLIER_DETAIL_JS, encoding="utf-8")
+    result["outlierDetailJs"] = {"changed": True, "backup": str(detail_backup)}
+
+    if board.exists():
+        board_text = board.read_text(encoding="utf-8")
+        board_backup = backup(board)
+        board_new = replace_function(board_text, "openAdvancedStats", BOARD_OPEN_ADVANCED_REPLACEMENT)
+        board.write_text(board_new, encoding="utf-8")
+        result["outlierBoardJs"] = {"changed": board_new != board_text, "backup": str(board_backup)}
+    else:
+        result["outlierBoardJs"] = {"changed": False, "warning": "missing public/outlier-board.js"}
+
+    if css.exists():
+        css_text = css.read_text(encoding="utf-8")
+        css_backup = backup(css)
+        if "Phase 20 v3: keep rail selection visible" not in css_text:
+            css.write_text(css_text.rstrip() + CSS_APPEND + "\n", encoding="utf-8")
+            changed = True
+        else:
+            changed = False
+        result["outlierUiCss"] = {"changed": changed, "backup": str(css_backup)}
+    else:
+        css.write_text(CSS_APPEND.strip() + "\n", encoding="utf-8")
+        result["outlierUiCss"] = {"changed": True, "created": True}
+
+    print(result)
+
+
+if __name__ == "__main__":
+    main()
