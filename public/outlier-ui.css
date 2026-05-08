@@ -2958,3 +2958,260 @@ body.outlier-mode .ob-right-rail .ob-rail-card:first-of-type { margin-top: 0; }
 body.outlier-mode .ob-rail-overlay { display: none; }
 @media (max-width: 1280px) { body.outlier-mode .outlier-app.is-rail-open .ob-rail-overlay { display: block; position: fixed; inset: 0; z-index: 90; border: 0; padding: 0; background: rgba(0, 0, 0, 0.42); } }
 @media (max-width: 760px) { body.outlier-mode .ob-trust-compact { align-items: flex-start; flex-direction: column; } body.outlier-mode .ob-trust-mini { border-left: 0; padding-left: 0; } }
+
+/* Post Phase 10 Outlier advanced-board hotfix. */
+.outlier-mode .ob-board-meta-inline {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: var(--ob-muted);
+  background: rgba(255,255,255,0.03);
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.outlier-mode .ob-insights-module,
+.outlier-mode .ob-model-room {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.outlier-mode .ob-insights-hero,
+.outlier-mode .ob-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 18px;
+  background: linear-gradient(135deg, rgba(10,65,45,0.96), rgba(52,55,6,0.88));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.outlier-mode .ob-insights-hero h1,
+.outlier-mode .ob-section-heading h2 {
+  margin: 0 0 6px;
+  color: var(--ob-text);
+  font-size: clamp(1.2rem, 2vw, 2rem);
+  letter-spacing: -0.04em;
+}
+
+.outlier-mode .ob-insights-hero p:not(.ob-kicker) {
+  max-width: 680px;
+  margin: 0;
+  color: var(--ob-muted);
+  font-weight: 700;
+}
+
+.outlier-mode .ob-insight-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.outlier-mode .ob-insight-metric,
+.outlier-mode .ob-insight-card,
+.outlier-mode .ob-model-card,
+.outlier-mode .ob-health-summary {
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  background: #111413;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+}
+
+.outlier-mode .ob-insight-metric {
+  min-height: 100px;
+  padding: 14px;
+}
+
+.outlier-mode .ob-insight-metric span {
+  display: block;
+  color: var(--ob-muted);
+  font-size: 0.7rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.outlier-mode .ob-insight-metric strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--ob-text);
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.outlier-mode .ob-insight-metric p,
+.outlier-mode .ob-insight-card p,
+.outlier-mode .ob-model-card p {
+  margin: 8px 0 0;
+  color: var(--ob-muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.outlier-mode .ob-insights-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.1fr) minmax(320px, 1.2fr) minmax(300px, 0.9fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.outlier-mode .ob-insight-card {
+  overflow: hidden;
+  padding: 12px;
+}
+
+.outlier-mode .ob-list-stack,
+.outlier-mode .ob-model-mini-list,
+.outlier-mode .ob-health-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.outlier-mode .ob-list-row,
+.outlier-mode .ob-model-mini,
+.outlier-mode .ob-health-check {
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 9px;
+  padding: 9px 10px;
+  background: rgba(255,255,255,0.025);
+}
+
+.outlier-mode .ob-list-row strong,
+.outlier-mode .ob-model-mini strong,
+.outlier-mode .ob-health-check strong {
+  display: block;
+  color: var(--ob-text);
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
+.outlier-mode .ob-list-row span,
+.outlier-mode .ob-model-mini span,
+.outlier-mode .ob-health-check span {
+  color: var(--ob-green);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.outlier-mode .ob-health-check p {
+  margin: 4px 0 0;
+  color: var(--ob-muted);
+  font-size: 0.72rem;
+}
+
+.outlier-mode .ob-model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.outlier-mode .ob-model-card {
+  padding: 14px;
+}
+
+.outlier-mode .ob-model-card h3 {
+  margin: 3px 0 8px;
+  color: var(--ob-text);
+  font-size: 0.95rem;
+}
+
+.outlier-mode .ob-mini-dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.outlier-mode .ob-mini-dl div {
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(255,255,255,0.035);
+}
+
+.outlier-mode .ob-mini-dl dt {
+  color: var(--ob-muted);
+  font-size: 0.64rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.outlier-mode .ob-mini-dl dd {
+  margin: 2px 0 0;
+  color: var(--ob-text);
+  font-weight: 950;
+}
+
+.outlier-mode .ob-trend-bars,
+.outlier-mode .ob-missing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.outlier-mode .ob-trend-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ob-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.outlier-mode .ob-trend-label b {
+  color: var(--ob-text);
+}
+
+.outlier-mode .ob-trend-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+}
+
+.outlier-mode .ob-trend-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--ob-green), #29c7ff);
+}
+
+.outlier-mode .ob-trend-track span.is-empty {
+  background: transparent;
+}
+
+.outlier-mode .ob-missing-list {
+  list-style: none;
+  margin-top: 10px;
+}
+
+.outlier-mode .ob-missing-list li {
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 7px 8px;
+  color: var(--ob-muted);
+  background: rgba(255,255,255,0.025);
+  font-size: 0.72rem;
+  font-weight: 760;
+}
+
+.outlier-mode .ob-ip {
+  justify-content: center;
+  font-weight: 950;
+}
+
+@media (max-width: 1260px) {
+  .outlier-mode .ob-insight-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .outlier-mode .ob-insights-grid { grid-template-columns: 1fr; }
+}

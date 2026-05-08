@@ -1,8 +1,8 @@
 {
   "season": 2026,
   "phase": "regular",
-  "inputWeatherRows": 483,
-  "featureRows": 483,
-  "featureFile": "/home/runner/work/New-project/New-project/data/cache/weather/weather_features_2026.csv",
-  "updatedAt": "2026-05-07T08:25:10.670787+00:00"
+  "inputWeatherRows": 555,
+  "featureRows": 555,
+  "featureFile": "C:\\Users\\RevLe\\OneDrive\\Documents\\New project\\data\\cache\\weather\\weather_features_2026.csv",
+  "updatedAt": "2026-05-08T00:24:38.124470+00:00"
 }

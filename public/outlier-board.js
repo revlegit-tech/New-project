@@ -11,12 +11,14 @@ import {
   formatOdds,
   dispatch,
   listen,
+  number,
+  todayIso,
 } from "/outlier-shared.js";
 
 const SPORT_TABS = ["NBA", "MLB", "Soccer", "NHL", "WNBA", "NCAAFB"];
 const CATEGORY_TABS = ["Today", "Tomorrow", "Batter Props", "Pitcher Props", "Team Props", "Saved"];
-const HIT_COLUMNS = [["L5", "L5"], ["L10", "L10"], ["L20", "L20"], ["H2H", "H2H"], ["season", "2026"], ["prevSeason", "2025"]];
-const PAGE_SIZE = 80;
+const HIT_COLUMNS = [["l5", "L5"], ["l10", "L10"], ["l20", "L20"], ["h2h", "H2H"], ["season", "2026"], ["prevSeason", "2025"]];
+const PAGE_SIZE = 120;
 
 const boardState = {
   mounted: false,
@@ -34,6 +36,23 @@ const boardState = {
   sport: "MLB",
   requestId: "",
   cache: null,
+  sortKey: "edge",
+  sortDir: "desc",
+};
+
+const SORT_LABELS = {
+  player: "Player",
+  proposition: "Proposition",
+  line: "Line",
+  odds: "Odds",
+  ip: "IP",
+  edge: "Edge",
+  l5: "L5",
+  l10: "L10",
+  l20: "L20",
+  h2h: "H2H",
+  season: "2026",
+  prevSeason: "2025",
 };
 
 export async function mount() {
@@ -135,9 +154,11 @@ function bindLocalEvents(host) {
     const action = event.target.closest("[data-action]");
     if (action?.dataset.action === "reload") return loadBoard();
     if (action?.dataset.action === "clearFilters") {
-      boardState.market = ""; boardState.side = ""; boardState.game = ""; boardState.query = ""; boardState.categoryTab = "Today"; redraw(); return;
+      boardState.market = ""; boardState.side = ""; boardState.game = ""; boardState.query = ""; boardState.categoryTab = "Today"; boardState.sortKey = "edge"; boardState.sortDir = "desc"; redraw(); return;
     }
     if (action?.dataset.action === "toggleRail") { dispatch("outlier:rail-open", {}); return; }
+    const sort = event.target.closest("[data-sort-key]");
+    if (sort) { setSort(sort.dataset.sortKey); renderTable(); return; }
     const sport = event.target.closest("[data-sport]");
     if (sport) { boardState.sport = sport.dataset.sport === "MLB" ? "MLB" : boardState.sport; redraw(); return; }
     const category = event.target.closest("[data-category-tab]");
@@ -148,11 +169,9 @@ function bindLocalEvents(host) {
       if (row) import("/outlier-detail.js").then((module) => module.mount?.()).then(() => dispatch("outlier:open-detail", { row, index: Number(rowButton.dataset.rowIndex) }));
     }
   };
-
   host.oninput = (event) => {
     if (event.target.dataset?.control === "query") { boardState.query = event.target.value; applyFilters(); renderTable(); }
   };
-
   host.onchange = (event) => {
     const control = event.target.dataset?.control;
     if (control === "date") { boardState.date = event.target.value || todayIso(); loadBoard(); }
@@ -172,6 +191,7 @@ async function loadBoard() {
     const params = new URLSearchParams();
     if (boardState.date) params.set("date", boardState.date);
     if (boardState.market) params.set("market", boardState.market);
+    params.set("limit", "500");
     const { payload, requestId } = await jsonFetch(`/api/edge-board${params.toString() ? `?${params}` : ""}`);
     boardState.rows = normalizeRows(payload);
     boardState.requestId = requestId || payload?.meta?.requestId || "";
@@ -203,17 +223,54 @@ function applyFilters() {
     const haystack = [row.player, row.playerName, row.team, row.opponent, row.market, row.marketDisplay, game].join(" ").toLowerCase();
     const searchMatch = !query || haystack.includes(query);
     return marketMatch && sideMatch && gameMatch && searchMatch && categoryAllows(row);
-  }).sort((a, b) => Number(b.finalEdgePercent || b.edge || 0) - Number(a.finalEdgePercent || a.edge || 0));
+  });
+  sortRows();
   dispatchBoardStats();
 }
 
 function categoryAllows(row) {
   const market = String(row.market || "").toLowerCase();
+  if (boardState.nav === "EV+") return Number(edgeValue(row)) > 0;
   if (boardState.categoryTab === "Batter Props") return market.startsWith("batter_");
   if (boardState.categoryTab === "Pitcher Props") return market.startsWith("pitcher_");
   if (boardState.categoryTab === "Team Props") return market.startsWith("team_");
   if (boardState.categoryTab === "Saved") return false;
   return true;
+}
+
+function setSort(key) {
+  if (!key) return;
+  if (boardState.sortKey === key) {
+    boardState.sortDir = boardState.sortDir === "asc" ? "desc" : "asc";
+  } else {
+    boardState.sortKey = key;
+    boardState.sortDir = ["player", "proposition"].includes(key) ? "asc" : "desc";
+  }
+  sortRows();
+}
+
+function sortRows() {
+  const key = boardState.sortKey || "edge";
+  const dir = boardState.sortDir === "asc" ? 1 : -1;
+  boardState.filteredRows.sort((a, b) => compareSortValues(sortValue(a, key), sortValue(b, key)) * dir);
+}
+
+function compareSortValues(a, b) {
+  if (typeof a === "string" || typeof b === "string") return String(a || "").localeCompare(String(b || ""));
+  const av = Number.isFinite(a) ? a : -Infinity;
+  const bv = Number.isFinite(b) ? b : -Infinity;
+  return av === bv ? 0 : av > bv ? 1 : -1;
+}
+
+function sortValue(row, key) {
+  if (key === "player") return text(row.player || row.playerName || row.team, "").toLowerCase();
+  if (key === "proposition") return propLabel(row).toLowerCase();
+  if (key === "line") return numericValue(row.line ?? row.propLine);
+  if (key === "odds") return numericValue(row.americanOdds ?? row.odds);
+  if (key === "ip") return impliedValue(row);
+  if (key === "edge") return edgeValue(row);
+  if (["l5", "l10", "l20", "h2h", "season", "prevSeason"].includes(key)) return hitPercent(row, key);
+  return 0;
 }
 
 function renderTable() {
@@ -229,7 +286,8 @@ function renderTable() {
   replaceChildren(table, [tableNode(rows)]);
   if (meta) {
     const cache = boardState.cache?.hit ? "cache hit" : "cache miss";
-    meta.textContent = `${boardState.filteredRows.length} MLB props from EdgeBoard · ${cache}${boardState.requestId ? ` · ${boardState.requestId}` : ""}`;
+    const sortText = `${SORT_LABELS[boardState.sortKey] || "Edge"} ${boardState.sortDir === "asc" ? "↑" : "↓"}`;
+    meta.textContent = `${boardState.filteredRows.length} MLB props from EdgeBoard · sorted ${sortText} · ${cache}${boardState.requestId ? ` · ${boardState.requestId}` : ""}`;
   }
   updatePropCount();
 }
@@ -249,8 +307,21 @@ function colgroup() {
 function thead() {
   const head = document.createElement("thead");
   const row = document.createElement("tr");
-  ["", "Player", "Proposition", "Line", "Odds", "IP", ...HIT_COLUMNS.map(([, label]) => label)].forEach((label) => { const th = document.createElement("th"); th.append(createElement("span", { text: label })); row.append(th); });
+  [["", ""], ["player", "Player"], ["proposition", "Proposition"], ["line", "Line"], ["odds", "Odds"], ["ip", "IP"], ...HIT_COLUMNS.map(([key, label]) => [key, label])].forEach(([key, label]) => {
+    const th = document.createElement("th");
+    th.append(key ? sortButton(key, label) : createElement("span", { text: label }));
+    row.append(th);
+  });
   head.append(row); return head;
+}
+
+function sortButton(key, label) {
+  const active = boardState.sortKey === key;
+  const arrow = !active ? "↕" : boardState.sortDir === "asc" ? "↑" : "↓";
+  return createElement("button", { className: `ob-sort ${active ? "is-active" : ""}`, type: "button", dataset: { sortKey: key }, attrs: { "aria-label": `Sort by ${label}` } }, [
+    createElement("span", { text: label }),
+    createElement("i", { text: arrow, attrs: { "aria-hidden": "true" } }),
+  ]);
 }
 
 function tbody(rows) {
@@ -261,7 +332,14 @@ function tbody(rows) {
 
 function dataRow(row, index) {
   const tr = createElement("tr", { dataset: { rowIndex: index }, attrs: { tabindex: "0" } });
-  tr.append(td(createElement("button", { className: "ob-plus", type: "button", text: "+", attrs: { "aria-label": "Save prop" } })), playerCell(row), propCell(row), td(createElement("div", { className: "ob-cell ob-number", text: text(row.line || row.propLine) })), oddsCell(row), td(createElement("div", { className: "ob-cell ob-ip", text: percent(row.finalProbabilityPercent || row.modelProbability || row.probability) })), ...HIT_COLUMNS.map(([key]) => hitCell(row, key)));
+  tr.append(
+    td(createElement("button", { className: "ob-plus", type: "button", text: "+", attrs: { "aria-label": "Save prop" } })),
+    playerCell(row), propCell(row),
+    td(createElement("div", { className: "ob-cell ob-number", text: text(row.line ?? row.propLine) })),
+    oddsCell(row),
+    td(createElement("div", { className: "ob-cell ob-ip", text: percent(impliedValue(row)) })),
+    ...HIT_COLUMNS.map(([key]) => hitCell(row, key))
+  );
   return tr;
 }
 
@@ -271,25 +349,35 @@ function playerCell(row) {
   const player = text(row.player || row.playerName || row.team, "MLB");
   const matchup = gameLabel(row) || "Matchup unavailable";
   const pitcher = text(row.pitcher || row.probablePitcher, "Starter pending");
-  return td(createElement("div", { className: "ob-cell" }, [createElement("div", { className: "ob-player" }, [createElement("div", { className: "ob-avatar", text: initials(player) }), createElement("div", {}, [createElement("div", { className: "ob-player-name", text: player }), createElement("div", { className: "ob-player-sub", text: matchup }), createElement("div", { className: "ob-player-sub ob-player-pitcher", text: `vs ${pitcher}` })])])])) ;
+  return td(createElement("div", { className: "ob-cell" }, [createElement("div", { className: "ob-player" }, [createElement("div", { className: "ob-avatar", text: initials(player) }), createElement("div", {}, [createElement("div", { className: "ob-player-name", text: player }), createElement("div", { className: "ob-player-sub", text: matchup }), createElement("div", { className: "ob-player-sub ob-player-pitcher", text: `vs ${pitcher}` })])])]));
 }
 
 function propCell(row) {
-  return td(createElement("div", { className: "ob-cell" }, [createElement("div", {}, [createElement("div", { className: "ob-prop-title", text: propLabel(row) }), createElement("div", { className: "ob-prop-sub", text: text(row.recommendation || row.marketDisplay || row.market, "Research only") })])])) ;
+  return td(createElement("div", { className: "ob-cell" }, [createElement("div", {}, [createElement("div", { className: "ob-prop-title", text: propLabel(row) }), createElement("div", { className: "ob-prop-sub", text: text(row.recommendation || row.marketDisplay || row.market, "Research only") })])]));
 }
 
 function oddsCell(row) {
-  const edge = row.finalEdgePercent || row.edge;
-  const className = Number(edge) >= 5 ? "ob-edge-badge is-good" : Number(edge) >= 0 ? "ob-edge-badge is-watch" : "ob-edge-badge is-bad";
-  return td(createElement("div", { className: "ob-cell ob-odds" }, [createElement("span", { text: formatOdds(row.americanOdds || row.odds) }), createElement("span", { className, text: signedPercent(edge) })]));
+  const edge = edgeValue(row);
+  const className = edge >= 5 ? "ob-edge-badge is-good" : edge >= 0 ? "ob-edge-badge is-watch" : "ob-edge-badge is-bad";
+  return td(createElement("div", { className: "ob-cell ob-odds" }, [createElement("span", { text: formatOdds(row.americanOdds ?? row.odds) }), createElement("span", { className, text: signedPercent(edge) })]));
 }
 
 function hitCell(row, key) {
-  const value = hitWindow(row, key);
-  if (!value) return td(createElement("span", { text: "--" }), "ob-hit-cell is-empty");
-  const pct = Number(value.pct ?? value.percent ?? value.rate ?? NaN);
+  const pct = hitPercent(row, key);
+  if (!Number.isFinite(pct)) return td(createElement("span", { text: "--" }), "ob-hit-cell is-empty");
   const tone = pct >= 80 ? "ob-pct--high" : pct >= 60 ? "ob-pct--mid" : "ob-pct--low";
-  return td(createElement("span", { text: percent(pct), title: `${text(value.hits, "?")} of ${text(value.total, "?")}` }), `ob-hit-cell ${tone}`);
+  const title = hitTitle(row, key, pct);
+  return td(createElement("span", { text: percent(pct), title }), `ob-hit-cell ${tone}`);
+}
+
+function hitTitle(row, key, pct) {
+  const value = hitWindow(row, key);
+  if (value && typeof value === "object") {
+    const hits = value.hits ?? value.successes ?? value.made ?? value.count;
+    const total = value.total ?? value.attempts ?? value.samples ?? value.n;
+    if (hits !== undefined && total !== undefined) return `${hits} of ${total}`;
+  }
+  return `${SORT_LABELS[key] || key}: ${percent(pct)}`;
 }
 
 function renderLoading() { return createElement("div", { className: "ob-empty" }, [createElement("strong", { text: "Loading board" }), createElement("span", { text: "Fetching cached EdgeBoard payload." })]); }
@@ -297,11 +385,43 @@ function renderEmpty(title, copy) { return createElement("div", { className: "ob
 function activeFilterCount() { return [boardState.market, boardState.side, boardState.game, boardState.query, boardState.categoryTab !== "Today" ? boardState.categoryTab : ""].filter(Boolean).length; }
 function availableGames() { return Array.from(new Set(boardState.rows.map(gameLabel).filter(Boolean))).sort(); }
 function gameLabel(row) { const away = text(row.away || row.team, ""); const home = text(row.home || row.opponent, ""); return away && home ? `${away} @ ${home}` : text(row.game || row.matchup, ""); }
-function hitWindow(row, key) { const hitRates = row.hitRates || row.hit_rate || row.hitRate || {}; return hitRates[key] || row[key] || null; }
+
+function hitWindow(row, key) {
+  const hitRates = row.hitRates || row.hit_rate || row.hitRate || row.hitProfile || {};
+  const aliases = {
+    l5: ["L5", "l5", "last5", "last_5", "last5Rate", "l5Percent", "l5_hit_rate", "hitRateL5"],
+    l10: ["L10", "l10", "last10", "last_10", "last10Rate", "l10Percent", "l10_hit_rate", "hitRateL10"],
+    l20: ["L20", "l20", "last20", "last_20", "last20Rate", "l20Percent", "l20_hit_rate", "hitRateL20"],
+    h2h: ["H2H", "h2h", "headToHead", "bvp", "bvpRate", "h2hPercent", "h2h_hit_rate"],
+    season: ["season", "2026", "currentSeason", "seasonRate", "currentSeasonPercent", "season_hit_rate", "hitRateSeason"],
+    prevSeason: ["prevSeason", "2025", "previousSeason", "lastSeason", "prevSeasonPercent", "hitRatePrevSeason"],
+  };
+  for (const alias of aliases[key] || [key]) {
+    if (hitRates && hitRates[alias] !== undefined) return hitRates[alias];
+    if (row && row[alias] !== undefined) return row[alias];
+  }
+  return null;
+}
+
+function hitPercent(row, key) { return normalizePercent(hitWindow(row, key)); }
+function normalizePercent(value) {
+  if (value === null || value === undefined || value === "") return NaN;
+  if (typeof value === "object") return normalizePercent(value.pct ?? value.percent ?? value.rate ?? value.value);
+  if (typeof value === "string") {
+    const parsed = Number(value.replace("%", "").trim());
+    if (!Number.isFinite(parsed)) return NaN;
+    return parsed <= 1 && parsed >= -1 ? parsed * 100 : parsed;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return NaN;
+  return parsed <= 1 && parsed >= -1 ? parsed * 100 : parsed;
+}
+function numericValue(value) { const parsed = number(value, NaN); return Number.isFinite(parsed) ? parsed : -Infinity; }
+function edgeValue(row) { return numericValue(row.finalEdgePercent ?? row.edge ?? row.edgePercent); }
+function impliedValue(row) { return numericValue(row.sportsbookImpliedPercent ?? row.impliedProbability ?? row.impliedPercent ?? row.ip); }
 function initials(value) { return text(value, "MLB").split(/\s+/).slice(0, 2).map((part) => part[0] || "").join("").toUpperCase() || "MLB"; }
 function updatePropCount() { const count = document.getElementById("obPropCount"); if (count) count.textContent = `${boardState.filteredRows.length}/${boardState.rows.length} Props`; const badge = document.querySelector(".ob-filter-count"); if (badge) badge.textContent = String(activeFilterCount()); const clear = document.querySelector(".ob-clear-filter"); if (clear) clear.classList.toggle("is-hidden", activeFilterCount() === 0); }
-function dispatchBoardStats() { const positive = boardState.filteredRows.filter((row) => Number(row.finalEdgePercent || row.edge || 0) > 0).length; const avgEdge = boardState.filteredRows.length ? boardState.filteredRows.reduce((sum, row) => sum + Number(row.finalEdgePercent || row.edge || 0), 0) / boardState.filteredRows.length : 0; dispatch("outlier:board-stats", { total: boardState.filteredRows.length, positive, avgEdge }); }
-function todayIso() { const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 10); }
+function dispatchBoardStats() { const positive = boardState.filteredRows.filter((row) => Number(edgeValue(row)) > 0).length; const avgEdge = boardState.filteredRows.length ? boardState.filteredRows.reduce((sum, row) => sum + Number(edgeValue(row) || 0), 0) / boardState.filteredRows.length : 0; dispatch("outlier:board-stats", { total: boardState.filteredRows.length, positive, avgEdge }); }
 
-export const __testHooks = { boardState, applyFilters, renderTable };
-export const OUTLIER_MODULE_VERSION = "phase8-classic-visual-v1";
+export const __testHooks = { boardState, applyFilters, renderTable, sortValue, hitPercent };
+export const OUTLIER_MODULE_VERSION = "post-phase10-advanced-board-v1";

@@ -2,9 +2,9 @@
   "season": 2026,
   "date": "2026-05-07",
   "market": "",
-  "snapshotId": "20260507T205129Z",
-  "snapshotAt": "2026-05-07T20:51:29.964659+00:00",
-  "rowsSnapshotted": 0,
-  "snapshotFile": "/home/runner/work/New-project/New-project/data/cache/odds_movement/prop_snapshots_2026.csv",
-  "updatedAt": "2026-05-07T20:51:29.965205+00:00"
+  "snapshotId": "20260508T002438Z",
+  "snapshotAt": "2026-05-08T00:24:38.125490+00:00",
+  "rowsSnapshotted": 731,
+  "snapshotFile": "C:\\Users\\RevLe\\OneDrive\\Documents\\New project\\data\\cache\\odds_movement\\prop_snapshots_2026.csv",
+  "updatedAt": "2026-05-08T00:24:40.308820+00:00"
 }

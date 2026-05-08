@@ -20,6 +20,7 @@ from .routes.my_picks import (
     update_pick,
 )
 from .routes.playerboard import playerboard, playerboard_health
+from .routes.propline import sync_props as sync_propline_props
 from .routes.prop_detail import prop_detail
 from .routes.workflows import workflow_health
 from .routing import Router
@@ -45,6 +46,7 @@ def build_router() -> Router:
     router.add("GET", "/api/bankroll/settings", bankroll_settings)
     router.add("POST", "/api/bankroll/settings", update_bankroll_settings, mutation=True, mutation_owner="risk_controls", mutation_risk="high", mutation_kind="bankroll_write")
     router.add("GET", "/api/exposure/summary", exposure_summary)
+    router.add("POST", "/api/admin/propline/props/sync", sync_propline_props, mutation=True, mutation_owner="data_ops", mutation_risk="high", mutation_kind="external_paid_api_sync")
     return router
 
 
