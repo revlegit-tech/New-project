@@ -225,10 +225,13 @@ function hydrateDetailDataset(button, row) {
   const fields = {
     propId: row.id,
     date: row.date || boardState.date,
+    season: row.season || "2026",
     player: row.player || row.playerName || row.team,
     team: row.team,
     opponent: row.opponent,
     market: row.market || row.baseMarket || row.originalMarket,
+    marketDisplay: row.marketDisplay,
+    rawLabel: row.rawLabel || row.side || row.outcome,
     line: row.line || row.propLine,
     odds: row.americanOdds || row.odds,
     book: row.book,

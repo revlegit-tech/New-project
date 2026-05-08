@@ -35,7 +35,7 @@ function emptyPanel() {
     railTabs(),
     createElement("article", { className: "ob-rail-card" }, [
       createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "Select a prop" }), createElement("span", { text: "Research rail" })]),
-      createElement("div", { className: "ob-rail-body" }, [createElement("p", { className: "ob-pick-copy", text: "Click any board row to inspect matchup, hit-rate profile, model probability, implied price, and data-readiness context." })]),
+      createElement("div", { className: "ob-rail-body" }, [createElement("p", { className: "ob-pick-copy", text: "Click any board row to inspect matchup, sportsbook ladder, hit-rate graph, model probability, implied price, and data-readiness context." })]),
     ]),
   ]);
 }
@@ -44,18 +44,20 @@ function detailPanel(row) {
   const player = text(row.player || row.playerName || row.team, "MLB");
   return createElement("div", {}, [
     railTabs(),
-    createElement("article", { className: "ob-rail-card" }, [
+    createElement("article", { className: "ob-rail-card ob-rail-hero-card" }, [
       createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: player }), createElement("span", { text: text(row.team || row.away || "MLB") })]),
       createElement("div", { className: "ob-rail-body" }, [
         createElement("p", { className: "ob-pick-title", text: propLabel(row) }),
         createElement("p", { className: "ob-pick-copy", text: matchupCopy(row) }),
         metricGrid(primaryMetrics(row)),
+        miniHitStrip(row),
       ]),
     ]),
     detailState.tab === "Trends" ? trendCard(row) : null,
     detailState.tab === "Model" ? modelCard(row) : null,
-    detailState.tab === "Matchup" ? trustCard(row) : null,
-    bestOnBoardCard(row),
+    detailState.tab === "Matchup" ? matchupCard(row) : null,
+    booksCard(row),
+    trustCard(row),
   ].filter(Boolean));
 }
 
@@ -70,7 +72,7 @@ function primaryMetrics(row) {
     ["Edge", signedPercent(row.finalEdgePercent ?? row.edge)],
     ["Odds", formatOdds(row.americanOdds ?? row.odds)],
     ["Line", text(row.line ?? row.propLine)],
-    ["Trust", readiness(row)],
+    ["Books", row.bookCount ? `Best of ${row.bookCount}` : text(row.book, "1")],
   ];
 }
 
@@ -78,22 +80,56 @@ function metricGrid(rows) {
   return createElement("div", { className: "ob-rail-metrics" }, rows.map(([label, value]) => createElement("div", { className: "ob-rail-metric" }, [createElement("span", { text: label }), createElement("strong", { text: value })])));
 }
 
-function trendCard(row) {
+function miniHitStrip(row) {
+  return createElement("div", { className: "ob-rail-hit-strip" }, TREND_KEYS.slice(0, 3).map(([key, label]) => {
+    const pct = hitPercent(row, key);
+    return createElement("span", { className: Number.isFinite(pct) ? "" : "is-empty" }, [createElement("b", { text: label }), createElement("em", { text: Number.isFinite(pct) ? percent(pct) : "--" })]);
+  }));
+}
+
+function matchupCard(row) {
   return createElement("article", { className: "ob-rail-card" }, [
-    createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "Hit-Rate Profile" }), createElement("span", { text: text(row.date || row.boardDate || "Slate") })]),
+    createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "Matchup" }), createElement("span", { text: text(row.marketFamily || row.market, "Prop") })]),
     createElement("div", { className: "ob-rail-body" }, [
-      createElement("div", { className: "ob-trend-bars" }, TREND_KEYS.map(([key, label]) => trendBar(label, hitPercent(row, key)))),
+      createElement("p", { className: "ob-pick-copy", text: matchupCopy(row) }),
+      metricGrid([
+        ["Pitcher", text(row.pitcher || row.probablePitcher, "Starter pending")],
+        ["Side", text(row.rawLabel || row.side, "Over")],
+        ["Market", text(row.marketDisplay || row.market, "Market")],
+        ["Trust", readiness(row)],
+      ]),
     ]),
   ]);
 }
 
-function trendBar(label, pct) {
+function trendCard(row) {
+  return createElement("article", { className: "ob-rail-card" }, [
+    createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "Hit-Rate Profile" }), createElement("span", { text: text(row.date || row.boardDate || "Slate") })]),
+    createElement("div", { className: "ob-rail-body" }, [
+      createElement("div", { className: "ob-trend-bars" }, TREND_KEYS.map(([key, label]) => trendBar(label, hitPercent(row, key), sampleText(row, key)))),
+      railGameGraph(row),
+    ]),
+  ]);
+}
+
+function trendBar(label, pct, sample) {
   const hasValue = Number.isFinite(pct);
   const width = hasValue ? Math.max(0, Math.min(100, pct)) : 0;
   return createElement("div", { className: "ob-trend-row" }, [
-    createElement("div", { className: "ob-trend-label" }, [createElement("span", { text: label }), createElement("b", { text: hasValue ? percent(pct) : "--" })]),
+    createElement("div", { className: "ob-trend-label" }, [createElement("span", { text: label }), createElement("b", { text: hasValue ? percent(pct) : "--" }), createElement("em", { text: sample || "" })]),
     createElement("div", { className: "ob-trend-track" }, [createElement("span", { className: hasValue ? "" : "is-empty", attrs: { style: `width:${width}%` } })]),
   ]);
+}
+
+function railGameGraph(row) {
+  const games = Array.isArray(row.recentGames) ? row.recentGames.slice(-12) : [];
+  if (!games.length) return createElement("p", { className: "ob-pick-copy", text: "Recent game graph is unavailable until game logs are cached for this market." });
+  const maxValue = Math.max(1, ...games.map((game) => number(game.value, 0)));
+  return createElement("div", { className: "ob-rail-game-graph" }, games.map((game) => {
+    const value = number(game.value, 0);
+    const height = Math.max(8, Math.min(100, (value / maxValue) * 92));
+    return createElement("span", { className: game.hit ? "is-hit" : "is-miss", attrs: { title: `${text(game.date, "date")} ${text(game.opponent, "")} · ${text(game.value, "--")}` } }, [createElement("i", { attrs: { style: `height:${height}%` } }), createElement("b", { text: text(game.value, "--") })]);
+  }));
 }
 
 function modelCard(row) {
@@ -112,22 +148,25 @@ function modelCard(row) {
   ]);
 }
 
-function trustCard(row) {
+function booksCard(row) {
+  const books = Array.isArray(row.books) ? row.books.slice(0, 7) : [];
+  if (!books.length) return null;
   return createElement("article", { className: "ob-rail-card" }, [
-    createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "No silent fallback" }), createElement("span", { text: "Trust" })]),
-    createElement("div", { className: "ob-rail-body" }, [
-      createElement("p", { className: "ob-pick-copy", text: readinessCopy(row) }),
-      missingList(row),
-    ]),
+    createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "Sportsbook Ladder" }), createElement("span", { text: `Best of ${books.length}` })]),
+    createElement("div", { className: "ob-rail-book-list" }, books.map((book, index) => createElement("div", { className: index === 0 ? "is-best" : "" }, [
+      createElement("span", { text: text(book.book || book.sportsbook, "Book") }),
+      createElement("strong", { text: formatOdds(book.americanOdds || book.odds || book.price) }),
+      createElement("em", { text: percent(book.impliedProbabilityPercent || book.ip) }),
+    ]))),
   ]);
 }
 
-function bestOnBoardCard(row) {
+function trustCard(row) {
   return createElement("article", { className: "ob-rail-card" }, [
-    createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "Board Row" }), createElement("span", { text: text(row.marketFamily || row.market, "Prop") })]),
+    createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "Trust Surface" }), createElement("span", { text: readiness(row) })]),
     createElement("div", { className: "ob-rail-body" }, [
-      createElement("p", { className: "ob-pick-title", text: `${text(row.player || row.team, "MLB")} ${propLabel(row)}` }),
-      createElement("p", { className: "ob-pick-copy", text: `${matchupCopy(row)} · ${signedPercent(row.finalEdgePercent ?? row.edge)} edge` }),
+      createElement("p", { className: "ob-pick-copy", text: readinessCopy(row) }),
+      missingList(row),
     ]),
   ]);
 }
@@ -179,6 +218,13 @@ function hitPercent(row, key) {
   if (value === null || value === undefined || value === "") return NaN;
   if (typeof value === "object") return normalizePercent(value.pct ?? value.percent ?? value.rate ?? value.value);
   return normalizePercent(value);
+}
+
+function sampleText(row, key) {
+  const value = hitWindow(row, key);
+  if (!value || typeof value !== "object") return "";
+  if (value.hits === undefined || value.total === undefined) return "";
+  return `${value.hits}/${value.total}`;
 }
 
 function normalizePercent(value) {

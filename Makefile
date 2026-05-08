@@ -1,4 +1,4 @@
-.PHONY: install-dev test test-contracts coverage lint format typecheck ci run serve serve-asgi run-modular health smoke smoke-asgi smoke-live safe-export security test-ui browsers validate-contracts validate-retirement clean
+.PHONY: install-dev test test-contracts coverage lint format typecheck ci run serve serve-asgi run-modular refresh-slate validate-slate health smoke smoke-asgi smoke-live safe-export security test-ui browsers validate-contracts validate-retirement clean
 
 PORT ?= 8765
 HOST ?= 127.0.0.1
@@ -47,6 +47,16 @@ serve:
 serve-asgi:
 	uvicorn mlb_app.asgi:app --host 0.0.0.0 --port $(PORT)
 
+
+# Phase 11: refresh the selected Outlier slate through the canonical daily pipeline.
+SLATE_DATE ?= $(shell python -c "from datetime import datetime; print(datetime.now().strftime('%Y-%m-%d'))")
+SEASON ?= 2026
+
+refresh-slate:
+	python tools/run_daily_slate_pipeline.py --date $(SLATE_DATE) --season $(SEASON) --limit 500 --source-mode canonical
+
+validate-slate:
+	python tools/validate_daily_slate.py --date $(SLATE_DATE) --season $(SEASON)
 
 # Temporary compatibility alias for existing developer muscle memory.
 run-modular: run

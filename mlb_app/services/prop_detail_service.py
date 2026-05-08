@@ -96,6 +96,7 @@ class PropDetailService:
             "market": lookup.get("market"),
             "marketDisplay": _title(lookup.get("market", "")),
             "line": lookup.get("line"),
+            "rawLabel": lookup.get("rawLabel"),
             "americanOdds": lookup.get("americanOdds") or lookup.get("odds"),
             "book": lookup.get("book") or "Best available",
             "decisionLabel": lookup.get("decisionLabel") or "No bet",
@@ -129,6 +130,8 @@ class PropDetailService:
                 "market": _clean(row.get("market")),
                 "marketDisplay": _clean(row.get("marketDisplay")) or _title(_clean(row.get("market"))),
                 "line": _clean(row.get("line")),
+                "rawLabel": _clean(row.get("rawLabel")),
+                "side": _detail_side(row),
                 "americanOdds": _clean(odds),
                 "book": _clean(row.get("book")) or "Best available",
                 "gameTime": _clean(row.get("gameTime")),
@@ -257,6 +260,8 @@ class PropDetailService:
             "team": _clean(row.get("team")),
             "opponent": _clean(row.get("opponent")),
             "line": _clean(row.get("line")),
+            "rawLabel": _clean(row.get("rawLabel")),
+            "side": _detail_side(row),
             "americanOdds": _clean(row.get("americanOdds")),
             "book": _clean(row.get("book")) or "Best available",
             "decisionLabel": _clean(row.get("decisionLabel")) or "No bet",
@@ -279,6 +284,8 @@ def _lookup(query: dict[str, list[str]]) -> dict[str, str]:
         "season",
         "date",
         "market",
+        "marketDisplay",
+        "rawLabel",
         "player",
         "team",
         "opponent",
@@ -305,6 +312,9 @@ def _matches(row: dict[str, Any], lookup: dict[str, str]) -> bool:
         wanted = _clean(lookup.get(key)).lower()
         if wanted and _clean(row.get(key)).lower() != wanted:
             return False
+    wanted_side = _detail_side({"rawLabel": lookup.get("rawLabel"), "market": lookup.get("market")}) if _clean(lookup.get("rawLabel")) else ""
+    if wanted_side and _detail_side(row) != wanted_side:
+        return False
     return bool(_clean(lookup.get("player")) or _clean(lookup.get("market")))
 
 
@@ -381,11 +391,33 @@ def _trend_profile(row: dict[str, Any], lookup: dict[str, str], board: dict[str,
             profile.setdefault("sourceStatus", "error")
             profile.setdefault("error", str(error))
 
+    source_status = profile.get("sourceStatus") if isinstance(profile, dict) else ""
+    first_recent = recent_games[0] if recent_games else {}
     return {
         "windows": profile or {},
         "recentGames": recent_games or [],
         "source": "cached_game_logs",
+        "sourceStatus": source_status or ("ok" if recent_games else "missing_game_logs"),
+        "line": _clean(row.get("line")),
+        "direction": _detail_side(row),
+        "rawLabel": _clean(row.get("rawLabel")),
+        "statKey": _clean(first_recent.get("statKey") if isinstance(first_recent, dict) else ""),
     }
+
+
+def _detail_side(row: dict[str, Any]) -> str:
+    label = _clean(row.get("rawLabel") or row.get("side") or row.get("outcome")).casefold()
+    market = _clean(row.get("market")).lower()
+    player = _clean(row.get("player")).casefold()
+    if "under" in label or label in {"no", "n"}:
+        return "under"
+    if "over" in label or label in {"yes", "y"}:
+        return "over"
+    if player and player in label:
+        return "over"
+    if market.startswith(("batter_", "pitcher_")):
+        return "over"
+    return label or "over"
 
 
 def american_implied_probability(value: Any) -> float | None:
