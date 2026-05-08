@@ -3,14 +3,19 @@
     "artifact": "data/models/prop_model_batter_hits.joblib",
     "features": "data/models/prop_model_batter_hits_features.json",
     "status": "experimental",
-    "trained_at": "2026-05-06T00:00:00Z",
+    "trained_at": "2026-05-08T00:00:00Z",
     "training_rows": 204,
     "positive_rows": 43,
     "negative_rows": 161,
+    "feature_count": 18,
     "calibrated": false,
-    "latest_graded_date": "",
-    "backtest_roi": null,
-    "brier_score": null,
-    "log_loss": null
+    "model_type": "logistic_regression",
+    "backtest": {
+      "graded": 0,
+      "brierScore": null,
+      "logLoss": null,
+      "roiPercent": null,
+      "source": "not_available"
+    }
   }
 }
