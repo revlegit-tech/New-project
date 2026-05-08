@@ -156,8 +156,8 @@
     "date": "2026-05-07",
     "gamePk": 823306,
     "gameDate": "2026-05-08T02:10:00Z",
-    "status": "In Progress",
-    "codedGameState": "I",
+    "status": "Final",
+    "codedGameState": "F",
     "away": "STL",
     "home": "SDP",
     "awayName": "St. Louis Cardinals",
@@ -167,6 +167,6 @@
     "awayProbablePitcher": "Matthew Liberatore",
     "homeProbablePitcher": "Michael King",
     "venue": "Petco Park",
-    "final": false
+    "final": true
   }
 ]
