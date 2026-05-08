@@ -37,6 +37,9 @@ jobs:
           if [ -f requirements.txt ]; then
             python -m pip install -r requirements.txt
           fi
+          if [ -f requirements-dev.txt ]; then
+            python -m pip install -r requirements-dev.txt
+          fi
 
       - name: Determine health date
         id: health_date
@@ -55,97 +58,17 @@ jobs:
 
       - name: Run smoke tests
         run: |
-          python -m py_compile playerboard.py tests/test_smoke.py
-          python -m unittest discover -s tests -p "test_smoke.py" -v
+          python -m py_compile playerboard.py mlb_app/server.py tools/phase23_daily_refresh_qa.py
+          python -m pytest tests/test_api_contracts.py tests/test_modular_router.py tests/test_wsgi_smoke.py tests/test_asgi_migration.py tests/test_static_file_guard.py tests/test_cache_store.py tests/test_security_export.py tests/test_trust_surface_static_safety.py tests/test_request_observability.py
 
       - name: Build health summary
         shell: bash
         run: |
           HEALTH_DATE="${{ steps.health_date.outputs.health_date }}"
+          SEASON="${HEALTH_DATE:0:4}"
 
-          python - <<'PY'
-          import json
-          from datetime import datetime, timezone
-          from pathlib import Path
-
-          import app
-
-          health_date = "${{ steps.health_date.outputs.health_date }}"
-          season = int(health_date[:4]) if health_date else 2026
-
-          summary = {
-              "checkedAt": datetime.now(timezone.utc).isoformat(),
-              "date": health_date,
-              "season": season,
-              "ok": True,
-              "checks": {},
-              "warnings": [],
-              "errors": [],
-          }
-
-          try:
-              playerboard = app.playerboard_health_payload({
-                  "season": [str(season)],
-                  "date": [health_date],
-              })
-
-              # If yesterday/today has no rows, check latest saved Playerboard date too.
-              if (playerboard.get("rowsLoaded") or 0) <= 0 and playerboard.get("latestAvailableDate"):
-                  latest = app.playerboard_health_payload({
-                      "season": [str(season)],
-                      "date": [playerboard["latestAvailableDate"]],
-                  })
-                  latest["requestedDate"] = health_date
-                  latest["usedLatestAvailableDate"] = True
-                  playerboard = latest
-
-              summary["checks"]["playerboard"] = playerboard
-
-              if not playerboard.get("schemaOk"):
-                  summary["ok"] = False
-                  summary["errors"].append(f"Playerboard schema issue: {playerboard.get('schemaIssue') or 'unknown'}")
-
-              if (playerboard.get("badShiftedRows") or 0) > 0:
-                  summary["ok"] = False
-                  summary["errors"].append(f"Playerboard shifted rows: {playerboard.get('badShiftedRows')}")
-
-              if (playerboard.get("missingMarketDisplayRows") or 0) > 0:
-                  summary["warnings"].append(f"Playerboard missing marketDisplay rows: {playerboard.get('missingMarketDisplayRows')}")
-
-              if (playerboard.get("rowsLoaded") or 0) <= 0:
-                  summary["warnings"].append("No Playerboard rows found for requested/latest date.")
-
-          except Exception as error:
-              summary["ok"] = False
-              summary["errors"].append(f"Playerboard health failed: {error}")
-
-          try:
-              data_health = app.data_health_query_payload({"date": [health_date]})
-              summary["checks"]["dataHealth"] = data_health
-
-              if not data_health.get("ok", True):
-                  summary["warnings"].append("Data health returned warnings.")
-
-              for warning in data_health.get("warnings", []) or []:
-                  summary["warnings"].append(f"Data health: {warning}")
-
-          except Exception as error:
-              summary["warnings"].append(f"Data health check skipped/failed: {error}")
-
-          output_dir = Path("data/health")
-          output_dir.mkdir(parents=True, exist_ok=True)
-          output_path = output_dir / f"daily_health_{health_date}.json"
-          latest_path = output_dir / "latest_daily_health.json"
-
-          text = json.dumps(summary, indent=2, sort_keys=True)
-          output_path.write_text(text + "\n", encoding="utf-8")
-          latest_path.write_text(text + "\n", encoding="utf-8")
-
-          print(text)
-
-          if not summary["ok"]:
-              raise SystemExit(1)
-          PY
+          mkdir -p data/health
+          python tools/phase23_daily_refresh_qa.py --date "$HEALTH_DATE" --season "$SEASON" --write | tee "data/health/latest_daily_health.json"
 
       - name: Package health summary artifact
         if: always()
