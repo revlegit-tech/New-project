@@ -56,6 +56,7 @@ function detailPanel(row) {
     detailState.tab === "Trends" ? trendCard(row) : null,
     detailState.tab === "Model" ? modelCard(row) : null,
     detailState.tab === "Matchup" ? matchupCard(row) : null,
+    gameContextCard(row),
     booksCard(row),
     trustCard(row),
   ].filter(Boolean));
@@ -146,6 +147,63 @@ function modelCard(row) {
       createElement("p", { className: "ob-pick-copy", text: text(card.message || card.reason || row.recommendation, "Model card is unavailable for this market. Treat as Research Only.") }),
     ]),
   ]);
+}
+
+
+
+function gameContextCard(row) {
+  const markers = gameContextMarkers(row);
+  const source = text(row.gameContextSource || row.game_context_source || row.gameLineSource || row.game_line_source, "Context");
+  return createElement("article", { className: "ob-rail-card ob-game-context-card" }, [
+    createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "Game Context" }), createElement("span", { text: source })]),
+    createElement("div", { className: "ob-rail-body" }, [
+      metricGrid([
+        ["Team ML", formatOdds(row.teamMoneyline ?? row.team_moneyline)],
+        ["Opp ML", formatOdds(row.opponentMoneyline ?? row.opponent_moneyline)],
+        ["Game Total", text(row.gameTotal ?? row.game_total, "Missing")],
+        ["ML IP", percent(row.moneylineImpliedProbability ?? row.moneyline_implied_probability)],
+        ["Team Runs", text(row.teamImpliedRuns ?? row.team_implied_runs, "Missing")],
+        ["Opp Runs", text(row.opponentImpliedRuns ?? row.opponent_implied_runs, "Missing")],
+        ["Park", text(row.parkFactor ?? row.park_factor, "Missing")],
+        ["Weather", weatherSummary(row)],
+      ]),
+      createElement("div", { className: "ob-context-markers" }, markers.map((marker) => createElement("span", { className: marker.ready ? "is-ready" : "is-missing", text: marker.label }))),
+      contextMissingList(row),
+    ]),
+  ]);
+}
+
+function gameContextMarkers(row) {
+  const explicit = text(row.gameContextMarkets || row.game_context_markets, "");
+  if (explicit) {
+    return explicit.split(";").map((part) => {
+      const pieces = part.split(":");
+      const key = text(pieces[0], "Context").replace(/_/g, " ");
+      const value = text(pieces[1], "missing");
+      return { label: `${key}: ${value}`, ready: value === "ready" };
+    });
+  }
+  return [
+    { label: "moneyline", ready: Boolean(row.teamMoneyline || row.team_moneyline) && Boolean(row.opponentMoneyline || row.opponent_moneyline) },
+    { label: "game total", ready: Boolean(row.gameTotal || row.game_total) },
+    { label: "implied runs", ready: Boolean(row.teamImpliedRuns || row.team_implied_runs) && Boolean(row.opponentImpliedRuns || row.opponent_implied_runs) },
+  ];
+}
+
+function contextMissingList(row) {
+  const raw = text(row.gameContextMissing || row.game_context_missing, "");
+  const missing = raw.split("|").map((item) => item.trim()).filter(Boolean);
+  if (!missing.length) return createElement("p", { className: "ob-pick-copy", text: "Game context markets are available for this row." });
+  return createElement("ul", { className: "ob-missing-list" }, missing.map((item) => createElement("li", { text: item.replace(/_/g, " ") })));
+}
+
+function weatherSummary(row) {
+  const temp = row.weatherTemperatureF ?? row.weather_temperature_f;
+  const wind = row.weatherWindMph ?? row.weather_wind_mph;
+  if (temp && wind) return `${temp}°F · ${wind} mph`;
+  if (temp) return `${temp}°F`;
+  if (wind) return `${wind} mph wind`;
+  return "Missing";
 }
 
 function booksCard(row) {

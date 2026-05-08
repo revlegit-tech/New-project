@@ -1,0 +1,31 @@
+team,venue,venue_aliases,latitude,longitude,coordinate_source
+Arizona Diamondbacks,Chase Field,Chase,33.4453,-112.0667,user_provided_phase17_v5
+Atlanta Braves,Truist Park,SunTrust Park;Truist,33.8906,-84.4678,user_provided_phase17_v5
+Baltimore Orioles,Oriole Park at Camden Yards,Camden Yards;Oriole Park,39.2839,-76.6215,user_provided_phase17_v5
+Boston Red Sox,Fenway Park,Fenway,42.3467,-71.0972,user_provided_phase17_v5
+Chicago Cubs,Wrigley Field,Wrigley,41.9484,-87.6553,user_provided_phase17_v5
+Chicago White Sox,Guaranteed Rate Field,Rate Field;U.S. Cellular Field;Comiskey Park,41.8300,-87.6338,user_provided_phase17_v5
+Cincinnati Reds,Great American Ball Park,Great American Ballpark;GABP,39.0979,-84.5066,user_provided_phase17_v5
+Cleveland Guardians,Progressive Field,Jacobs Field,41.4963,-81.6852,user_provided_phase17_v5
+Colorado Rockies,Coors Field,Coors,39.7560,-104.9942,user_provided_phase17_v5
+Detroit Tigers,Comerica Park,Comerica,42.3390,-83.0485,user_provided_phase17_v5
+Houston Astros,Minute Maid Park,Daikin Park;Minute Maid,29.7573,-95.3553,user_provided_phase17_v5
+Kansas City Royals,Kauffman Stadium,The K;Kauffman,39.0515,-94.4811,user_provided_phase17_v5
+Los Angeles Angels,Angel Stadium,Angel Stadium of Anaheim,33.7997,-117.8827,user_provided_phase17_v5
+Los Angeles Dodgers,Dodger Stadium,Dodger,34.0739,-118.2400,user_provided_phase17_v5
+Miami Marlins,LoanDepot Park,loanDepot park;Marlins Park,25.7780,-80.2195,user_provided_phase17_v5
+Milwaukee Brewers,American Family Field,Miller Park;American Family,43.0280,-87.9715,user_provided_phase17_v5
+Minnesota Twins,Target Field,Target,44.9817,-93.2776,user_provided_phase17_v5
+New York Mets,Citi Field,Citi,40.7571,-73.8458,user_provided_phase17_v5
+New York Yankees,Yankee Stadium,Yankee,40.8296,-73.9264,user_provided_phase17_v5
+Oakland Athletics,Sutter Health Park,Sutter Health Park - Temporary;Raley Field,38.5830,-121.5160,user_provided_phase17_v5
+Philadelphia Phillies,Citizens Bank Park,Citizens Bank;CBP,39.9059,-75.1664,user_provided_phase17_v5
+Pittsburgh Pirates,PNC Park,PNC,40.4469,-80.0057,user_provided_phase17_v5
+San Diego Padres,Petco Park,PETCO Park;Petco,32.7076,-117.1569,user_provided_phase17_v5
+San Francisco Giants,Oracle Park,AT&T Park;Pac Bell Park,37.7785,-122.3895,user_provided_phase17_v5
+Seattle Mariners,T-Mobile Park,T Mobile Park;Safeco Field,47.5914,-122.3325,user_provided_phase17_v5
+St. Louis Cardinals,Busch Stadium,Busch,38.6226,-90.1928,user_provided_phase17_v5
+Tampa Bay Rays,Tropicana Field,The Trop;Tropicana,27.7682,-82.6534,user_provided_phase17_v5
+Texas Rangers,Globe Life Field,Globe Life,32.7473,-97.0827,user_provided_phase17_v5
+Toronto Blue Jays,Rogers Centre,SkyDome;Rogers Center,43.6414,-79.3892,user_provided_phase17_v5
+Washington Nationals,Nationals Park,Nats Park,38.8730,-77.0074,user_provided_phase17_v5

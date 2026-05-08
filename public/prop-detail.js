@@ -358,12 +358,15 @@
             ${renderStat("Opponent/BvP", player.opponentSplit)}
           </div></div>
           <div><h4>Game context</h4><div class="prop-detail-metric-row compact">
-            ${renderStat("Park", game.park)}
+            ${renderStat("Team ML", formatOdds(game.teamMoneyline))}
+            ${renderStat("Opp ML", formatOdds(game.opponentMoneyline))}
+            ${renderStat("Game total", game.gameTotal)}
+            ${renderStat("ML IP", pct(game.moneylineImpliedProbability))}
+            ${renderStat("Team runs", game.teamImpliedRuns)}
+            ${renderStat("Opp runs", game.opponentImpliedRuns)}
+            ${renderStat("Park", game.parkFactor)}
             ${renderStat("Weather", game.weather)}
-            ${renderStat("Lineup", game.lineupStatus)}
             ${renderStat("Pitcher", game.probablePitcher)}
-            ${renderStat("Team total", game.teamTotal)}
-            ${renderStat("Start", game.startTime)}
           </div></div>
         </div>
         <p class="prop-detail-muted">${escapeHtml(display(player.note))}</p>

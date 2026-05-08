@@ -180,12 +180,24 @@ class PropDetailService:
             },
             "trendProfile": _trend_profile(row, lookup, board),
             "gameContext": {
-                "park": _context_value(row, "park", "venue", "ballpark"),
-                "weather": _context_value(row, "weather", "weatherSummary", "weatherContext"),
+                "teamMoneyline": _context_value(row, "team_moneyline", "teamMoneyline"),
+                "opponentMoneyline": _context_value(row, "opponent_moneyline", "opponentMoneyline"),
+                "gameTotal": _context_value(row, "game_total", "gameTotal"),
+                "closeGameTotal": _context_value(row, "close_game_total", "closeGameTotal", "game_total", "gameTotal"),
+                "moneylineImpliedProbability": _context_value(row, "moneyline_implied_probability", "moneylineImpliedProbability"),
+                "teamImpliedRuns": _context_value(row, "team_implied_runs", "teamImpliedRuns", "teamTotal", "teamTotalRuns", "impliedTeamTotal"),
+                "opponentImpliedRuns": _context_value(row, "opponent_implied_runs", "opponentImpliedRuns"),
+                "parkFactor": _context_value(row, "park_factor", "parkFactor"),
+                "park": _context_value(row, "venue", "park", "ballpark", "park_factor", "parkFactor"),
+                "weather": _weather_summary(row),
+                "weatherTemperatureF": _context_value(row, "weather_temperature_f", "weatherTemperatureF"),
+                "weatherWindMph": _context_value(row, "weather_wind_mph", "weatherWindMph"),
+                "weatherPrecipProbability": _context_value(row, "weather_precip_probability", "weatherPrecipProbability"),
                 "lineupStatus": _context_value(row, "lineupStatus", "lineup", "battingOrder"),
                 "probablePitcher": _context_value(row, "pitcher", "probablePitcher", "opposingPitcher"),
-                "teamTotal": _context_value(row, "teamTotal", "teamTotalRuns", "impliedTeamTotal"),
+                "teamTotal": _context_value(row, "team_implied_runs", "teamImpliedRuns", "teamTotal", "teamTotalRuns", "impliedTeamTotal"),
                 "startTime": _clean(row.get("gameTime")) or "Not available",
+                "source": _context_value(row, "game_context_source", "gameContextSource"),
             },
             "riskContext": {
                 "sampleSize": int(model_card.get("trainingRows") or row.get("trainingRows") or 0),
@@ -363,6 +375,23 @@ def _context_value(row: dict[str, Any], *keys: str) -> str:
             return str(value)
     return "Not available"
 
+
+
+def _weather_summary(row: dict[str, Any]) -> str:
+    direct = _context_value(row, "weather", "weatherSummary", "weatherContext")
+    if direct != "Not available":
+        return direct
+    pieces: list[str] = []
+    temp = _context_value(row, "weather_temperature_f", "weatherTemperatureF")
+    wind = _context_value(row, "weather_wind_mph", "weatherWindMph")
+    precip = _context_value(row, "weather_precip_probability", "weatherPrecipProbability")
+    if temp != "Not available":
+        pieces.append(f"{temp}°F")
+    if wind != "Not available":
+        pieces.append(f"{wind} mph wind")
+    if precip != "Not available":
+        pieces.append(f"{precip}% precip")
+    return " · ".join(pieces) if pieces else "Not available"
 
 def _trend_profile(row: dict[str, Any], lookup: dict[str, str], board: dict[str, Any]) -> dict[str, Any]:
     profile = row.get("hitRates") if isinstance(row.get("hitRates"), dict) else {}

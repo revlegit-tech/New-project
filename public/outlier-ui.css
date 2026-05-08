@@ -3769,3 +3769,9 @@ body.outlier-mode .ob-rail-overlay { display: none; }
     font-size: 0.58rem;
   }
 }
+
+.ob-context-markers { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.ob-context-markers span { border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 5px 8px; font-size: 11px; letter-spacing: .02em; text-transform: uppercase; }
+.ob-context-markers .is-ready { background: rgba(83, 255, 184, .09); color: #a7ffd8; }
+.ob-context-markers .is-missing { background: rgba(255, 185, 83, .08); color: #ffd59b; }
+
