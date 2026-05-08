@@ -5,11 +5,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_phase20_ui_marker_present_after_apply():
+def test_phase20_ui_contract_present_after_rail_refresh():
     source = (ROOT / "public" / "outlier-detail.js").read_text(encoding="utf-8")
-    assert "PHASE20_GAME_CONTEXT_POLISH_START" in source
-    assert "phase20Probability" in source
-    assert "movement pending" in source
+    assert "function gameContextCard(row)" in source
+    assert "function movement(value)" in source
+    assert "function weatherSummary(row)" in source
+    assert "Game Context" in source
+    assert "ML Move" in source
+    assert "__testHooks" in source
 
 
 def test_phase20_audit_policy_marker_present_after_apply():

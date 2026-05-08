@@ -12,6 +12,10 @@ class FakeContext:
     query: dict[str, list[str]] = field(default_factory=dict)
     body: dict[str, object] = field(default_factory=dict)
     handler: object = None
+    request_id: str = ""
+    client_ip: str = "unknown"
+    route_name: str = "unmatched"
+    started_at: float = 0.0
 
 
 class FakeHandler:

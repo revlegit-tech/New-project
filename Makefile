@@ -62,13 +62,7 @@ validate-slate:
 run-modular: run
 
 health:
-	python - <<'SMOKEPY'
-import urllib.request
-for path in ("/api/app/status", "/api/edge-board", "/api/playerboard/health", "/api/model-cards", "/api/data-health/dashboard"):
-    url = "http://127.0.0.1:$(PORT)" + path
-    with urllib.request.urlopen(url, timeout=10) as response:
-        print(response.status, path)
-SMOKEPY
+	python -c "import urllib.request; paths=('/api/app/status','/api/edge-board','/api/playerboard/health','/api/model-cards','/api/data-health/dashboard'); [print(urllib.request.urlopen('http://127.0.0.1:$(PORT)'+path, timeout=10).status, path) for path in paths]"
 
 # Fast local smoke path. The legacy app.py runtime has been retired.
 smoke:
