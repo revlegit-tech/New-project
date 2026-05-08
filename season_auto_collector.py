@@ -703,6 +703,33 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
             }
         # PHASE22_ODDSPAPI_CLV_HOOK_END
 
+        # PHASE22_V3_FIXTURE_METADATA_FALLBACK_HOOK_START
+        try:
+            if os.environ.get("PHASE22_SKIP_FIXTURE_METADATA_FALLBACK", "").strip().lower() in {"1", "true", "yes"}:
+                summary["phase22FixtureMetadataFallback"] = {
+                    "status": "skipped",
+                    "reason": "PHASE22_SKIP_FIXTURE_METADATA_FALLBACK enabled",
+                }
+            else:
+                from tools.phase22_v3_fixture_metadata_fallback import apply_fixture_metadata
+
+                summary["phase22FixtureMetadataFallback"] = apply_fixture_metadata(
+                    date=date_label,
+                    season=int(date_label[:4]),
+                    dry_run=False,
+                )
+        except FileNotFoundError as fixture_metadata_missing:
+            summary["phase22FixtureMetadataFallback"] = {
+                "status": "skipped",
+                "reason": str(fixture_metadata_missing),
+            }
+        except Exception as fixture_metadata_error:
+            summary["phase22FixtureMetadataFallback"] = {
+                "status": "warning",
+                "error": str(fixture_metadata_error),
+            }
+        # PHASE22_V3_FIXTURE_METADATA_FALLBACK_HOOK_END
+
 
         summary["cloudExport"] = export_compact_cloud_data(date_label, summary)
         summary["success"] = True
