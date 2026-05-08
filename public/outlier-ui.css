@@ -3215,3 +3215,22 @@ body.outlier-mode .ob-rail-overlay { display: none; }
   .outlier-mode .ob-insight-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .outlier-mode .ob-insights-grid { grid-template-columns: 1fr; }
 }
+
+/* Advanced stats clickthrough restore */
+.ob-table tbody tr {
+  cursor: pointer;
+}
+.ob-table tbody tr:hover .ob-prop-title,
+.ob-table tbody tr:focus .ob-prop-title {
+  color: var(--ob-green);
+}
+.ob-table tbody tr:focus {
+  outline: 1px solid rgba(24, 217, 156, 0.45);
+  outline-offset: -1px;
+}
+.ob-table tbody tr:hover .ob-player-name::after {
+  content: "  · advanced stats";
+  color: var(--ob-green);
+  font-size: 0.72rem;
+  font-weight: 850;
+}

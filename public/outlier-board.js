@@ -165,9 +165,15 @@ function bindLocalEvents(host) {
     if (category) { boardState.categoryTab = category.dataset.categoryTab || "Today"; applyFilters(); redraw(); return; }
     const rowButton = event.target.closest("[data-row-index]");
     if (rowButton) {
-      const row = boardState.filteredRows[Number(rowButton.dataset.rowIndex)];
-      if (row) import("/outlier-detail.js").then((module) => module.mount?.()).then(() => dispatch("outlier:open-detail", { row, index: Number(rowButton.dataset.rowIndex) }));
+      openAdvancedStats(Number(rowButton.dataset.rowIndex));
     }
+  };
+  host.onkeydown = (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const rowButton = event.target.closest("[data-row-index]");
+    if (!rowButton) return;
+    event.preventDefault();
+    openAdvancedStats(Number(rowButton.dataset.rowIndex));
   };
   host.oninput = (event) => {
     if (event.target.dataset?.control === "query") { boardState.query = event.target.value; applyFilters(); renderTable(); }
@@ -179,6 +185,61 @@ function bindLocalEvents(host) {
     if (control === "game") { boardState.game = event.target.value; applyFilters(); renderTable(); }
     if (control === "side") { boardState.side = event.target.value; applyFilters(); renderTable(); }
   };
+}
+
+
+async function openAdvancedStats(index) {
+  const row = boardState.filteredRows[index];
+  if (!row) return;
+
+  try {
+    const detailModule = await import("/outlier-detail.js");
+    await detailModule.mount?.();
+    dispatch("outlier:open-detail", { row, index });
+  } catch (error) {
+    console.error("Could not update Outlier rail", error);
+  }
+
+  try {
+    await import("/prop-detail.js");
+    const launcher = document.createElement("button");
+    launcher.type = "button";
+    launcher.textContent = "Advanced stats";
+    launcher.style.display = "none";
+    hydrateDetailDataset(launcher, row);
+    document.body.appendChild(launcher);
+    if (window.MlbPropDetail?.openFromButton) {
+      await window.MlbPropDetail.openFromButton(launcher);
+    } else {
+      throw new Error("Prop detail module did not expose openFromButton");
+    }
+    launcher.remove();
+  } catch (error) {
+    console.error("Could not open advanced prop detail", error);
+    dispatch("outlier:open-detail", { row, index });
+  }
+}
+
+function hydrateDetailDataset(button, row) {
+  const fields = {
+    propId: row.id,
+    date: row.date || boardState.date,
+    player: row.player || row.playerName || row.team,
+    team: row.team,
+    opponent: row.opponent,
+    market: row.market || row.baseMarket || row.originalMarket,
+    line: row.line || row.propLine,
+    odds: row.americanOdds || row.odds,
+    book: row.book,
+    decision: row.decisionLabel || row.recommendation,
+    readiness: row.readinessLabel || row.readiness || row.confidence,
+    confidence: row.confidence,
+  };
+  Object.entries(fields).forEach(([key, value]) => {
+    const valueText = text(value, "");
+    if (valueText) button.dataset[key] = valueText;
+  });
+  button.dataset.propDetailOpen = "1";
 }
 
 async function loadBoard() {
@@ -331,7 +392,7 @@ function tbody(rows) {
 }
 
 function dataRow(row, index) {
-  const tr = createElement("tr", { dataset: { rowIndex: index }, attrs: { tabindex: "0" } });
+  const tr = createElement("tr", { dataset: { rowIndex: index }, attrs: { tabindex: "0", title: "Open advanced prop statistics" } });
   tr.append(
     td(createElement("button", { className: "ob-plus", type: "button", text: "+", attrs: { "aria-label": "Save prop" } })),
     playerCell(row), propCell(row),
