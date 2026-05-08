@@ -669,24 +669,6 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
         except Exception as grade_error:
             summary["predictionGrades"] = {"error": str(grade_error)}
 
-
-        # PHASE19_LINE_MOVEMENT_HOOK_START
-        try:
-            from tools.phase19_line_movement import run_phase19
-
-            summary["phase19LineMovement"] = run_phase19(
-                date_label=date_label,
-                season=int(date_label[:4]),
-                source="season_auto_collector",
-                patch_playerboard=False,
-            )
-        except Exception as line_movement_error:
-            summary["phase19LineMovement"] = {
-                "error": str(line_movement_error),
-                "status": "warning",
-            }
-        # PHASE19_LINE_MOVEMENT_HOOK_END
-
         summary["cloudExport"] = export_compact_cloud_data(date_label, summary)
         summary["success"] = True
     except Exception as error:

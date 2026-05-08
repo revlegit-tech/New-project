@@ -162,10 +162,6 @@ function gameContextCard(row) {
         ["Opp ML", formatOdds(row.opponentMoneyline ?? row.opponent_moneyline)],
         ["Game Total", text(row.gameTotal ?? row.game_total, "Missing")],
         ["ML IP", percent(row.moneylineImpliedProbability ?? row.moneyline_implied_probability)],
-        ["Open ML", formatOdds(row.openTeamMoneyline ?? row.open_team_moneyline)],
-        ["ML Move", lineMove(row.moneylineMove ?? row.moneyline_move)],
-        ["Open Total", text(row.openGameTotal ?? row.open_game_total, "Missing")],
-        ["Total Move", lineMove(row.totalMove ?? row.total_move)],
         ["Team Runs", text(row.teamImpliedRuns ?? row.team_implied_runs, "Missing")],
         ["Opp Runs", text(row.opponentImpliedRuns ?? row.opponent_implied_runs, "Missing")],
         ["Park", text(row.parkFactor ?? row.park_factor, "Missing")],
@@ -208,14 +204,6 @@ function weatherSummary(row) {
   if (temp) return `${temp}°F`;
   if (wind) return `${wind} mph wind`;
   return "Missing";
-}
-
-
-function lineMove(value) {
-  const parsed = number(value, NaN);
-  if (!Number.isFinite(parsed)) return "Missing";
-  if (parsed > 0) return `+${parsed}`;
-  return `${parsed}`;
 }
 
 function booksCard(row) {
