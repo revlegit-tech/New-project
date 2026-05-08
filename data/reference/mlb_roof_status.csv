@@ -1,0 +1,31 @@
+team,venue,roof_type,roof_status_note
+BAL,Oriole Park at Camden Yards,open_air,open_air
+BOS,Fenway Park,open_air,open_air
+CHW,Guaranteed Rate Field,open_air,open_air
+CLE,Progressive Field,open_air,open_air
+DET,Comerica Park,open_air,open_air
+HOU,Minute Maid Park,retractable,retractable_unknown
+KCR,Kauffman Stadium,open_air,open_air
+LAA,Angel Stadium,open_air,open_air
+MIN,Target Field,open_air,open_air
+NYY,Yankee Stadium,open_air,open_air
+ATH,Sutter Health Park,open_air,open_air
+SEA,T-Mobile Park,retractable,retractable_unknown
+TBR,Tropicana Field,fixed_dome,dome
+TEX,Globe Life Field,retractable,retractable_unknown
+TOR,Rogers Centre,retractable,retractable_unknown
+ARI,Chase Field,retractable,retractable_unknown
+ATL,Truist Park,open_air,open_air
+CHC,Wrigley Field,open_air,open_air
+CIN,Great American Ball Park,open_air,open_air
+COL,Coors Field,open_air,open_air
+LAD,Dodger Stadium,open_air,open_air
+MIA,LoanDepot Park,retractable,retractable_unknown
+MIL,American Family Field,retractable,retractable_unknown
+NYM,Citi Field,open_air,open_air
+PHI,Citizens Bank Park,open_air,open_air
+PIT,PNC Park,open_air,open_air
+SDP,Petco Park,open_air,open_air
+SFG,Oracle Park,open_air,open_air
+STL,Busch Stadium,open_air,open_air
+WSN,Nationals Park,open_air,open_air

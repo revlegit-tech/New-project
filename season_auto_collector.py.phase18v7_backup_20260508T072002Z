@@ -595,46 +595,6 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
         except Exception as board_error:
             summary["playerboard"] = {"error": str(board_error)}
 
-
-        # Phase 18 provider-backed context collector hook
-        try:
-            import subprocess
-            import sys
-
-            context_markets = [
-                market.strip()
-                for market in os.environ.get("PHASE18_MARKETS", "batter_hits,batter_total_bases").split(",")
-                if market.strip()
-            ]
-            context_cmd = [
-                sys.executable,
-                str(ROOT / "tools" / "phase18_fill_missing_context.py"),
-                "--date",
-                date_label,
-                "--season",
-                str(int(date_label[:4])),
-                "--line-source",
-                os.environ.get("PHASE18_LINE_SOURCE", "propline"),
-                "--markets",
-                *context_markets,
-            ]
-            context_run = subprocess.run(
-                context_cmd,
-                cwd=str(ROOT),
-                capture_output=True,
-                text=True,
-                timeout=int(os.environ.get("PHASE18_COLLECTOR_TIMEOUT_SECONDS", "600")),
-                check=False,
-            )
-            summary["phase18ProviderContext"] = {
-                "status": "ok" if context_run.returncode == 0 else "warning",
-                "returncode": context_run.returncode,
-                "stdoutTail": context_run.stdout[-4000:],
-                "stderrTail": context_run.stderr[-4000:],
-            }
-        except Exception as context_error:
-            summary["phase18ProviderContext"] = {"error": str(context_error)}
-
         try:
             from playerboard_backtest import grade_playerboard
 

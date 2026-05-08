@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+import argparse
+import json
+import urllib.request
+
+FIELDS = [
+    "team_moneyline",
+    "opponent_moneyline",
+    "game_total",
+    "moneyline_implied_probability",
+    "team_implied_runs",
+    "opponent_implied_runs",
+    "weather_temperature_f",
+    "weather_wind_mph",
+    "weather_humidity",
+    "weather_wind_direction",
+    "roof_status",
+]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="QA Phase 18 frontend/API context fields.")
+    parser.add_argument("--date", required=True)
+    parser.add_argument("--market", default="batter_hits")
+    parser.add_argument("--limit", type=int, default=5)
+    parser.add_argument("--base-url", default="http://127.0.0.1:8765")
+    args = parser.parse_args()
+
+    url = f"{args.base_url.rstrip('/')}/api/edge-board?date={args.date}&market={args.market}&limit={args.limit}&refresh=1"
+    with urllib.request.urlopen(url, timeout=90) as resp:  # noqa: S310 - local operator QA URL
+        payload = json.loads(resp.read().decode("utf-8"))
+
+    rows = payload.get("rows") or []
+    sample = []
+    missing_by_field = {field: 0 for field in FIELDS}
+    for row in rows[: args.limit]:
+        item = {field: row.get(field, "") for field in ["player", "team", "opponent", *FIELDS]}
+        for field in FIELDS:
+            if item.get(field) in {None, ""}:
+                missing_by_field[field] += 1
+        sample.append(item)
+
+    result = {
+        "status": "ok" if rows and not any(missing_by_field[f] for f in FIELDS[:8]) else "warning",
+        "url": url,
+        "rows": len(rows),
+        "sample": sample,
+        "missingByFieldInSample": missing_by_field,
+    }
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

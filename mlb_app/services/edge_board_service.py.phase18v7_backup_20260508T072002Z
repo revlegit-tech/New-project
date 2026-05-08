@@ -1,5 +1,4 @@
 from __future__ import annotations
-import re
 
 import csv
 from pathlib import Path
@@ -55,10 +54,10 @@ class EdgeBoardService:
     def _build_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
         board = self.playerboard_service.board_payload(query)
         raw_rows = _list_rows(board.get("top") or board.get("rows") or [])
-        game_context_index = _phase18_v7_game_context_index(query, board)
         self._cards = self._load_cards()
+        game_context_by_row = _load_game_context_for_board(board, query)
         rows = [
-            self._enrich_row(_phase18_v7_merge_game_context(row, game_context_index), index + 1, board)
+            self._enrich_row(_merge_game_context(row, game_context_by_row), index + 1, board)
             for index, row in enumerate(raw_rows)
         ]
 
@@ -75,12 +74,6 @@ class EdgeBoardService:
                 "propsLoaded": board.get("propsLoaded", 0),
                 "message": board.get("message", ""),
                 "saved": board.get("saved", {}),
-                "gameContextJoin": {
-                    "source": "data/warehouse/game_context/game_context_DATE.csv",
-                    "contextRows": len(game_context_index),
-                    "matchedRows": sum(1 for row in rows if _clean(row.get("game_context_source"))),
-                    "date": _phase18_v7_context_date(query, board),
-                },
             },
             "filters": self._filter_options(rows),
             "summary": self._summary(rows),
@@ -90,6 +83,7 @@ class EdgeBoardService:
             "dataConfidence": board.get("dataConfidence", "Missing"),
             "modelReadiness": board.get("modelReadiness", {}),
         }
+
     def _with_board_cache_metadata(
         self,
         result: BoardCacheBuildResult,
@@ -602,151 +596,4 @@ def _context_team(row, key: str = "") -> str:
         "ATH": "ATH",
     }
     return aliases.get(text, text)
-
-# Phase 18 v7: canonical game-context join helpers
-_PHASE18_V7_CONTEXT_FIELDS = [
-    "team_moneyline",
-    "opponent_moneyline",
-    "game_total",
-    "open_team_moneyline",
-    "close_team_moneyline",
-    "moneyline_move",
-    "open_game_total",
-    "close_game_total",
-    "total_move",
-    "moneyline_implied_probability",
-    "team_implied_runs",
-    "opponent_implied_runs",
-    "opponent_implied_runs_proxy",
-    "park_factor",
-    "weather_temperature_f",
-    "weather_wind_mph",
-    "weather_wind_direction",
-    "weather_humidity",
-    "weather_precip_probability",
-    "roof_status",
-    "venue",
-    "game_context_source",
-    "moneyline_source",
-    "total_source",
-    "weather_source",
-    "park_factor_source",
-]
-
-_PHASE18_V7_CAMEL_ALIASES = {
-    "team_moneyline": "teamMoneyline",
-    "opponent_moneyline": "opponentMoneyline",
-    "game_total": "gameTotal",
-    "moneyline_implied_probability": "moneylineImpliedProbability",
-    "team_implied_runs": "teamImpliedRuns",
-    "opponent_implied_runs": "opponentImpliedRuns",
-    "park_factor": "parkFactor",
-    "weather_temperature_f": "weatherTemperatureF",
-    "weather_wind_mph": "weatherWindMph",
-    "weather_wind_direction": "weatherWindDirection",
-    "weather_humidity": "weatherHumidity",
-    "weather_precip_probability": "weatherPrecipProbability",
-    "roof_status": "roofStatus",
-    "venue": "venue",
-}
-
-_PHASE18_V7_TEAM_ALIASES = {
-    "ari": "ARI", "arizona": "ARI", "arizona diamondbacks": "ARI",
-    "atl": "ATL", "atlanta": "ATL", "atlanta braves": "ATL",
-    "bal": "BAL", "baltimore": "BAL", "baltimore orioles": "BAL",
-    "bos": "BOS", "boston": "BOS", "boston red sox": "BOS",
-    "chc": "CHC", "chicago cubs": "CHC", "cubs": "CHC",
-    "chw": "CHW", "cws": "CHW", "chicago white sox": "CHW", "white sox": "CHW",
-    "cin": "CIN", "cincinnati": "CIN", "cincinnati reds": "CIN",
-    "cle": "CLE", "cleveland": "CLE", "cleveland guardians": "CLE",
-    "col": "COL", "colorado": "COL", "colorado rockies": "COL",
-    "det": "DET", "detroit": "DET", "detroit tigers": "DET",
-    "hou": "HOU", "houston": "HOU", "houston astros": "HOU",
-    "kc": "KCR", "kcr": "KCR", "kansas city": "KCR", "kansas city royals": "KCR",
-    "laa": "LAA", "los angeles angels": "LAA", "angels": "LAA",
-    "lad": "LAD", "los angeles dodgers": "LAD", "dodgers": "LAD",
-    "mia": "MIA", "miami": "MIA", "miami marlins": "MIA",
-    "mil": "MIL", "milwaukee": "MIL", "milwaukee brewers": "MIL",
-    "min": "MIN", "minnesota": "MIN", "minnesota twins": "MIN",
-    "nym": "NYM", "new york mets": "NYM", "mets": "NYM",
-    "nyy": "NYY", "new york yankees": "NYY", "yankees": "NYY",
-    "ath": "ATH", "oak": "ATH", "oakland athletics": "ATH", "athletics": "ATH", "a s": "ATH",
-    "phi": "PHI", "philadelphia": "PHI", "philadelphia phillies": "PHI",
-    "pit": "PIT", "pittsburgh": "PIT", "pittsburgh pirates": "PIT",
-    "sd": "SDP", "sdp": "SDP", "san diego": "SDP", "san diego padres": "SDP", "padres": "SDP",
-    "sea": "SEA", "seattle": "SEA", "seattle mariners": "SEA",
-    "sf": "SFG", "sfg": "SFG", "san francisco": "SFG", "san francisco giants": "SFG",
-    "stl": "STL", "st louis": "STL", "st louis cardinals": "STL", "saint louis cardinals": "STL", "cardinals": "STL",
-    "tb": "TBR", "tbr": "TBR", "tampa bay": "TBR", "tampa bay rays": "TBR",
-    "tex": "TEX", "texas": "TEX", "texas rangers": "TEX",
-    "tor": "TOR", "toronto": "TOR", "toronto blue jays": "TOR",
-    "wsh": "WSN", "wsn": "WSN", "washington": "WSN", "washington nationals": "WSN",
-}
-
-
-def _phase18_v7_context_date(query: dict[str, list[str]], board: dict[str, Any]) -> str:
-    date_label = _query_value(query, "date")
-    if date_label:
-        return date_label
-    return _clean(board.get("date") or board.get("latestAvailableDate"))
-
-
-def _phase18_v7_context_path(date_label: str) -> Path:
-    root = Path(__file__).resolve().parents[2]
-    return root / "data" / "warehouse" / "game_context" / f"game_context_{date_label}.csv"
-
-
-def _phase18_v7_text_key(value: Any) -> str:
-    text = _clean(value).lower().replace("&", " and ")
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    return " ".join(text.split())
-
-
-def _phase18_v7_team_key(value: Any) -> str:
-    key = _phase18_v7_text_key(value)
-    if not key:
-        return ""
-    return _PHASE18_V7_TEAM_ALIASES.get(key, key.upper())
-
-
-def _phase18_v7_game_context_index(query: dict[str, list[str]], board: dict[str, Any]) -> dict[tuple[str, str], dict[str, str]]:
-    date_label = _phase18_v7_context_date(query, board)
-    path = _phase18_v7_context_path(date_label)
-    if not date_label or not path.exists():
-        return {}
-    try:
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            context_rows = list(csv.DictReader(handle))
-    except Exception:
-        return {}
-
-    index: dict[tuple[str, str], dict[str, str]] = {}
-    for context in context_rows:
-        team = _phase18_v7_team_key(context.get("team") or context.get("team_abbr") or context.get("teamCode"))
-        opponent = _phase18_v7_team_key(context.get("opponent") or context.get("opponent_abbr") or context.get("opponentCode"))
-        if team and opponent:
-            index[(team, opponent)] = context
-    return index
-
-
-def _phase18_v7_merge_game_context(row: dict[str, Any], index: dict[tuple[str, str], dict[str, str]]) -> dict[str, Any]:
-    merged = dict(row)
-    team = _phase18_v7_team_key(_first(merged, "team", "team_abbr", "teamCode"))
-    opponent = _phase18_v7_team_key(_first(merged, "opponent", "opponent_abbr", "opponentCode"))
-    context = index.get((team, opponent))
-    if not context:
-        return merged
-
-    for field in _PHASE18_V7_CONTEXT_FIELDS:
-        value = context.get(field)
-        if _clean(value):
-            merged[field] = value
-        alias = _PHASE18_V7_CAMEL_ALIASES.get(field)
-        if alias and _clean(value):
-            merged[alias] = value
-
-    source = _clean(merged.get("game_context_source"))
-    if not source:
-        merged["game_context_source"] = "phase18_game_context_join"
-    return merged
 
