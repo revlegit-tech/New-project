@@ -687,23 +687,6 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
             }
         # PHASE19_LINE_MOVEMENT_HOOK_END
 
-        # PHASE22_ODDSPAPI_CLV_HOOK_START
-        try:
-            from tools.phase22_oddspapi_clv import run_phase22
-
-            summary["phase22OddsPapiClv"] = run_phase22(
-                date_label=date_label,
-                season=int(date_label[:4]),
-                apply=True,
-            )
-        except Exception as oddspapi_clv_error:
-            summary["phase22OddsPapiClv"] = {
-                "error": str(oddspapi_clv_error),
-                "status": "warning",
-            }
-        # PHASE22_ODDSPAPI_CLV_HOOK_END
-
-
         summary["cloudExport"] = export_compact_cloud_data(date_label, summary)
         summary["success"] = True
     except Exception as error:

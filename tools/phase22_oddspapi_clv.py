@@ -1,0 +1,559 @@
+from __future__ import annotations
+
+"""Phase 22: optional OddsPapi opening/CLV integration.
+
+This module keeps OddsPapi as an optional enrichment layer. PropLine/Open-Meteo
+remain the primary current-context providers. When ODDSPAPI_API_KEY is present,
+Phase 22 archives OddsPapi raw responses and applies opening/closing movement
+only when fixture/team/market mapping is confident.
+"""
+
+import argparse
+import csv
+import json
+import os
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable
+
+# Load local .env when available so operator scripts do not require manual Process env export.
+try:
+    from local_env import load_local_env
+except Exception:  # pragma: no cover - local_env is optional outside this repo
+    load_local_env = None
+
+if load_local_env is not None:
+    try:
+        load_local_env()
+    except Exception:
+        pass
+
+ROOT = Path(__file__).resolve().parents[1]
+DATA = ROOT / "data"
+GAME_CONTEXT_DIR = DATA / "warehouse" / "game_context"
+ODDSPAPI_DIR = GAME_CONTEXT_DIR / "oddspapi"
+AUDIT_DIR = DATA / "warehouse" / "audits"
+
+V4_BASE = os.environ.get("ODDSPAPI_V4_BASE_URL", "https://api.oddspapi.io/v4").rstrip("/")
+V5_BASE = os.environ.get("ODDSPAPI_V5_BASE_URL", "https://v5.oddspapi.io/en").rstrip("/")
+DEFAULT_BOOKMAKERS = ["pinnacle", "draftkings", "fanduel", "betmgm", "caesars"]
+
+TEAM_ALIASES = {
+    "ari": "ARI", "arizona": "ARI", "arizona diamondbacks": "ARI",
+    "atl": "ATL", "atlanta": "ATL", "atlanta braves": "ATL",
+    "bal": "BAL", "baltimore": "BAL", "baltimore orioles": "BAL",
+    "bos": "BOS", "boston": "BOS", "boston red sox": "BOS",
+    "chc": "CHC", "chicago cubs": "CHC", "cubs": "CHC",
+    "chw": "CHW", "cws": "CHW", "chicago white sox": "CHW", "white sox": "CHW",
+    "cin": "CIN", "cincinnati": "CIN", "cincinnati reds": "CIN",
+    "cle": "CLE", "cleveland": "CLE", "cleveland guardians": "CLE",
+    "col": "COL", "colorado": "COL", "colorado rockies": "COL",
+    "det": "DET", "detroit": "DET", "detroit tigers": "DET",
+    "hou": "HOU", "houston": "HOU", "houston astros": "HOU",
+    "kc": "KCR", "kcr": "KCR", "kansas city": "KCR", "kansas city royals": "KCR",
+    "laa": "LAA", "los angeles angels": "LAA", "angels": "LAA",
+    "lad": "LAD", "los angeles dodgers": "LAD", "dodgers": "LAD",
+    "mia": "MIA", "miami": "MIA", "miami marlins": "MIA",
+    "mil": "MIL", "milwaukee": "MIL", "milwaukee brewers": "MIL",
+    "min": "MIN", "minnesota": "MIN", "minnesota twins": "MIN",
+    "nym": "NYM", "new york mets": "NYM", "mets": "NYM",
+    "nyy": "NYY", "new york yankees": "NYY", "yankees": "NYY",
+    "ath": "ATH", "oak": "ATH", "oakland athletics": "ATH", "athletics": "ATH", "a s": "ATH",
+    "phi": "PHI", "philadelphia": "PHI", "philadelphia phillies": "PHI",
+    "pit": "PIT", "pittsburgh": "PIT", "pittsburgh pirates": "PIT",
+    "sd": "SDP", "sdp": "SDP", "san diego": "SDP", "san diego padres": "SDP", "padres": "SDP",
+    "sea": "SEA", "seattle": "SEA", "seattle mariners": "SEA",
+    "sf": "SFG", "sfg": "SFG", "san francisco": "SFG", "san francisco giants": "SFG",
+    "stl": "STL", "st louis": "STL", "saint louis": "STL", "st louis cardinals": "STL", "saint louis cardinals": "STL", "cardinals": "STL",
+    "tb": "TBR", "tbr": "TBR", "tampa bay": "TBR", "tampa bay rays": "TBR",
+    "tex": "TEX", "texas": "TEX", "texas rangers": "TEX",
+    "tor": "TOR", "toronto": "TOR", "toronto blue jays": "TOR",
+    "wsh": "WSN", "wsn": "WSN", "washington": "WSN", "washington nationals": "WSN",
+}
+
+ODDSPAPI_CONTEXT_FIELDS = [
+    "oddspapi_fixture_id",
+    "oddspapi_fixture_status",
+    "oddspapi_bookmakers",
+    "oddspapi_raw_snapshot_path",
+    "oddspapi_clv_snapshot_path",
+    "oddspapi_provider_status",
+    "oddspapi_provider_note",
+    "oddspapi_matched_at",
+    "open_team_moneyline",
+    "close_team_moneyline",
+    "moneyline_move",
+    "open_game_total",
+    "close_game_total",
+    "total_move",
+    "line_movement_source",
+    "line_movement_status",
+]
+
+
+def clean(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def text_key(value: Any) -> str:
+    text = clean(value).lower().replace("&", " and ").replace("'", "")
+    chars = [ch if ch.isalnum() else " " for ch in text]
+    return " ".join("".join(chars).split())
+
+
+def team_key(value: Any) -> str:
+    key = text_key(value)
+    if not key:
+        return ""
+    return TEAM_ALIASES.get(key, key.upper())
+
+
+def to_float(value: Any) -> float | None:
+    raw = clean(value).replace(",", "")
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def fmt_num(value: float | None) -> str:
+    if value is None:
+        return ""
+    if abs(value - round(value)) < 1e-9:
+        return str(int(round(value)))
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
+def decimal_to_american(value: Any) -> float | None:
+    decimal = to_float(value)
+    if decimal is None or decimal <= 1:
+        return None
+    if decimal >= 2:
+        return round((decimal - 1) * 100)
+    return round(-100 / (decimal - 1))
+
+
+def price_american(obj: dict[str, Any]) -> float | None:
+    for key in ("priceAmerican", "americanOdds", "american_odds", "oddsAmerican", "usOdds"):
+        if key in obj:
+            value = to_float(obj.get(key))
+            if value is not None and value != 0:
+                return value
+    for key in ("price", "decimal", "decimalOdds", "odds"):
+        if key in obj:
+            converted = decimal_to_american(obj.get(key))
+            if converted is not None:
+                return converted
+    return None
+
+
+def read_csv(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return [dict(row) for row in csv.DictReader(handle)]
+
+
+def write_csv_atomic(path: Path, rows: list[dict[str, Any]], field_order: Iterable[str] | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fields: list[str] = []
+    for field in field_order or []:
+        if field and field not in fields:
+            fields.append(str(field))
+    for row in rows:
+        for key in row:
+            if key not in fields:
+                fields.append(str(key))
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        with tmp_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({field: clean(row.get(field, "")) for field in fields})
+        tmp_path.replace(path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def safe_url_for_log(full_url: str) -> str:
+    api_key = clean(os.environ.get("ODDSPAPI_API_KEY"))
+    return full_url.replace(api_key, "***") if api_key else full_url
+
+
+def provider_error_payload(error: Exception, *, full_url: str) -> dict[str, Any]:
+    if isinstance(error, urllib.error.HTTPError):
+        body = error.read().decode("utf-8", errors="replace") if error.fp else ""
+        reason = "rate_limited" if error.code == 429 else "http_error"
+        return {
+            "__phase22_provider_error__": True,
+            "status": "warning",
+            "reason": reason,
+            "httpStatus": error.code,
+            "url": safe_url_for_log(full_url),
+            "bodyHead": body[:2000],
+        }
+    return {
+        "__phase22_provider_error__": True,
+        "status": "warning",
+        "reason": type(error).__name__,
+        "url": safe_url_for_log(full_url),
+        "bodyHead": str(error)[:2000],
+    }
+
+
+def fetch_json(url: str, params: dict[str, Any], *, timeout: int = 45) -> Any:
+    query = urllib.parse.urlencode({k: v for k, v in params.items() if clean(v)})
+    full_url = f"{url}?{query}" if query else url
+    req = urllib.request.Request(full_url, headers={"Accept": "application/json", "User-Agent": "mlb-phase22/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:  # noqa: S310 - operator-supplied trusted API endpoint
+            body = response.read().decode("utf-8")
+        return json.loads(body) if body else {}
+    except Exception as error:
+        return provider_error_payload(error, full_url=full_url)
+
+
+def start_date(value: Any) -> str:
+    raw = clean(value)
+    if not raw:
+        return ""
+    if raw.isdigit():
+        try:
+            return datetime.fromtimestamp(int(raw), tz=timezone.utc).strftime("%Y-%m-%d")
+        except (OSError, OverflowError, ValueError):
+            return ""
+    # Common OddsPapi shape: 2026-05-07T23:10:00.000Z
+    return raw[:10] if len(raw) >= 10 else raw
+
+
+def fixture_participants(fixture: dict[str, Any]) -> tuple[str, str]:
+    participants = fixture.get("participants") if isinstance(fixture.get("participants"), dict) else {}
+    first = (
+        fixture.get("participant1Name")
+        or fixture.get("homeTeam")
+        or fixture.get("team1")
+        or participants.get("participant1Name")
+        or participants.get("participant1ShortName")
+        or participants.get("homeName")
+    )
+    second = (
+        fixture.get("participant2Name")
+        or fixture.get("awayTeam")
+        or fixture.get("team2")
+        or participants.get("participant2Name")
+        or participants.get("participant2ShortName")
+        or participants.get("awayName")
+    )
+    return clean(first), clean(second)
+
+
+def fixture_id(fixture: dict[str, Any]) -> str:
+    return clean(fixture.get("fixtureId") or fixture.get("id") or fixture.get("eventId") or fixture.get("fixture_id"))
+
+
+def fixture_status(fixture: dict[str, Any]) -> str:
+    status = fixture.get("status")
+    if isinstance(status, dict):
+        return clean(status.get("statusName") or status.get("name") or status.get("statusId"))
+    return clean(fixture.get("statusName") or status or fixture.get("statusId"))
+
+
+def walk_dicts(value: Any) -> Iterable[dict[str, Any]]:
+    if isinstance(value, dict):
+        yield value
+        for item in value.values():
+            yield from walk_dicts(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from walk_dicts(item)
+
+
+def blob_text(obj: dict[str, Any], keys: Iterable[str]) -> str:
+    parts = []
+    for key in keys:
+        val = obj.get(key)
+        if isinstance(val, (str, int, float)):
+            parts.append(clean(val))
+    return " ".join(parts).lower()
+
+
+def extract_clv_from_payload(payload: Any, team: str, opponent: str) -> dict[str, str]:
+    """Best-effort extraction from v5 CLV payloads.
+
+    OddsPapi CLV payloads may omit human-readable outcome names. We only return
+    movement fields when the outcome can be mapped confidently to the team or to
+    a game total. Otherwise the raw payload is archived and left unapplied.
+    """
+    team = team_key(team)
+    opponent = team_key(opponent)
+    found: dict[str, str] = {}
+    for obj in walk_dicts(payload):
+        olv = obj.get("olv")
+        clv = obj.get("clv")
+        if not isinstance(olv, dict) or not isinstance(clv, dict):
+            continue
+        market = blob_text(obj, ["marketName", "market", "type", "selection", "name", "label"]) + " " + blob_text(olv, ["marketName", "market", "type", "selection", "name", "label"]) + " " + blob_text(clv, ["marketName", "market", "type", "selection", "name", "label"])
+        outcome = blob_text(obj, ["outcomeName", "outcome", "participantName", "team", "name", "label"]) + " " + blob_text(olv, ["outcomeName", "outcome", "participantName", "team", "name", "label"]) + " " + blob_text(clv, ["outcomeName", "outcome", "participantName", "team", "name", "label"])
+        open_price = price_american(olv)
+        close_price = price_american(clv)
+        if open_price is None or close_price is None:
+            continue
+        outcome_key = team_key(outcome)
+        # Moneyline/team outcome when the outcome maps to the row team.
+        if outcome_key == team or (team and team.lower() in outcome.lower()):
+            found["open_team_moneyline"] = fmt_num(open_price)
+            found["close_team_moneyline"] = fmt_num(close_price)
+            found["moneyline_move"] = fmt_num(close_price - open_price)
+        # Game total if the market/outcome text confidently says totals.
+        if "total" in market or "over" in outcome or "under" in outcome:
+            open_line = to_float(olv.get("line") or olv.get("handicap") or olv.get("total") or olv.get("points"))
+            close_line = to_float(clv.get("line") or clv.get("handicap") or clv.get("total") or clv.get("points"))
+            if open_line is not None and close_line is not None:
+                found["open_game_total"] = fmt_num(open_line)
+                found["close_game_total"] = fmt_num(close_line)
+                found["total_move"] = fmt_num(close_line - open_line)
+    return found
+
+
+def fetch_odds_by_tournaments(api_key: str, tournament_ids: str, bookmakers: list[str], *, odds_format: str = "american") -> dict[str, Any]:
+    responses: dict[str, Any] = {}
+    for bookmaker in bookmakers:
+        payload = fetch_json(
+            f"{V4_BASE}/odds-by-tournaments",
+            {
+                "apiKey": api_key,
+                "tournamentIds": tournament_ids,
+                "bookmaker": bookmaker,
+                "oddsFormat": odds_format,
+            },
+        )
+        responses[bookmaker] = payload
+    return responses
+
+
+def fetch_fixture_clv(api_key: str, fixture_id_value: str, bookmakers: list[str]) -> dict[str, Any]:
+    return fetch_json(
+        f"{V5_BASE}/fixtures/odds/clv",
+        {
+            "apiKey": api_key,
+            "fixtureId": fixture_id_value,
+            "bookmakers": ",".join(bookmakers),
+        },
+    )
+
+
+def normalize_fixture_payload(payload_by_bookmaker: dict[str, Any], date_label: str) -> list[dict[str, Any]]:
+    fixtures: dict[str, dict[str, Any]] = {}
+    for bookmaker, payload in payload_by_bookmaker.items():
+        candidates = payload if isinstance(payload, list) else payload.get("fixtures") if isinstance(payload, dict) else []
+        if not isinstance(candidates, list):
+            continue
+        for fixture in candidates:
+            if not isinstance(fixture, dict):
+                continue
+            game_date = start_date(fixture.get("startTime") or fixture.get("trueStartTime") or fixture.get("commenceTime"))
+            if game_date != date_label:
+                continue
+            fid = fixture_id(fixture)
+            if not fid:
+                continue
+            first, second = fixture_participants(fixture)
+            entry = fixtures.setdefault(fid, {
+                "fixture_id": fid,
+                "date": date_label,
+                "participant1": first,
+                "participant2": second,
+                "participant1_key": team_key(first),
+                "participant2_key": team_key(second),
+                "fixture_status": fixture_status(fixture),
+                "bookmakers": [],
+            })
+            if bookmaker not in entry["bookmakers"]:
+                entry["bookmakers"].append(bookmaker)
+    return list(fixtures.values())
+
+
+def context_path(date_label: str) -> Path:
+    return GAME_CONTEXT_DIR / f"game_context_{date_label}.csv"
+
+
+def raw_path(date_label: str, name: str) -> Path:
+    return ODDSPAPI_DIR / date_label / f"{name}_{stamp()}.json"
+
+
+def fixture_rows_for_context(context_rows: list[dict[str, str]], fixtures: list[dict[str, Any]]) -> list[dict[str, str]]:
+    index: dict[tuple[str, str], dict[str, Any]] = {}
+    for fixture in fixtures:
+        a = clean(fixture.get("participant1_key"))
+        b = clean(fixture.get("participant2_key"))
+        if a and b:
+            index[(a, b)] = fixture
+            index[(b, a)] = fixture
+    out = []
+    for row in context_rows:
+        key = (team_key(row.get("team") or row.get("team_abbr")), team_key(row.get("opponent") or row.get("opponent_abbr")))
+        fixture = index.get(key)
+        if not fixture:
+            continue
+        out.append({
+            "team_key": key[0],
+            "opponent_key": key[1],
+            "fixture_id": clean(fixture.get("fixture_id")),
+            "fixture_status": clean(fixture.get("fixture_status")),
+            "bookmakers": ",".join(fixture.get("bookmakers") or []),
+        })
+    return out
+
+
+def apply_provider_rows_to_context(context_file: Path, provider_rows: list[dict[str, Any]], *, raw_snapshot_path: str = "", clv_snapshot_path: str = "") -> dict[str, Any]:
+    rows = read_csv(context_file)
+    idx = {
+        (team_key(row.get("team_key") or row.get("team")), team_key(row.get("opponent_key") or row.get("opponent"))): row
+        for row in provider_rows
+    }
+    updated = 0
+    matched = 0
+    for row in rows:
+        key = (team_key(row.get("team") or row.get("team_abbr")), team_key(row.get("opponent") or row.get("opponent_abbr")))
+        provider = idx.get(key)
+        if not provider:
+            continue
+        matched += 1
+        before = dict(row)
+        row["oddspapi_fixture_id"] = clean(provider.get("fixture_id") or provider.get("oddspapi_fixture_id"))
+        row["oddspapi_fixture_status"] = clean(provider.get("fixture_status") or provider.get("oddspapi_fixture_status"))
+        row["oddspapi_bookmakers"] = clean(provider.get("bookmakers") or provider.get("oddspapi_bookmakers"))
+        row["oddspapi_raw_snapshot_path"] = clean(raw_snapshot_path or provider.get("raw_snapshot_path"))
+        row["oddspapi_clv_snapshot_path"] = clean(clv_snapshot_path or provider.get("clv_snapshot_path"))
+        row["oddspapi_matched_at"] = now_iso()
+        row["oddspapi_provider_status"] = clean(provider.get("provider_status") or provider.get("oddspapi_provider_status") or "fixture_matched_raw_archived")
+        row["oddspapi_provider_note"] = clean(provider.get("provider_note") or provider.get("oddspapi_provider_note") or "OddsPapi fixture matched; CLV applied only when confident.")
+        applied_clv = False
+        for field in ("open_team_moneyline", "close_team_moneyline", "moneyline_move", "open_game_total", "close_game_total", "total_move"):
+            value = clean(provider.get(field))
+            if value:
+                row[field] = value
+                applied_clv = True
+        if applied_clv:
+            row["line_movement_source"] = "oddspapi_clv"
+            row["line_movement_status"] = "provider_clv_ready"
+            row["oddspapi_provider_status"] = "provider_clv_ready"
+        if row != before:
+            updated += 1
+    if rows:
+        field_order = list(rows[0].keys())
+        for field in ODDSPAPI_CONTEXT_FIELDS:
+            if field not in field_order:
+                field_order.append(field)
+        write_csv_atomic(context_file, rows, field_order)
+    return {"status": "ok", "rows": len(rows), "matchedRows": matched, "updatedRows": updated, "contextPath": str(context_file)}
+
+
+def run_phase22(date_label: str, season: int = 2026, *, apply: bool = True, bookmakers: list[str] | None = None) -> dict[str, Any]:
+    api_key = clean(os.environ.get("ODDSPAPI_API_KEY"))
+    tournament_ids = clean(os.environ.get("ODDSPAPI_MLB_TOURNAMENT_ID") or os.environ.get("ODDSPAPI_MLB_TOURNAMENT_IDS"))
+    bookmakers = bookmakers or [item.strip() for item in os.environ.get("ODDSPAPI_BOOKMAKERS", ",".join(DEFAULT_BOOKMAKERS)).split(",") if item.strip()]
+    result: dict[str, Any] = {
+        "status": "skipped",
+        "phase": "22",
+        "date": date_label,
+        "season": season,
+        "bookmakers": bookmakers,
+        "reason": "ODDSPAPI_API_KEY not set",
+    }
+    if not api_key:
+        write_json(AUDIT_DIR / f"phase22_oddspapi_clv_{date_label}.json", result)
+        return result
+    if not tournament_ids:
+        result["reason"] = "ODDSPAPI_MLB_TOURNAMENT_ID not set"
+        write_json(AUDIT_DIR / f"phase22_oddspapi_clv_{date_label}.json", result)
+        return result
+
+    odds_payload = fetch_odds_by_tournaments(api_key, tournament_ids, bookmakers)
+    odds_archive = raw_path(date_label, "odds_by_tournaments")
+    write_json(odds_archive, odds_payload)
+    fixtures = normalize_fixture_payload(odds_payload, date_label)
+    context_rows = read_csv(context_path(date_label))
+    provider_rows = fixture_rows_for_context(context_rows, fixtures)
+
+    clv_archives: list[str] = []
+    provider_by_fixture = {clean(row.get("fixture_id")): row for row in provider_rows if clean(row.get("fixture_id"))}
+    for fid, provider in list(provider_by_fixture.items()):
+        try:
+            clv_payload = fetch_fixture_clv(api_key, fid, bookmakers)
+            clv_archive = raw_path(date_label, f"clv_{fid}")
+            write_json(clv_archive, clv_payload)
+            clv_archives.append(str(clv_archive))
+            extracted = extract_clv_from_payload(clv_payload, provider.get("team_key", ""), provider.get("opponent_key", ""))
+            provider.update(extracted)
+            provider["clv_snapshot_path"] = str(clv_archive)
+            provider["provider_status"] = "provider_clv_ready" if extracted else "clv_raw_archived_unmapped"
+            provider["provider_note"] = "CLV payload archived; movement applied only when outcome mapping was confident."
+        except Exception as error:  # network/provider errors must not block the collector
+            provider["provider_status"] = "clv_fetch_warning"
+            provider["provider_note"] = str(error)[:500]
+
+    apply_result = {"status": "skipped", "reason": "--no-apply"}
+    if apply:
+        apply_result = apply_provider_rows_to_context(context_path(date_label), provider_rows, raw_snapshot_path=str(odds_archive))
+
+    provider_errors = [payload for payload in odds_payload.values() if isinstance(payload, dict) and payload.get("__phase22_provider_error__")]
+    result = {
+        "status": "ok" if provider_rows else "warning",
+        "phase": "22",
+        "date": date_label,
+        "season": season,
+        "tournamentIds": tournament_ids,
+        "bookmakers": bookmakers,
+        "oddsArchive": str(odds_archive),
+        "clvArchives": clv_archives,
+        "fixtureCount": len(fixtures),
+        "matchedProviderRows": len(provider_rows),
+        "providerClvReadyRows": sum(1 for row in provider_rows if clean(row.get("provider_status")) == "provider_clv_ready"),
+        "providerErrors": provider_errors,
+        "reason": provider_errors[0].get("reason", "") if provider_errors and not provider_rows else "",
+        "apply": apply_result,
+        "notes": [
+            "Phase 22 never fabricates opening lines. It applies OddsPapi CLV only when fixture/team/market mapping is confident.",
+            "If CLV is unmapped, raw OddsPapi responses are archived for later parser improvement.",
+        ],
+    }
+    write_json(AUDIT_DIR / f"phase22_oddspapi_clv_{date_label}.json", result)
+    return result
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Phase 22 OddsPapi opening/CLV integration.")
+    parser.add_argument("--date", required=True)
+    parser.add_argument("--season", type=int, default=2026)
+    parser.add_argument("--bookmakers", nargs="*", default=None)
+    parser.add_argument("--no-apply", action="store_true")
+    args = parser.parse_args()
+    print(json.dumps(run_phase22(args.date, args.season, apply=not args.no_apply, bookmakers=args.bookmakers), indent=2, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()
