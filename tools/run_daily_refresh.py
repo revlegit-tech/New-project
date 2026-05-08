@@ -138,9 +138,33 @@ def main() -> None:
         except json.JSONDecodeError:
             result["freshness"] = {"status": "warning", "error": "Could not parse freshness JSON."}
 
+
+    # PHASE23_DAILY_REFRESH_QA_HOOK_START
+    phase23_cmd = [
+        sys.executable,
+        str(ROOT / "tools" / "phase23_daily_refresh_qa.py"),
+        "--date",
+        args.date,
+        "--season",
+        str(args.season),
+        "--write",
+    ]
+    result["phase23QaCommand"] = run_command(phase23_cmd, timeout=180)
+    phase23_path = AUDIT_DIR / f"phase23_daily_refresh_qa_{args.date}.json"
+    if phase23_path.exists():
+        try:
+            result["phase23Qa"] = json.loads(phase23_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            result["phase23Qa"] = {"status": "warning", "error": "Could not parse Phase 23 QA JSON."}
+
+    # PHASE23_DAILY_REFRESH_QA_HOOK_END
     if result.get("collector", {}).get("status") == "warning":
         result["status"] = "warning"
     if isinstance(result.get("freshness"), dict) and result["freshness"].get("status") == "warning":
+        result["status"] = "warning"
+    if result.get("phase23QaCommand", {}).get("status") == "warning":
+        result["status"] = "warning"
+    if isinstance(result.get("phase23Qa"), dict) and result["phase23Qa"].get("status") == "warning":
         result["status"] = "warning"
 
     result["finishedAt"] = now_iso()
