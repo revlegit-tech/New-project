@@ -1,0 +1,64 @@
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
+
+[tool.coverage.run]
+branch = true
+source = ["mlb_app", "tools"]
+omit = [
+  "*/__pycache__/*",
+  "tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 0
+exclude_also = [
+  "if __name__ == .__main__.",
+  "raise SystemExit",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["mlb_app", "tools", "tests"]
+exclude = [
+  ".git",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  "__pycache__",
+  "data",
+  "dist",
+  "node_modules",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+  "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+no_implicit_optional = true
+check_untyped_defs = true
+ignore_missing_imports = true
+exclude = [
+  "app.py",
+  "data/",
+  "tests/",
+]
+
+[[tool.mypy.overrides]]
+module = ["tools.*"]
+disallow_untyped_defs = false

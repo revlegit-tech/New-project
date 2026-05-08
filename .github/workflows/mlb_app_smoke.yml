@@ -1,0 +1,49 @@
+name: mlb_app smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Run source-only safety and WSGI smoke tests
+        run: |
+          make smoke
+      - name: Boot canonical Gunicorn runtime
+        run: |
+          gunicorn mlb_app.wsgi:application --workers 2 --bind 127.0.0.1:8765 --timeout 30 --access-logfile - > /tmp/mlb_app_gunicorn.log 2>&1 &
+          echo $! > /tmp/mlb_app_gunicorn.pid
+          python - <<'PY'
+          import socket, time
+          deadline = time.time() + 15
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  try:
+                      sock.connect(('127.0.0.1', 8765))
+                      break
+                  except OSError:
+                      time.sleep(0.25)
+          else:
+              raise SystemExit('Gunicorn did not start on 127.0.0.1:8765')
+          PY
+      - name: Smoke canonical endpoints
+        run: |
+          python tools/smoke_mlb_app.py --base-url http://127.0.0.1:8765
+      - name: Stop Gunicorn
+        if: always()
+        run: |
+          if [ -f /tmp/mlb_app_gunicorn.pid ]; then kill "$(cat /tmp/mlb_app_gunicorn.pid)" || true; fi
+          cat /tmp/mlb_app_gunicorn.log || true

@@ -1,0 +1,871 @@
+--- a/Makefile
++++ b/Makefile
+@@ -61,7 +61,7 @@
+ 
+ # Fast local smoke path. Does not boot app.py.
+ smoke:
+-	python -m pytest tests/test_api_contracts.py tests/test_modular_router.py tests/test_wsgi_smoke.py tests/test_static_file_guard.py tests/test_cache_store.py tests/test_security_export.py tests/test_trust_surface_static_safety.py
++	python -m pytest tests/test_api_contracts.py tests/test_modular_router.py tests/test_wsgi_smoke.py tests/test_static_file_guard.py tests/test_cache_store.py tests/test_security_export.py tests/test_trust_surface_static_safety.py tests/test_request_observability.py
+ 
+ # Live endpoint smoke for a separately running mlb_app server.
+ smoke-live:
+--- a/mlb_app/middleware.py
++++ b/mlb_app/middleware.py
+@@ -0,0 +1,114 @@
++from __future__ import annotations
++
++import json
++import re
++import sys
++import time
++import uuid
++from dataclasses import dataclass
++from http.server import BaseHTTPRequestHandler
++from typing import Any, Mapping
++
++_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{8,64}$")
++
++
++def new_request_id() -> str:
++    """Return a compact request id suitable for headers and logs."""
++
++    return uuid.uuid4().hex[:16]
++
++
++def normalize_request_id(value: object | None) -> str:
++    """Accept a safe inbound request id, otherwise generate one.
++
++    We allow upstream proxies/tests to pass an id for correlation, but reject
++    newline/control characters and overlong values so the id remains safe for
++    response headers and one-line JSON logs.
++    """
++
++    if isinstance(value, str):
++        candidate = value.strip()
++        if _REQUEST_ID_RE.fullmatch(candidate):
++            return candidate
++    return new_request_id()
++
++
++def monotonic_ms(started_at: float) -> float:
++    return round((time.perf_counter() - started_at) * 1000.0, 3)
++
++
++def direct_client_ip_from_handler(handler: BaseHTTPRequestHandler) -> str:
++    client_address = getattr(handler, "client_address", None)
++    if isinstance(client_address, tuple) and client_address:
++        return str(client_address[0])
++    return "unknown"
++
++
++def direct_client_ip_from_environ(environ: Mapping[str, Any]) -> str:
++    return str(environ.get("REMOTE_ADDR") or "unknown")
++
++
++def attach_request_metadata(
++    carrier: object,
++    *,
++    request_id: str | None = None,
++    client_ip: str | None = None,
++    started_at: float | None = None,
++) -> tuple[str, str, float]:
++    """Attach observability metadata to a handler/adapter-like object.
++
++    The existing route stack writes responses through a tiny handler adapter.
++    Attaching metadata to that adapter lets json_response() add headers without
++    changing every route signature.
++    """
++
++    rid = normalize_request_id(request_id or getattr(carrier, "request_id", None))
++    ip = client_ip or getattr(carrier, "client_ip", None) or "unknown"
++    start = started_at if started_at is not None else getattr(carrier, "request_started_at", None)
++    if not isinstance(start, (float, int)):
++        start = time.perf_counter()
++    for name, value in (("request_id", rid), ("client_ip", str(ip)), ("request_started_at", float(start))):
++        try:
++            setattr(carrier, name, value)
++        except AttributeError:
++            # Some callers only need normalized values and pass an immutable
++            # placeholder. Handler/adapter carriers still receive attributes.
++            pass
++    return rid, str(ip), float(start)
++
++
++@dataclass(frozen=True)
++class AccessLogEvent:
++    request_id: str
++    method: str
++    path: str
++    status: int
++    elapsed_ms: float
++    client_ip: str
++    route: str
++    cache_hit: bool | None = None
++
++    def as_json(self) -> str:
++        payload: dict[str, Any] = {
++            "event": "http_request",
++            "requestId": self.request_id,
++            "method": self.method,
++            "path": self.path,
++            "status": self.status,
++            "elapsed_ms": self.elapsed_ms,
++            "client_ip": self.client_ip,
++            "route": self.route,
++        }
++        if self.cache_hit is not None:
++            payload["cache_hit"] = self.cache_hit
++        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
++
++
++def log_access(event: AccessLogEvent) -> None:
++    """Write one structured access line.
++
++    Gunicorn can capture stdout/stderr; emitting JSON here gives us request-id
++    correlation before a fuller logging stack is introduced.
++    """
++
++    print(event.as_json(), file=sys.stdout, flush=True)
+--- a/mlb_app/http.py
++++ b/mlb_app/http.py
+@@ -0,0 +1,96 @@
++from __future__ import annotations
++
++import json
++from dataclasses import dataclass
++from http import HTTPStatus
++from http.server import BaseHTTPRequestHandler
++from typing import Any
++from urllib.parse import parse_qs, urlparse
++
++from .middleware import attach_request_metadata, direct_client_ip_from_handler
++
++
++class ApiError(Exception):
++    """Safe API error surfaced to clients without leaking internals."""
++
++    def __init__(self, status: int | HTTPStatus, message: str, *, code: str = "api_error") -> None:
++        super().__init__(message)
++        self.status = int(status)
++        self.message = message
++        self.code = code
++
++
++@dataclass(frozen=True)
++class RequestContext:
++    method: str
++    path: str
++    query: dict[str, list[str]]
++    body: dict[str, Any]
++    handler: BaseHTTPRequestHandler
++    request_id: str = ""
++    client_ip: str = "unknown"
++    route_name: str = "unmatched"
++    started_at: float = 0.0
++
++    @classmethod
++    def from_handler(cls, handler: BaseHTTPRequestHandler, *, parse_body: bool = False) -> "RequestContext":
++        parsed = urlparse(handler.path)
++        inbound_request_id = handler.headers.get("X-Request-Id") if hasattr(handler, "headers") else None
++        request_id, client_ip, started_at = attach_request_metadata(
++            handler,
++            request_id=inbound_request_id,
++            client_ip=direct_client_ip_from_handler(handler),
++        )
++        return cls(
++            method=handler.command.upper(),
++            path=parsed.path,
++            query=parse_qs(parsed.query),
++            body=read_json_body(handler) if parse_body else {},
++            handler=handler,
++            request_id=request_id,
++            client_ip=client_ip,
++            started_at=started_at,
++        )
++
++
++def json_response(handler: BaseHTTPRequestHandler, payload: Any, status: int | HTTPStatus = 200) -> None:
++    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
++    handler.send_response(int(status))
++    handler.send_header("Content-Type", "application/json; charset=utf-8")
++    handler.send_header("Cache-Control", "no-store")
++    request_id = getattr(handler, "request_id", None)
++    if request_id:
++        handler.send_header("X-Request-Id", str(request_id))
++    handler.send_header("Content-Length", str(len(body)))
++    handler.end_headers()
++    try:
++        handler.wfile.write(body)
++    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
++        return
++
++
++def read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
++    try:
++        length = int(handler.headers.get("Content-Length", "0"))
++    except ValueError as error:
++        raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid Content-Length header", code="bad_content_length") from error
++    if length <= 0:
++        return {}
++    raw = handler.rfile.read(length)
++    try:
++        payload = json.loads(raw.decode("utf-8"))
++    except json.JSONDecodeError as error:
++        raise ApiError(HTTPStatus.BAD_REQUEST, "Request body must be valid JSON", code="bad_json") from error
++    if not isinstance(payload, dict):
++        raise ApiError(HTTPStatus.BAD_REQUEST, "Request body must be a JSON object", code="bad_json_shape")
++    return payload
++
++
++def error_payload(error: Exception) -> tuple[dict[str, Any], int]:
++    if isinstance(error, ApiError):
++        return {"status": "error", "code": error.code, "error": error.message}, error.status
++    return {
++        "status": "error",
++        "code": "internal_server_error",
++        "error": "Internal server error",
++    }, int(HTTPStatus.INTERNAL_SERVER_ERROR)
+--- a/mlb_app/routing.py
++++ b/mlb_app/routing.py
+@@ -0,0 +1,81 @@
++from __future__ import annotations
++
++from dataclasses import dataclass, replace
++from http import HTTPStatus
++from typing import Any, Callable
++
++from .http import ApiError, RequestContext, error_payload, json_response
++from .middleware import AccessLogEvent, log_access, monotonic_ms
++
++Handler = Callable[[RequestContext], Any]
++
++
++@dataclass(frozen=True)
++class Route:
++    method: str
++    path: str
++    handler: Handler
++    name: str = ""
++
++
++class Router:
++    """Explicit route table with one observability/security boundary.
++
++    Route handlers remain thin HTTP adapters. Cross-cutting concerns such as
++    request-id logging and future auth/rate limiting live here or in middleware,
++    not duplicated inside individual endpoint modules.
++    """
++
++    def __init__(self) -> None:
++        self._routes: dict[tuple[str, str], Route] = {}
++
++    def add(self, method: str, path: str, handler: Handler, *, name: str = "") -> None:
++        key = (method.upper(), path)
++        if key in self._routes:
++            raise ValueError(f"Duplicate route registered for {method.upper()} {path}")
++        self._routes[key] = Route(method.upper(), path, handler, name or f"{method.upper()} {path}")
++
++    def route(self, method: str, path: str) -> Callable[[Handler], Handler]:
++        def decorator(handler: Handler) -> Handler:
++            self.add(method, path, handler)
++            return handler
++
++        return decorator
++
++    def dispatch(self, context: RequestContext) -> bool:
++        route = self._routes.get((context.method.upper(), context.path))
++        if route is None:
++            return False
++
++        request_context = replace(context, route_name=route.name)
++        status_int = int(HTTPStatus.OK)
++        try:
++            payload = route.handler(request_context)
++            status_int = int(payload.pop("_status", HTTPStatus.OK)) if isinstance(payload, dict) else int(HTTPStatus.OK)
++            json_response(request_context.handler, payload, status_int)
++        except Exception as error:  # noqa: BLE001 - central safe API boundary
++            payload, status_int = error_payload(error)
++            json_response(request_context.handler, payload, status_int)
++        finally:
++            log_access(
++                AccessLogEvent(
++                    request_id=request_context.request_id or str(getattr(request_context.handler, "request_id", "")),
++                    method=request_context.method,
++                    path=request_context.path,
++                    status=status_int,
++                    elapsed_ms=monotonic_ms(request_context.started_at or getattr(request_context.handler, "request_started_at", 0.0)),
++                    client_ip=request_context.client_ip,
++                    route=route.name,
++                )
++            )
++        return True
++
++    def require(self, method: str, path: str) -> Route:
++        try:
++            return self._routes[(method.upper(), path)]
++        except KeyError as error:
++            raise ApiError(HTTPStatus.NOT_FOUND, "Route not found", code="route_not_found") from error
++
++    @property
++    def routes(self) -> tuple[Route, ...]:
++        return tuple(self._routes.values())
+--- a/mlb_app/server.py
++++ b/mlb_app/server.py
+@@ -6,6 +6,7 @@
+ 
+ from .config import settings
+ from .http import RequestContext, json_response
++from .middleware import AccessLogEvent, log_access, monotonic_ms
+ from .routes.data_health import data_health, data_health_dashboard, grading_health
+ from .routes.edge_board import edge_board
+ from .routes.health import app_status, prop_ml_status
+@@ -74,22 +75,26 @@
+             return
+         if context.path.startswith("/api/"):
+             json_response(self, {"status": "error", "code": "not_found", "error": "Not found"}, HTTPStatus.NOT_FOUND)
++            self._log_unmatched(context, int(HTTPStatus.NOT_FOUND), route="unmatched_api")
+             return
+-        self.serve_static(context.path)
++        self.serve_static(context.path, context)
+ 
+     def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
+         context = RequestContext.from_handler(self, parse_body=True)
+         if self.router.dispatch(context):
+             return
+         json_response(self, {"status": "error", "code": "not_found", "error": "Not found"}, HTTPStatus.NOT_FOUND)
++        self._log_unmatched(context, int(HTTPStatus.NOT_FOUND), route="unmatched_api")
+ 
+-    def serve_static(self, request_path: str) -> None:
++    def serve_static(self, request_path: str, context: RequestContext) -> None:
+         target = resolve_static_target(self.public_dir, request_path)
+         if target is None:
+             self.send_error(HTTPStatus.FORBIDDEN)
++            self._log_unmatched(context, int(HTTPStatus.FORBIDDEN), route="static")
+             return
+         if not target.exists() or target.is_dir():
+             self.send_error(HTTPStatus.NOT_FOUND)
++            self._log_unmatched(context, int(HTTPStatus.NOT_FOUND), route="static")
+             return
+         content_type = "text/html; charset=utf-8" if target.suffix == ".html" else "application/octet-stream"
+         if target.suffix == ".css":
+@@ -99,9 +104,25 @@
+         body = target.read_bytes()
+         self.send_response(HTTPStatus.OK)
+         self.send_header("Content-Type", content_type)
++        if context.request_id:
++            self.send_header("X-Request-Id", context.request_id)
+         self.send_header("Content-Length", str(len(body)))
+         self.end_headers()
+         self.wfile.write(body)
++        self._log_unmatched(context, int(HTTPStatus.OK), route="static")
++
++    def _log_unmatched(self, context: RequestContext, status: int, *, route: str) -> None:
++        log_access(
++            AccessLogEvent(
++                request_id=context.request_id,
++                method=context.method,
++                path=context.path,
++                status=status,
++                elapsed_ms=monotonic_ms(context.started_at or getattr(context.handler, "request_started_at", 0.0)),
++                client_ip=context.client_ip,
++                route=route,
++            )
++        )
+ 
+ 
+ def run(host: str = "127.0.0.1", port: int = 8765) -> None:
+--- a/mlb_app/wsgi.py
++++ b/mlb_app/wsgi.py
+@@ -9,6 +9,13 @@
+ 
+ from .config import settings
+ from .http import ApiError, RequestContext, error_payload
++from .middleware import (
++    AccessLogEvent,
++    attach_request_metadata,
++    direct_client_ip_from_environ,
++    log_access,
++    monotonic_ms,
++)
+ from .server import build_router, resolve_static_target
+ 
+ router = build_router()
+@@ -22,10 +29,22 @@
+ 
+     Current modular routes write through mlb_app.http.json_response(), which
+     expects a tiny subset of BaseHTTPRequestHandler. This adapter preserves the
+-    route/service contracts while Phase 0 promotes mlb_app to Gunicorn.
++    route/service contracts while adding production request metadata at the
++    WSGI boundary.
+     """
+ 
+-    def __init__(self, *, method: str, path: str, query_string: str, headers: dict[str, str], body_bytes: bytes) -> None:
++    def __init__(
++        self,
++        *,
++        method: str,
++        path: str,
++        query_string: str,
++        headers: dict[str, str],
++        body_bytes: bytes,
++        request_id: str,
++        client_ip: str,
++        started_at: float,
++    ) -> None:
+         self.command = method
+         self.path = f"{path}?{query_string}" if query_string else path
+         self.headers = headers
+@@ -33,6 +52,7 @@
+         self.wfile = BytesIO()
+         self.status = int(HTTPStatus.OK)
+         self.response_headers: list[tuple[str, str]] = []
++        attach_request_metadata(self, request_id=request_id, client_ip=client_ip, started_at=started_at)
+ 
+     def send_response(self, status: int) -> None:
+         self.status = int(status)
+@@ -53,6 +73,7 @@
+         self.send_response(int(status))
+         self.send_header("Content-Type", "application/json; charset=utf-8")
+         self.send_header("Cache-Control", "no-store")
++        self.send_header("X-Request-Id", str(self.request_id))
+         self.send_header("Content-Length", str(len(body)))
+         self.wfile.write(body)
+ 
+@@ -96,19 +117,23 @@
+     return f"{status} {_STATUS_PHRASES.get(status, 'Unknown')}"
+ 
+ 
+-def _not_found() -> tuple[int, list[tuple[str, str]], bytes]:
++def _base_headers(content_type: str, body: bytes, request_id: str) -> list[tuple[str, str]]:
++    return [("Content-Type", content_type), ("X-Request-Id", request_id), ("Content-Length", str(len(body)))]
++
++
++def _not_found(request_id: str) -> tuple[int, list[tuple[str, str]], bytes]:
+     body = json.dumps({"status": "error", "code": "not_found", "error": "Not found"}).encode("utf-8")
+-    return int(HTTPStatus.NOT_FOUND), [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(body)))], body
+-
+-
+-def _serve_static(path: str) -> tuple[int, list[tuple[str, str]], bytes]:
++    return int(HTTPStatus.NOT_FOUND), _base_headers("application/json; charset=utf-8", body, request_id), body
++
++
++def _serve_static(path: str, request_id: str = "test-request") -> tuple[int, list[tuple[str, str]], bytes]:
+     target = resolve_static_target(public_root, path)
+     if target is None:
+         body = b"Forbidden"
+-        return int(HTTPStatus.FORBIDDEN), [("Content-Type", "text/plain; charset=utf-8"), ("Content-Length", str(len(body)))], body
++        return int(HTTPStatus.FORBIDDEN), _base_headers("text/plain; charset=utf-8", body, request_id), body
+     if not target.exists() or target.is_dir():
+         body = b"Not found"
+-        return int(HTTPStatus.NOT_FOUND), [("Content-Type", "text/plain; charset=utf-8"), ("Content-Length", str(len(body)))], body
++        return int(HTTPStatus.NOT_FOUND), _base_headers("text/plain; charset=utf-8", body, request_id), body
+ 
+     content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+     if target.suffix == ".html":
+@@ -118,13 +143,42 @@
+     elif target.suffix == ".js":
+         content_type = "application/javascript; charset=utf-8"
+     body = target.read_bytes()
+-    return int(HTTPStatus.OK), [("Content-Type", content_type), ("Content-Length", str(len(body)))], body
++    return int(HTTPStatus.OK), _base_headers(content_type, body, request_id), body
++
++
++def _log_wsgi_request(
++    *,
++    request_id: str,
++    method: str,
++    path: str,
++    status: int,
++    started_at: float,
++    client_ip: str,
++    route: str,
++) -> None:
++    log_access(
++        AccessLogEvent(
++            request_id=request_id,
++            method=method,
++            path=path,
++            status=status,
++            elapsed_ms=monotonic_ms(started_at),
++            client_ip=client_ip,
++            route=route,
++        )
++    )
+ 
+ 
+ def application(environ: dict[str, Any], start_response: Any) -> Iterable[bytes]:
+     method = str(environ.get("REQUEST_METHOD", "GET")).upper()
+     path = str(environ.get("PATH_INFO", "/"))
+     query_string = str(environ.get("QUERY_STRING", ""))
++    headers = _headers_from_environ(environ)
++    request_id, client_ip, started_at = attach_request_metadata(
++        object(),
++        request_id=headers.get("X-Request-Id"),
++        client_ip=direct_client_ip_from_environ(environ),
++    )
+ 
+     if path.startswith("/api/"):
+         try:
+@@ -134,30 +188,79 @@
+                 method=method,
+                 path=path,
+                 query_string=query_string,
+-                headers=_headers_from_environ(environ),
++                headers=headers,
+                 body_bytes=body_bytes,
+-            )
+-            context = RequestContext(method=method, path=path, query=parse_qs(query_string), body=body, handler=adapter)  # type: ignore[arg-type]
++                request_id=request_id,
++                client_ip=client_ip,
++                started_at=started_at,
++            )
++            context = RequestContext(
++                method=method,
++                path=path,
++                query=parse_qs(query_string),
++                body=body,
++                handler=adapter,  # type: ignore[arg-type]
++                request_id=request_id,
++                client_ip=client_ip,
++                started_at=started_at,
++            )
+             handled = router.dispatch(context)
+         except Exception as error:  # noqa: BLE001 - final WSGI safety boundary
+             payload, status = error_payload(error)
+-            adapter = WsgiHandlerAdapter(method=method, path=path, query_string=query_string, headers={}, body_bytes=b"")
++            adapter = WsgiHandlerAdapter(
++                method=method,
++                path=path,
++                query_string=query_string,
++                headers=headers,
++                body_bytes=b"",
++                request_id=request_id,
++                client_ip=client_ip,
++                started_at=started_at,
++            )
+             response_body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+             adapter.send_response(status)
+             adapter.send_header("Content-Type", "application/json; charset=utf-8")
+             adapter.send_header("Cache-Control", "no-store")
++            adapter.send_header("X-Request-Id", request_id)
+             adapter.send_header("Content-Length", str(len(response_body)))
+             adapter.wfile.write(response_body)
+             handled = True
++            _log_wsgi_request(
++                request_id=request_id,
++                method=method,
++                path=path,
++                status=status,
++                started_at=started_at,
++                client_ip=client_ip,
++                route="wsgi_error_boundary",
++            )
+ 
+         if not handled:
+-            status, headers, response_body = _not_found()
+-            start_response(_status_line(status), headers)
++            status, response_headers, response_body = _not_found(request_id)
++            start_response(_status_line(status), response_headers)
++            _log_wsgi_request(
++                request_id=request_id,
++                method=method,
++                path=path,
++                status=status,
++                started_at=started_at,
++                client_ip=client_ip,
++                route="unmatched_api",
++            )
+             return [response_body]
+         response_body = adapter.wfile.getvalue()
+         start_response(_status_line(adapter.status), adapter.response_headers)
+         return [response_body]
+ 
+-    status, headers, response_body = _serve_static(path)
+-    start_response(_status_line(status), headers)
++    status, response_headers, response_body = _serve_static(path, request_id)
++    start_response(_status_line(status), response_headers)
++    _log_wsgi_request(
++        request_id=request_id,
++        method=method,
++        path=path,
++        status=status,
++        started_at=started_at,
++        client_ip=client_ip,
++        route="static",
++    )
+     return [response_body]
+--- a/tools/smoke_mlb_app.py
++++ b/tools/smoke_mlb_app.py
+@@ -19,11 +19,14 @@
+ def check(base_url: str, endpoint: str) -> tuple[int, str]:
+     url = base_url.rstrip("/") + endpoint
+     with urllib.request.urlopen(url, timeout=10) as response:
++        request_id = response.headers.get("X-Request-Id")
++        if not request_id:
++            raise RuntimeError(f"{endpoint} did not include X-Request-Id")
+         body = response.read().decode("utf-8", errors="replace")
+         if not body.strip().startswith("{"):
+             raise RuntimeError(f"{endpoint} did not return a JSON object")
+         json.loads(body)
+-        return response.status, endpoint
++        return response.status, f"{endpoint} requestId={request_id}"
+ 
+ 
+ def main() -> int:
+--- a/tests/test_wsgi_smoke.py
++++ b/tests/test_wsgi_smoke.py
+@@ -29,6 +29,7 @@
+     status, headers, body = call_wsgi("/api/app/status")
+     assert status.startswith("200 ")
+     assert any(key.lower() == "content-type" and "application/json" in value for key, value in headers)
++    assert any(key.lower() == "x-request-id" and value for key, value in headers)
+     payload = json.loads(body.decode("utf-8"))
+     assert payload["status"] == "ok"
+     assert payload["productState"] == "research_mode"
+@@ -38,5 +39,6 @@
+     status, headers, body = call_wsgi("/api/not-real")
+     assert status.startswith("404 ")
+     assert any(key.lower() == "content-type" and "application/json" in value for key, value in headers)
++    assert any(key.lower() == "x-request-id" and value for key, value in headers)
+     payload = json.loads(body.decode("utf-8"))
+     assert payload["code"] == "not_found"
+--- a/tests/test_request_observability.py
++++ b/tests/test_request_observability.py
+@@ -0,0 +1,93 @@
++from __future__ import annotations
++
++import json
++from io import BytesIO
++from typing import Any
++
++from mlb_app.wsgi import application
++
++
++def call_wsgi(
++    path: str,
++    *,
++    method: str = "GET",
++    body: bytes = b"",
++    request_id: str | None = None,
++) -> tuple[str, list[tuple[str, str]], bytes]:
++    captured: dict[str, Any] = {}
++
++    def start_response(status: str, headers: list[tuple[str, str]]) -> None:
++        captured["status"] = status
++        captured["headers"] = headers
++
++    environ = {
++        "REQUEST_METHOD": method,
++        "PATH_INFO": path,
++        "QUERY_STRING": "",
++        "wsgi.input": BytesIO(body),
++        "CONTENT_LENGTH": str(len(body)),
++        "REMOTE_ADDR": "203.0.113.9",
++    }
++    if request_id is not None:
++        environ["HTTP_X_REQUEST_ID"] = request_id
++    chunks = list(application(environ, start_response))
++    return captured["status"], captured["headers"], b"".join(chunks)
++
++
++def header_value(headers: list[tuple[str, str]], name: str) -> str | None:
++    for key, value in headers:
++        if key.lower() == name.lower():
++            return value
++    return None
++
++
++def test_api_response_has_request_id_header() -> None:
++    status, headers, body = call_wsgi("/api/app/status")
++    assert status.startswith("200 ")
++    assert json.loads(body.decode("utf-8"))["status"] == "ok"
++    request_id = header_value(headers, "X-Request-Id")
++    assert request_id is not None
++    assert len(request_id) >= 8
++
++
++def test_inbound_safe_request_id_is_preserved_for_correlation() -> None:
++    status, headers, _body = call_wsgi("/api/app/status", request_id="req-test-1234")
++    assert status.startswith("200 ")
++    assert header_value(headers, "X-Request-Id") == "req-test-1234"
++
++
++def test_bad_inbound_request_id_is_replaced() -> None:
++    status, headers, _body = call_wsgi("/api/app/status", request_id="bad\nheader")
++    assert status.startswith("200 ")
++    assert header_value(headers, "X-Request-Id") != "bad\nheader"
++
++
++def test_unknown_api_response_has_request_id_header() -> None:
++    status, headers, body = call_wsgi("/api/not-real")
++    assert status.startswith("404 ")
++    assert json.loads(body.decode("utf-8"))["code"] == "not_found"
++    assert header_value(headers, "X-Request-Id") is not None
++
++
++def test_static_response_has_request_id_header() -> None:
++    status, headers, body = call_wsgi("/")
++    assert status.startswith("200 ")
++    assert body
++    assert header_value(headers, "X-Request-Id") is not None
++
++
++def test_structured_access_log_contains_request_id(capsys: Any) -> None:
++    status, headers, _body = call_wsgi("/api/app/status", request_id="req-log-1234")
++    assert status.startswith("200 ")
++    assert header_value(headers, "X-Request-Id") == "req-log-1234"
++
++    captured = capsys.readouterr().out.strip().splitlines()
++    assert captured
++    access_event = json.loads(captured[-1])
++    assert access_event["event"] == "http_request"
++    assert access_event["requestId"] == "req-log-1234"
++    assert access_event["method"] == "GET"
++    assert access_event["path"] == "/api/app/status"
++    assert access_event["status"] == 200
++    assert access_event["client_ip"] == "203.0.113.9"
++    assert access_event["route"] == "GET /api/app/status"
+--- a/.github/workflows/mlb_app_smoke.yml
++++ b/.github/workflows/mlb_app_smoke.yml
+@@ -0,0 +1,49 @@
++name: mlb_app smoke
++
++on:
++  pull_request:
++  push:
++    branches: [main]
++
++jobs:
++  smoke:
++    runs-on: ubuntu-latest
++    timeout-minutes: 10
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: '3.11'
++      - name: Install dependencies
++        run: |
++          python -m pip install --upgrade pip
++          python -m pip install -r requirements.txt -r requirements-dev.txt
++      - name: Run source-only safety and WSGI smoke tests
++        run: |
++          make smoke
++      - name: Boot canonical Gunicorn runtime
++        run: |
++          gunicorn mlb_app.wsgi:application --workers 2 --bind 127.0.0.1:8765 --timeout 30 --access-logfile - > /tmp/mlb_app_gunicorn.log 2>&1 &
++          echo $! > /tmp/mlb_app_gunicorn.pid
++          python - <<'PY'
++          import socket, time
++          deadline = time.time() + 15
++          while time.time() < deadline:
++              with socket.socket() as sock:
++                  sock.settimeout(0.5)
++                  try:
++                      sock.connect(('127.0.0.1', 8765))
++                      break
++                  except OSError:
++                      time.sleep(0.25)
++          else:
++              raise SystemExit('Gunicorn did not start on 127.0.0.1:8765')
++          PY
++      - name: Smoke canonical endpoints
++        run: |
++          python tools/smoke_mlb_app.py --base-url http://127.0.0.1:8765
++      - name: Stop Gunicorn
++        if: always()
++        run: |
++          if [ -f /tmp/mlb_app_gunicorn.pid ]; then kill "$(cat /tmp/mlb_app_gunicorn.pid)" || true; fi
++          cat /tmp/mlb_app_gunicorn.log || true
+--- a/docs/observability/REQUEST_IDS_AND_ACCESS_LOGS.md
++++ b/docs/observability/REQUEST_IDS_AND_ACCESS_LOGS.md
+@@ -0,0 +1,38 @@
++# Request IDs and Structured Access Logs
++
++Phase 3 adds request correlation at the routing boundary without changing external JSON response contracts.
++
++## Response behavior
++
++Every API and static response should include:
++
++```text
++X-Request-Id: <safe request id>
++```
++
++A caller may provide `X-Request-Id`; safe values are preserved for upstream correlation. Unsafe values containing control characters or unsupported characters are replaced with a generated id.
++
++## Log behavior
++
++Each routed request emits a single JSON stdout line:
++
++```json
++{"event":"http_request","requestId":"req-log-1234","method":"GET","path":"/api/app/status","status":200,"elapsed_ms":1.23,"client_ip":"127.0.0.1","route":"GET /api/app/status"}
++```
++
++Gunicorn captures stdout, so this gives request traceability before a fuller logging backend is introduced.
++
++## Boundary placement
++
++Request metadata is created before route dispatch and attached to the handler/WSGI adapter. `json_response()` adds the header centrally. `Router.dispatch()` logs route-matched requests centrally.
++
++This preserves the route → service → repository architecture: endpoint files should not generate request IDs, hand-roll logs, or duplicate security checks.
++
++## Next security extension point
++
++The same `mlb_app/middleware.py` module is the extension point for Phase 6 mutation protections:
++
++- trusted client IP extraction
++- token-bucket mutation rate limits
++- action endpoint auth checks
++- request/job ID audit logs
+--- a/PHASE3_README.md
++++ b/PHASE3_README.md
+@@ -0,0 +1,48 @@
++# Phase 3 — Cumulative Production Server Promotion and Observability
++
++This bundle is cumulative through Phase 3:
++
++- Phase 0: `mlb_app` canonical runtime, Gunicorn entrypoint, legacy `app.py` escape hatch.
++- Phase 1: endpoint parity and legacy triage inventory.
++- Phase 2: Sprint 0 safety patches: trust-surface XSS guard, static path guard, atomic JSON/cache writes, safe export.
++- Phase 3: production serving observability: request IDs, structured access logs, middleware shell, and WSGI/Gunicorn smoke wiring.
++
++## New Phase 3 files
++
++| File | Purpose |
++|---|---|
++| `mlb_app/middleware.py` | Request ID generation, client IP extraction helpers, structured access log event model. |
++| `mlb_app/http.py` | Adds `X-Request-Id` from the central response helper. |
++| `mlb_app/routing.py` | Logs routed API requests at the dispatch boundary. |
++| `mlb_app/wsgi.py` | Carries request metadata through the Gunicorn/WSGI adapter. |
++| `mlb_app/server.py` | Carries request metadata through the local dev server and static responses. |
++| `tests/test_request_observability.py` | Verifies request ID headers, inbound ID sanitation, static IDs, and structured JSON logs. |
++| `.github/workflows/mlb_app_smoke.yml` | CI example that boots Gunicorn and smokes canonical endpoints. |
++| `docs/observability/REQUEST_IDS_AND_ACCESS_LOGS.md` | Operator/developer notes for the request correlation contract. |
++
++## Runtime commands
++
++```bash
++make run          # local dev, mlb_app only
++make serve        # Gunicorn production-style runtime
++make run-legacy   # app.py escape hatch only
++```
++
++## Validation performed
++
++```bash
++python -m pytest \
++  tests/test_wsgi_smoke.py \
++  tests/test_static_file_guard.py \
++  tests/test_cache_store.py \
++  tests/test_security_export.py \
++  tests/test_trust_surface_static_safety.py \
++  tests/test_request_observability.py \
++  -q
++```
++
++Result: `21 passed`.
++
++## Notes
++
++The test environment used for building this bundle did not have `gunicorn` preinstalled, so live Gunicorn boot validation should run after installing `requirements.txt`. The WSGI callable itself is covered by direct WSGI tests, and the CI workflow included here performs the live Gunicorn smoke when dependencies are installed.

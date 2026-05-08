@@ -186,6 +186,7 @@
   async function predictPropMl() {
     try {
       await loadTrainingStatus();
+      await window.ModelCardsStore?.load?.();
 
       setStatus("Running player prop ML prediction...");
       const response = await fetch(`/api/prop-ml/predict?${params().toString()}`);
@@ -208,7 +209,12 @@
       if (els.fairOdds) els.fairOdds.textContent = american(payload.fairOdds);
 
       window.BaseballResultCards?.decorateMetric(els.edge, payload.edgePercent);
+      const modelCard = window.ModelCardsStore?.get?.(payload.market);
+      const safeDecision = window.ModelCardsStore?.decisionLabelFor?.(modelCard, payload.recommendation, payload.edgePercent) || payload.recommendation;
+
       window.BaseballResultCards?.render(els.output, {
+        market: payload.market,
+        modelCard,
         title: `${payload.player || "--"} ${marketLabel(payload.market)} over ${payload.line ?? "--"}`,
         subtitle: `${payload.team || "--"} vs ${payload.opponent || "--"}${payload.pitcher ? ` · Pitcher: ${payload.pitcher}` : ""}`,
         probabilityPercent: payload.probabilityPercent,
@@ -216,14 +222,20 @@
         edgePercent: payload.edgePercent,
         fairOdds: payload.fairOdds,
         confidence: confidenceWarning(payload).includes("LOW") ? "Low" : "Medium",
-        recommendation: payload.recommendation,
+        recommendation: safeDecision,
         notes: [
           `Expected value: ${signedPct(payload.expectedValuePercent)}`,
           `Model version: ${payload.modelVersion || "--"}`,
+          `Readiness: ${modelCard?.readinessLabel || "Research only"}`,
+        ],
+        reasons: [
+          `Model probability is ${pct(payload.probabilityPercent)} versus book implied ${pct(payload.impliedProbabilityPercent)}.`,
+          `Estimated edge is ${signedPct(payload.edgePercent)} after current inputs.`,
+          modelCard?.latestGradedDate ? `Market latest fully graded slate is ${modelCard.latestGradedDate}.` : "Latest fully graded slate is not available yet.",
         ],
       });
 
-      setStatus(`${marketLabel(payload.market)}: ${payload.recommendation}.`, payload);
+      setStatus(`${marketLabel(payload.market)}: ${safeDecision}.`, payload);
     } catch (error) {
       console.error("Player prop ML prediction failed", error);
       setStatus(error.message, { error: error.message });

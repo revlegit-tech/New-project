@@ -20,7 +20,7 @@ on:
     - cron: "0 16 * * *"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   grade:
@@ -62,7 +62,7 @@ jobs:
 
       - name: Compile check
         run: |
-          python -m py_compile app.py playerboard.py playerboard_backtest.py model_audit.py ml_export.py season_auto_collector.py train_all_supported_markets.py
+          python -m py_compile playerboard.py playerboard_backtest.py model_audit.py ml_export.py season_auto_collector.py train_all_supported_markets.py
 
       - name: Pull final logs and sync warehouse
         shell: bash
@@ -165,30 +165,20 @@ jobs:
           SEASON="${GRADE_DATE:0:4}"
           python -u train_all_supported_markets.py --season "$SEASON"
 
-      - name: Commit grading outputs
+      - name: Package grading outputs artifact
         if: always()
         shell: bash
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          mkdir -p workflow-artifacts
+          tar -czf "workflow-artifacts/daily-grading-${{ github.run_id }}.tgz" \
+            data/backtests data/ml data/audit data/cloud data/warehouse data/health data/training \
+            2>/dev/null || true
 
-          # Get latest main before creating the generated-data commit.
-          git fetch origin main
-          git reset --mixed origin/main
-
-          git add data/backtests || true
-          git add data/ml || true
-          git add data/audit || true
-          git add data/cloud || true
-          git add data/warehouse || true
-          git add data/health || true
-          git add -f data/training/train_all_supported_markets_summary_*.json || true
-          git add -f data/training/latest_train_all_supported_markets_summary.json || true
-
-          if git diff --cached --quiet; then
-            echo "No grading changes to commit."
-            exit 0
-          fi
-
-          git commit -m "Update daily playerboard grading"
-          git push origin HEAD:main
+      - name: Upload grading outputs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-grading-${{ github.run_id }}
+          path: workflow-artifacts/*.tgz
+          if-no-files-found: ignore
+          retention-days: 14

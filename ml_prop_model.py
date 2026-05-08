@@ -514,10 +514,17 @@ def predict_from_row(
     market_key = model_market_key(market) or model_market_key(first_value(row, ["market"], ""))
     if model_path is None:
         candidate = model_path_for_market(market_key)
-        if candidate.exists() or not DEFAULT_MODEL_PATH.exists():
+        allow_generic_fallback = os.environ.get("MLB_ALLOW_GENERIC_PROP_MODEL_FALLBACK", "").strip().lower() in {"1", "true", "yes", "on"}
+        if candidate.exists():
             resolved_model_path = candidate
-        else:
+        elif allow_generic_fallback and DEFAULT_MODEL_PATH.exists():
             resolved_model_path = DEFAULT_MODEL_PATH
+        else:
+            raise FileNotFoundError(
+                f"Missing market-specific model artifact for {market_key or 'unknown_market'} at {candidate}. "
+                "Production predictions require an exact market artifact. "
+                "Set MLB_ALLOW_GENERIC_PROP_MODEL_FALLBACK=1 only for local developer experiments."
+            )
     else:
         resolved_model_path = Path(model_path)
 

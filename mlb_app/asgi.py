@@ -1,0 +1,255 @@
+from __future__ import annotations
+
+import json
+from functools import partial
+from http import HTTPStatus
+from io import BytesIO
+from typing import Any
+from urllib.parse import parse_qs
+
+import anyio
+
+from .http import ApiError, RequestContext, error_payload
+from .middleware import attach_request_metadata, log_access, AccessLogEvent, monotonic_ms
+from .server import build_router
+from .wsgi import _serve_static
+
+try:  # pragma: no cover - exercised in environments with FastAPI installed
+    from fastapi import FastAPI, Request
+    from fastapi.responses import Response
+except ModuleNotFoundError:  # pragma: no cover - lets tooling import without optional ASGI deps
+    FastAPI = None  # type: ignore[assignment]
+    Request = Any  # type: ignore[misc,assignment]
+    Response = None  # type: ignore[assignment]
+
+router = build_router()
+_STATUS_PHRASES = {status.value: status.phrase for status in HTTPStatus}
+
+
+class AsgiHandlerAdapter:
+    """Tiny response adapter for existing route handlers.
+
+    Route handlers still write via mlb_app.http.json_response(), which expects a
+    BaseHTTPRequestHandler-like object. This adapter keeps that API stable while
+    allowing FastAPI/ASGI to call the same service layer through a bounded
+    thread offload.
+    """
+
+    def __init__(
+        self,
+        *,
+        method: str,
+        path: str,
+        query_string: str,
+        headers: dict[str, str],
+        body_bytes: bytes,
+        request_id: str,
+        client_ip: str,
+        started_at: float,
+    ) -> None:
+        self.command = method
+        self.path = f"{path}?{query_string}" if query_string else path
+        self.headers = headers
+        self.rfile = BytesIO(body_bytes)
+        self.wfile = BytesIO()
+        self.status = int(HTTPStatus.OK)
+        self.response_headers: list[tuple[str, str]] = []
+        attach_request_metadata(self, request_id=request_id, client_ip=client_ip, started_at=started_at)
+
+    def send_response(self, status: int) -> None:
+        self.status = int(status)
+
+    def send_header(self, key: str, value: str) -> None:
+        self.response_headers.append((key, value))
+
+    def end_headers(self) -> None:
+        return None
+
+    def send_error(self, status: int | HTTPStatus, message: str | None = None) -> None:
+        payload = {
+            "status": "error",
+            "code": "not_found" if int(status) == 404 else "http_error",
+            "error": message or _STATUS_PHRASES.get(int(status), "HTTP error"),
+        }
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        self.send_response(int(status))
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Request-Id", str(self.request_id))
+        self.send_header("Content-Length", str(len(body)))
+        self.wfile.write(body)
+
+
+def _headers_from_request(request: Any) -> dict[str, str]:
+    return {str(key).title(): str(value) for key, value in request.headers.items()}
+
+
+def _direct_client_ip_from_request(request: Any) -> str:
+    if getattr(request, "client", None) and getattr(request.client, "host", None):
+        return str(request.client.host)
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return str(forwarded).split(",", 1)[0].strip() or "unknown"
+    real_ip = request.headers.get("x-real-ip")
+    return str(real_ip) if real_ip else "unknown"
+
+
+def _parse_json_body(body: bytes) -> dict[str, Any]:
+    if not body:
+        return {}
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError as error:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Request body must be valid JSON", code="bad_json") from error
+    if not isinstance(payload, dict):
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Request body must be a JSON object", code="bad_json_shape")
+    return payload
+
+
+def _dispatch_api_sync(
+    *,
+    method: str,
+    path: str,
+    query_string: str,
+    headers: dict[str, str],
+    body_bytes: bytes,
+    request_id: str | None = None,
+    client_ip: str = "unknown",
+) -> tuple[int, list[tuple[str, str]], bytes]:
+    """Dispatch one API request through the existing sync router.
+
+    This is intentionally sync so FastAPI can offload it with
+    anyio.to_thread.run_sync(). That prevents CSV/JSON service work from
+    blocking the ASGI event loop during the migration period.
+    """
+
+    request_id, client_ip, started_at = attach_request_metadata(
+        object(),
+        request_id=request_id or headers.get("X-Request-Id"),
+        client_ip=client_ip,
+    )
+    adapter = AsgiHandlerAdapter(
+        method=method,
+        path=path,
+        query_string=query_string,
+        headers=headers,
+        body_bytes=body_bytes,
+        request_id=request_id,
+        client_ip=client_ip,
+        started_at=started_at,
+    )
+    try:
+        body = _parse_json_body(body_bytes) if method in {"POST", "PUT", "PATCH"} else {}
+        context = RequestContext(
+            method=method,
+            path=path,
+            query=parse_qs(query_string),
+            body=body,
+            handler=adapter,  # type: ignore[arg-type]
+            request_id=request_id,
+            client_ip=client_ip,
+            started_at=started_at,
+        )
+        handled = router.dispatch(context)
+    except Exception as error:  # noqa: BLE001 - final ASGI adapter safety boundary
+        payload, status = error_payload(error)
+        response_body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        adapter.send_response(status)
+        adapter.send_header("Content-Type", "application/json; charset=utf-8")
+        adapter.send_header("Cache-Control", "no-store")
+        adapter.send_header("X-Request-Id", request_id)
+        adapter.send_header("Content-Length", str(len(response_body)))
+        adapter.wfile.write(response_body)
+        handled = True
+        log_access(
+            AccessLogEvent(
+                request_id=request_id,
+                method=method,
+                path=path,
+                status=status,
+                elapsed_ms=monotonic_ms(started_at),
+                client_ip=client_ip,
+                route="asgi_error_boundary",
+            )
+        )
+
+    if not handled:
+        body = json.dumps({"status": "error", "code": "not_found", "error": "Not found"}, separators=(",", ":")).encode("utf-8")
+        headers_out = [
+            ("Content-Type", "application/json; charset=utf-8"),
+            ("Cache-Control", "no-store"),
+            ("X-Request-Id", request_id),
+            ("Content-Length", str(len(body))),
+        ]
+        log_access(
+            AccessLogEvent(
+                request_id=request_id,
+                method=method,
+                path=path,
+                status=int(HTTPStatus.NOT_FOUND),
+                elapsed_ms=monotonic_ms(started_at),
+                client_ip=client_ip,
+                route="unmatched_api",
+            )
+        )
+        return int(HTTPStatus.NOT_FOUND), headers_out, body
+
+    return adapter.status, adapter.response_headers, adapter.wfile.getvalue()
+
+
+if FastAPI is None:
+    async def app(scope: dict[str, Any], receive: Any, send: Any) -> None:  # type: ignore[no-redef]
+        """Fallback ASGI callable when optional dependencies are not installed."""
+
+        body = b'{"status":"error","code":"asgi_dependencies_missing","error":"Install fastapi, uvicorn, and anyio to run mlb_app.asgi:app."}'
+        await send({"type": "http.response.start", "status": 503, "headers": [(b"content-type", b"application/json; charset=utf-8"), (b"content-length", str(len(body)).encode("ascii"))]})
+        await send({"type": "http.response.body", "body": body})
+else:
+    app = FastAPI(title="MLB App ASGI Migration Runtime", version="0.9.0")
+
+    @app.api_route("/api/{api_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    async def api_gateway(api_path: str, request: Request) -> Response:
+        path = f"/api/{api_path}"
+        query_string = request.url.query
+        headers = _headers_from_request(request)
+        body_bytes = await request.body()
+        status, response_headers, response_body = await anyio.to_thread.run_sync(
+            partial(
+                _dispatch_api_sync,
+                method=request.method.upper(),
+                path=path,
+                query_string=query_string,
+                headers=headers,
+                body_bytes=body_bytes,
+                request_id=headers.get("X-Request-Id"),
+                client_ip=_direct_client_ip_from_request(request),
+            )
+        )
+        response_header_dict = {key: value for key, value in response_headers if key.lower() != "content-length"}
+        media_type = response_header_dict.pop("Content-Type", "application/json; charset=utf-8")
+        return Response(content=response_body, status_code=status, media_type=media_type, headers=response_header_dict)
+
+    @app.api_route("/{static_path:path}", methods=["GET", "HEAD"])
+    async def static_gateway(static_path: str, request: Request) -> Response:
+        path = "/" if not static_path else f"/{static_path}"
+        headers = _headers_from_request(request)
+        request_id, client_ip, started_at = attach_request_metadata(
+            object(),
+            request_id=headers.get("X-Request-Id"),
+            client_ip=_direct_client_ip_from_request(request),
+        )
+        status, response_headers, response_body = await anyio.to_thread.run_sync(_serve_static, path, request_id)
+        log_access(
+            AccessLogEvent(
+                request_id=request_id,
+                method=request.method.upper(),
+                path=path,
+                status=status,
+                elapsed_ms=monotonic_ms(started_at),
+                client_ip=client_ip,
+                route="static",
+            )
+        )
+        response_header_dict = {key: value for key, value in response_headers if key.lower() != "content-length"}
+        media_type = response_header_dict.pop("Content-Type", "application/octet-stream")
+        return Response(content=b"" if request.method.upper() == "HEAD" else response_body, status_code=status, media_type=media_type, headers=response_header_dict)

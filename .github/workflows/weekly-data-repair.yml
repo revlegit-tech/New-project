@@ -19,7 +19,7 @@ on:
     - cron: "0 9 * * 0"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   repair:
@@ -61,7 +61,7 @@ jobs:
 
       - name: Compile check
         run: |
-          python -m py_compile app.py playerboard.py playerboard_backtest.py model_audit.py ml_export.py season_auto_collector.py
+          python -m py_compile playerboard.py playerboard_backtest.py model_audit.py ml_export.py season_auto_collector.py
 
       - name: Run full catch-up repair
         shell: bash
@@ -138,44 +138,22 @@ jobs:
           print(text)
           PY
 
-      - name: Commit repair outputs
+      - name: Package repair outputs artifact
         if: always()
         shell: bash
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          mkdir -p workflow-artifacts
+          tar -czf "workflow-artifacts/weekly-repair-${{ github.run_id }}.tgz" \
+            data/backtests data/ml data/audit data/cloud data/warehouse data/health \
+            data/cache/incremental_stats data/cache/season_stats data/cache/weather \
+            data/cache/savant data/cache/odds_movement data/playerboard \
+            2>/dev/null || true
 
-          # Stage all generated repair outputs that this workflow may touch.
-          git add data/backtests || true
-          git add data/ml || true
-          git add data/audit || true
-          git add data/cloud || true
-          git add data/warehouse || true
-          git add data/health || true
-          git add data/cache/incremental_stats || true
-          git add data/cache/season_stats || true
-          git add data/cache/weather || true
-          git add data/cache/savant || true
-          git add data/cache/odds_movement || true
-          git add data/playerboard || true
-
-          # Ignore local-only/debug backup files if they appear in the runner.
-          git reset -- .local_backups || true
-          git reset -- launcher-*.err || true
-          git reset -- "data/cache/odds_movement/debug_"*.json || true
-          git reset -- "data/cache/odds_movement/"*.before_*.csv || true
-          git reset -- "data/playerboard/"*.before_*.csv || true
-
-          if git diff --cached --quiet; then
-            echo "No repair changes to commit."
-            exit 0
-          fi
-
-          git status --short
-          git commit -m "Update weekly data repair outputs"
-
-          # main may move during this long repair run. Autostash prevents
-          # rebase from failing if generators leave harmless unstaged changes.
-          git pull --rebase --autostash origin main
-
-          git push origin main
+      - name: Upload repair outputs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-repair-${{ github.run_id }}
+          path: workflow-artifacts/*.tgz
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,0 +1,14 @@
+{
+  "name": "mlb-betting-research-app",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local MLB betting research app developer tooling",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "install:browsers": "playwright install --with-deps chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0"
+  }
+}

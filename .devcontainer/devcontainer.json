@@ -1,0 +1,19 @@
+{
+  "name": "MLB Betting Research App",
+  "build": { "dockerfile": "Dockerfile" },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
+  },
+  "postCreateCommand": "python -m pip install --upgrade pip && python -m pip install -r requirements.txt -r requirements-dev.txt && npm install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.mypy-type-checker",
+        "charliermarsh.ruff",
+        "ms-playwright.playwright"
+      ]
+    }
+  },
+  "forwardPorts": [8765]
+}

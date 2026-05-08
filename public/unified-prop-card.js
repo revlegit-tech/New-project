@@ -244,6 +244,7 @@
   async function predict() {
     try {
       if (els.status) els.status.textContent = "Running Unified Prop Card...";
+      await window.ModelCardsStore?.load?.();
       const payload = await getJson(`/api/unified-prop-card/predict?${params().toString()}`);
 
       if (els.finalProbability) els.finalProbability.textContent = pct(payload.finalProbabilityPercent);
@@ -253,7 +254,12 @@
 
       window.BaseballResultCards?.decorateMetric(els.edge, payload.finalEdgePercent);
       window.BaseballResultCards?.decorateMetric(els.confidence, payload.confidence, "confidence");
+      const modelCard = window.ModelCardsStore?.get?.(payload.market);
+      const safeDecision = window.ModelCardsStore?.decisionLabelFor?.(modelCard, payload.recommendation, payload.finalEdgePercent) || payload.recommendation;
+
       window.BaseballResultCards?.render(els.output, {
+        market: payload.market,
+        modelCard,
         title: `${payload.player || "--"} ${payload.market || "prop"} over ${payload.line ?? "--"}`,
         subtitle: `${payload.team || "--"} vs ${payload.opponent || "--"}${payload.pitcher ? ` · Pitcher: ${payload.pitcher}` : ""}`,
         probabilityPercent: payload.finalProbabilityPercent,
@@ -261,11 +267,17 @@
         edgePercent: payload.finalEdgePercent,
         fairOdds: payload.fairOdds,
         confidence: payload.confidence,
-        recommendation: payload.recommendation,
+        recommendation: safeDecision,
         notes: [
           `All Data probability: ${pct(payload.allDataProbabilityPercent)}`,
           `Weather adj: ${signedPct(payload.weatherAdjustmentPercent)}`,
           `Odds movement adj: ${signedPct(payload.oddsMovementAdjustmentPercent)}`,
+          `Readiness: ${modelCard?.readinessLabel || "Research only"}`,
+        ],
+        reasons: [
+          `Final probability is ${pct(payload.finalProbabilityPercent)} versus book implied ${pct(payload.sportsbookImpliedPercent)}.`,
+          `Final edge is ${signedPct(payload.finalEdgePercent)} after context adjustments.`,
+          modelCard?.latestGradedDate ? `Market latest fully graded slate is ${modelCard.latestGradedDate}.` : "Latest fully graded slate is not available yet.",
         ],
       });
 

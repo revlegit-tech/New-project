@@ -1,0 +1,4 @@
+endpoint,method,legacy_behavior,mlb_app_equivalent,classification,risk,owner,status,next_action,frontend_references,legacy_source,notes
+/api/github,GET,"github_repo_status(owner, repo",None planned,RETIRE,LOW,TBD,NEEDS_USAGE_CONFIRMATION,Confirm no primary Outlier UI or CI dependency; remove from production path.,public/app.js,app.py:do_GET,
+/api/mlb/command,GET,"mlb_command_response(command, query",None planned,RETIRE,LOW,TBD,NEEDS_USAGE_CONFIRMATION,Confirm no primary Outlier UI or CI dependency; remove from production path.,public/app.js,app.py:do_GET,
+/api/ocr/parse,POST,parse_ocr_payload(read_json_body(self,None planned,RETIRE,LOW,TBD,NEEDS_USAGE_CONFIRMATION,Confirm no primary Outlier UI or CI dependency; remove from production path.,,app.py:do_POST,Mutation/workflow-sensitive

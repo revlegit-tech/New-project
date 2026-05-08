@@ -1,0 +1,11 @@
+{
+  "grading": {
+    "state": null
+  },
+  "meta": {
+    "schema": "wrong-schema"
+  },
+  "productState": 123,
+  "productionEligibleMarkets": "batter_hits",
+  "status": "ok"
+}

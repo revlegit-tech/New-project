@@ -7,10 +7,32 @@
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/outlier-ui.css" />
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const outlier = params.get("view") === "outlier" || params.has("outlier");
+        document.documentElement.dataset.runtimeUi = outlier ? "outlier" : "legacy";
+      })();
+    </script>
+    <style>
+      html[data-runtime-ui="outlier"] main.app-shell { visibility: hidden; }
+      html[data-runtime-ui="outlier"] .outlier-app { visibility: visible; }
+    </style>
   </head>
   <body>
     <main class="app-shell">
       <section class="workspace">
+
+        <section id="trustSurfaceBanner" class="trust-surface is-partial" aria-live="polite">
+          <div class="trust-surface-main">
+            <span class="trust-mode-pill">Research Mode</span>
+            <div>
+              <strong>Today’s board is research-first.</strong>
+              <p>Loading model readiness, grading state, and data confidence…</p>
+            </div>
+          </div>
+          <p id="trustSurfaceWarning" class="trust-surface-warning">No confident picks are shown until markets pass model readiness and grading gates.</p>
+        </section>
         <div class="panel controls">
           <div>
             <p class="eyebrow">Batter matchup model</p>
@@ -592,6 +614,17 @@
                 First run catches up the season. After that, daily midnight automation updates only missing/new final games.
               </p>
               <pre id="incrementalStatsOutput" class="json-output">Incremental Stats Warehouse is ready.</pre>
+            </div>
+          </details>
+
+
+
+
+          <details class="model-refresh-panel model-room-panel" open>
+            <summary>Model Room: Market Readiness</summary>
+            <div class="model-refresh-body">
+              <p class="model-note" id="modelCardsSummary">Loading model cards...</p>
+              <div id="modelCardsGrid" class="model-cards-grid" aria-live="polite"></div>
             </div>
           </details>
 
@@ -1479,33 +1512,52 @@
       </section>
     </main>
 
-    <script src="/active-bet-context.js"></script>
-    <script src="/result-card-ui.js"></script>
-    <script src="/app.js"></script>
-    <script src="/pipeline.js"></script>
-    <script src="/moneyline.js"></script>
-    <script src="/alldataprop.js"></script>
-    <script src="/all-data-ui-cleanup.js"></script>
-    <script src="/seamless-ui.js"></script>
-    <script src="/propml.js"></script>
-    <script src="/propml-autocomplete.js"></script>
-    <script src="/unified-prop-card.js"></script>
-    <script src="/incremental-stats-ui.js"></script>
-    <script src="/weather-ui.js"></script>
-    <script src="/odds-movement-ui.js"></script>
-    <script src="/savant-ui.js"></script>
-    <script src="/baseball-tools-ui.js"></script>
-    <script src="/prediction-history-ui.js"></script>
-    <script src="/prediction-dashboard-ui.js"></script>
-    <script src="/dailyworkflow.js"></script>
-    <script src="/datahealth.js"></script>
-    <script src="/ui-organizer.js"></script>
-      <script src="/ui-cleanup.js"></script>
-    <script src="/simple-user-ui.js"></script>
-    <script src="/app-pages.js"></script>
-    <script src="/ui-text-sanitizer.js"></script>
-    <script src="/stage2-product-ui.js"></script>
-    <script src="/stage3-betting-ui.js"></script>
-    <script src="/outlier-ui.js" defer></script>
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const outlier = params.get("view") === "outlier" || params.has("outlier");
+        const legacyScripts = [
+          "/trust-surface.js",
+          "/active-bet-context.js",
+          "/result-card-ui.js",
+          "/model-cards.js",
+          "/app.js",
+          "/pipeline.js",
+          "/moneyline.js",
+          "/alldataprop.js",
+          "/all-data-ui-cleanup.js",
+          "/seamless-ui.js",
+          "/propml.js",
+          "/propml-autocomplete.js",
+          "/unified-prop-card.js",
+          "/incremental-stats-ui.js",
+          "/weather-ui.js",
+          "/odds-movement-ui.js",
+          "/savant-ui.js",
+          "/baseball-tools-ui.js",
+          "/prediction-history-ui.js",
+          "/prediction-dashboard-ui.js",
+          "/dailyworkflow.js",
+          "/datahealth.js",
+          "/data-health-dashboard.js",
+          "/ui-organizer.js",
+          "/ui-cleanup.js",
+          "/simple-user-ui.js",
+          "/app-pages.js",
+          "/my-picks.js",
+          "/prop-detail.js",
+          "/ui-text-sanitizer.js",
+          "/stage2-product-ui.js",
+          "/stage3-betting-ui.js"
+        ];
+        const runtimeScripts = outlier ? ["/outlier-ui.js"] : legacyScripts;
+        for (const src of runtimeScripts) {
+          const script = document.createElement("script");
+          script.src = src;
+          script.async = false;
+          document.body.appendChild(script);
+        }
+      })();
+    </script>
   </body>
 </html>

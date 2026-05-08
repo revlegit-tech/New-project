@@ -1,0 +1,25 @@
+{
+  "total_endpoint_rows": 95,
+  "unique_paths": 94,
+  "classification_counts": {
+    "PORT": 40,
+    "QUARANTINE": 30,
+    "REPLACE": 22,
+    "RETIRE": 3
+  },
+  "status_counts": {
+    "NEEDS_OWNER_REVIEW": 4,
+    "NEEDS_USAGE_CONFIRMATION": 3,
+    "NOT_PORTED": 72,
+    "PORTED_IN_MLB_APP": 16
+  },
+  "risk_counts": {
+    "HIGH": 36,
+    "LOW": 36,
+    "MEDIUM": 23
+  },
+  "mutation_or_workflow_sensitive_rows": 35,
+  "rows_with_frontend_references": 79,
+  "mlb_app_registered_routes": 18,
+  "legacy_post_only_endpoints": 28
+}

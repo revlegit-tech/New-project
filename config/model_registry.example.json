@@ -1,0 +1,16 @@
+{
+  "batter_hits": {
+    "artifact": "data/models/prop_model_batter_hits.joblib",
+    "features": "data/models/prop_model_batter_hits_features.json",
+    "status": "experimental",
+    "trained_at": "2026-05-06T00:00:00Z",
+    "training_rows": 204,
+    "positive_rows": 43,
+    "negative_rows": 161,
+    "calibrated": false,
+    "latest_graded_date": "",
+    "backtest_roi": null,
+    "brier_score": null,
+    "log_loss": null
+  }
+}

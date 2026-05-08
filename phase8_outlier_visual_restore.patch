@@ -1,0 +1,1123 @@
+diff -ruN current_phase8/.pytest_cache/.gitignore phase8_outlier_visual_restore_full/.pytest_cache/.gitignore
+--- current_phase8/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ phase8_outlier_visual_restore_full/.pytest_cache/.gitignore	2026-05-07 23:05:13.983501401 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN current_phase8/.pytest_cache/CACHEDIR.TAG phase8_outlier_visual_restore_full/.pytest_cache/CACHEDIR.TAG
+--- current_phase8/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ phase8_outlier_visual_restore_full/.pytest_cache/CACHEDIR.TAG	2026-05-07 23:05:13.984187011 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN current_phase8/.pytest_cache/README.md phase8_outlier_visual_restore_full/.pytest_cache/README.md
+--- current_phase8/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ phase8_outlier_visual_restore_full/.pytest_cache/README.md	2026-05-07 23:05:13.983040133 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN current_phase8/.pytest_cache/v/cache/nodeids phase8_outlier_visual_restore_full/.pytest_cache/v/cache/nodeids
+--- current_phase8/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ phase8_outlier_visual_restore_full/.pytest_cache/v/cache/nodeids	2026-05-07 23:05:13.986255841 +0000
+@@ -0,0 +1,10 @@
++[
++  "tests/test_phase8_frontend_architecture.py::test_admin_module_is_quarantined_not_action_executor",
++  "tests/test_phase8_frontend_architecture.py::test_board_module_loads_detail_only_after_row_selection",
++  "tests/test_phase8_frontend_architecture.py::test_core_eager_primary_and_lazy_secondary_modules",
++  "tests/test_phase8_frontend_architecture.py::test_frontend_safety_lint_passes_for_trust_critical_modules",
++  "tests/test_phase8_frontend_architecture.py::test_outlier_bootstrap_is_small_and_loads_core_module",
++  "tests/test_phase8_frontend_architecture.py::test_outlier_modules_exist",
++  "tests/test_phase8_frontend_architecture.py::test_phase8_visual_restores_classic_outlier_shell",
++  "tests/test_phase8_frontend_architecture.py::test_safety_lint_reports_markup_assignment"
++]
+\ No newline at end of file
+diff -ruN current_phase8/PHASE8_VISUAL_RESTORE_README.md phase8_outlier_visual_restore_full/PHASE8_VISUAL_RESTORE_README.md
+--- current_phase8/PHASE8_VISUAL_RESTORE_README.md	1970-01-01 00:00:00.000000000 +0000
++++ phase8_outlier_visual_restore_full/PHASE8_VISUAL_RESTORE_README.md	2026-05-07 23:05:52.171298998 +0000
+@@ -0,0 +1,49 @@
++# Phase 8 Visual Restore — Classic Outlier Look
++
++This patch keeps the Phase 8 modular frontend architecture, but restores the previous premium Outlier visual language.
++
++## Why
++
++The first Phase 8 modular shell introduced a new visual treatment that felt too sparse and did not retain the original Outlier betting interface. This correction keeps the safer modular code path while returning to the classic Outlier UX primitives:
++
++- `outlier-app` three-column shell
++- `ob-sidebar` with Baseball Edge navigation
++- compact trust strip instead of a large dominant trust card
++- `ob-hero`, sports tabs, filter shell, category tabs
++- high-density `ob-table` board
++- sticky right matchup rail
++- green/black premium betting-board visual system
++
++## Files changed
++
++- `public/outlier-core.js`
++- `public/outlier-board.js`
++- `public/outlier-detail.js`
++- `public/outlier-ui.css`
++- `tests/test_phase8_frontend_architecture.py`
++
++## Preview
++
++```bash
++make run
++```
++
++Open:
++
++```text
++http://localhost:8765/?view=outlier
++```
++
++## Safety posture
++
++The restore does **not** bring back unsafe `innerHTML` rendering. The rebuilt classic look still uses DOM construction and `textContent` via shared helpers. The frontend safety linter passes.
++
++## Validation
++
++```bash
++node --check public/outlier-core.js
++node --check public/outlier-board.js
++node --check public/outlier-detail.js
++PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/test_phase8_frontend_architecture.py -q
++python tools/lint_frontend_safety.py --root .
++```
+diff -ruN current_phase8/public/outlier-board.js phase8_outlier_visual_restore_full/public/outlier-board.js
+--- current_phase8/public/outlier-board.js	2026-05-07 22:07:22.000000000 +0000
++++ phase8_outlier_visual_restore_full/public/outlier-board.js	2026-05-07 23:04:14.073249067 +0000
+@@ -1,4 +1,22 @@
+-import { MARKETS, button, createElement, jsonFetch, normalizeRows, propLabel, replaceChildren, rowKey, signedPercent, text, percent, formatOdds, renderStatePanel, dispatch, listen } from "/outlier-shared.js";
++import {
++  MARKETS,
++  createElement,
++  jsonFetch,
++  normalizeRows,
++  propLabel,
++  replaceChildren,
++  signedPercent,
++  text,
++  percent,
++  formatOdds,
++  dispatch,
++  listen,
++} from "/outlier-shared.js";
++
++const SPORT_TABS = ["NBA", "MLB", "Soccer", "NHL", "WNBA", "NCAAFB"];
++const CATEGORY_TABS = ["Today", "Tomorrow", "Batter Props", "Pitcher Props", "Team Props", "Saved"];
++const HIT_COLUMNS = [["L5", "L5"], ["L10", "L10"], ["L20", "L20"], ["H2H", "H2H"], ["season", "2026"], ["prevSeason", "2025"]];
++const PAGE_SIZE = 80;
+ 
+ const boardState = {
+   mounted: false,
+@@ -7,8 +25,15 @@
+   loading: false,
+   error: "",
+   market: "",
+-  sort: "edge",
+-  filters: {},
++  side: "",
++  game: "",
++  query: "",
++  categoryTab: "Today",
++  date: "",
++  nav: "Props",
++  sport: "MLB",
++  requestId: "",
++  cache: null,
+ };
+ 
+ export async function mount() {
+@@ -17,57 +42,135 @@
+   listen("outlier:view", (event) => {
+     if (event.detail.module === "board") renderBoardView(event.detail.state || {});
+   });
+-  listen("outlier:filters", (event) => {
+-    boardState.filters = event.detail || {};
+-    applyFilters();
+-    renderTable();
+-  });
+ }
+ 
+ async function renderBoardView(shellState = {}) {
+   const host = document.getElementById("outlierWorkspace");
+   if (!host) return;
++  boardState.nav = shellState.nav || boardState.nav || "Props";
++  boardState.date = shellState.date || boardState.date || todayIso();
+   replaceChildren(host, [layout()]);
+-  await loadBoard(shellState);
++  bindLocalEvents(host);
++  await loadBoard();
+ }
+ 
+ function layout() {
+-  const wrapper = createElement("section", { className: "ob-board-module" });
+-  const filters = createElement("div", { className: "ob-filter-row" }, MARKETS.map(([value, label]) => {
+-    return button(label, { className: `ob-chip${value === boardState.market ? " is-active" : ""}`, dataset: { market: value } });
+-  }));
+-  filters.addEventListener("click", (event) => {
+-    const target = event.target.closest("[data-market]");
+-    if (!target) return;
+-    boardState.market = target.dataset.market;
+-    filters.querySelectorAll(".ob-chip").forEach((chip) => chip.classList.toggle("is-active", chip === target));
+-    applyFilters();
+-    renderTable();
+-  });
+-  wrapper.append(
+-    createElement("div", { className: "ob-section-heading" }, [
+-      createElement("div", {}, [
+-        createElement("p", { className: "ob-kicker", text: "Primary board" }),
+-        createElement("h2", { text: "High-density edge board" }),
++  const wrapper = createElement("section", { className: "ob-props-module" });
++  wrapper.append(renderHero(), renderBoardShell());
++  return wrapper;
++}
++
++function renderHero() {
++  const headerTitle = boardState.nav === "Games" ? "Games" : boardState.nav === "Popular" ? "Popular Props" : boardState.nav;
++  return createElement("header", { className: "ob-hero" }, [
++    createElement("div", { className: "ob-topbar" }, [
++      createElement("div", {}, [createElement("h1", { className: "ob-title", text: headerTitle || "Props" })]),
++      createElement("div", { className: "ob-date-wrap" }, [
++        createElement("input", { className: "ob-input ob-date", type: "date", value: boardState.date || todayIso(), dataset: { control: "date" }, attrs: { "aria-label": "Board date" } }),
++        createElement("button", { className: "ob-load-button", type: "button", text: "Load Board", dataset: { action: "reload" } }),
+       ]),
+-      createElement("span", { id: "outlierBoardMeta", className: "ob-board-meta", text: "Loading" }),
+     ]),
+-    filters,
+-    createElement("div", { id: "outlierBoardTable", className: "ob-board-table" })
+-  );
+-  return wrapper;
++    createElement("div", { className: "ob-sport-row", attrs: { role: "tablist", "aria-label": "Sports" } }, SPORT_TABS.map((tab) => createElement("button", { className: `ob-tab ${boardState.sport === tab ? "is-active" : ""}`, type: "button", text: tab, dataset: { sport: tab } }))),
++    renderFilterShell(),
++    renderCategoryTabs(),
++  ]);
++}
++
++function renderFilterShell() {
++  const filterCount = activeFilterCount();
++  return createElement("div", { className: "ob-filter-shell", attrs: { "aria-label": "Prop filters" } }, [
++    createElement("div", { className: "ob-filter-left" }, [
++      createElement("button", { className: "ob-filter-button is-primary", type: "button" }, [createElement("span", { className: "ob-filter-count", text: String(filterCount) }), document.createTextNode(" Filters")]),
++      createElement("button", { className: `ob-icon-button ob-clear-filter ${filterCount ? "" : "is-hidden"}`, type: "button", text: "x", dataset: { action: "clearFilters" }, attrs: { "aria-label": "Clear filters" } }),
++      createElement("button", { className: `ob-filter-button is-saved ${boardState.categoryTab === "Saved" ? "is-active" : ""}`, type: "button", text: "Saved", dataset: { categoryTab: "Saved" } }),
++    ]),
++    createElement("div", { className: "ob-filter-controls" }, [marketSelect(), createElement("input", { className: "ob-input ob-search", type: "search", value: boardState.query, placeholder: "Players", dataset: { control: "query" }, attrs: { "aria-label": "Players" } }), gameSelect(), sideSelect()]),
++    createElement("div", { className: "ob-filter-right" }, [
++      createElement("button", { className: "ob-icon-button", type: "button", text: "Cols", dataset: { action: "columnConfig" }, attrs: { "aria-label": "Column settings" } }),
++      createElement("button", { className: "ob-icon-button ob-rail-toggle", type: "button", text: "i", dataset: { action: "toggleRail" }, attrs: { "aria-label": "Open matchup info" } }),
++      createElement("button", { className: "ob-toggle", type: "button", dataset: { action: "showAllLines" } }, [createElement("span", { text: "Show all lines" }), createElement("span", { className: "ob-toggle-dot", attrs: { "aria-hidden": "true" } })]),
++      createElement("span", { id: "obPropCount", className: "ob-rail-note", text: `${boardState.filteredRows.length}/${boardState.rows.length} Props` }),
++    ]),
++  ]);
++}
++
++function marketSelect() {
++  const select = createElement("select", { className: "ob-select", dataset: { control: "market" }, attrs: { "aria-label": "Propositions" } });
++  MARKETS.forEach(([value, label], index) => select.append(optionNode(value, index === 0 ? "Propositions" : label, boardState.market === value)));
++  return select;
++}
++
++function gameSelect() {
++  const select = createElement("select", { className: "ob-select", dataset: { control: "game" }, attrs: { "aria-label": "Games" } });
++  select.append(optionNode("", "Games", boardState.game === ""));
++  availableGames().forEach((game) => select.append(optionNode(game, game, boardState.game === game)));
++  return select;
++}
++
++function sideSelect() {
++  const select = createElement("select", { className: "ob-select", dataset: { control: "side" }, attrs: { "aria-label": "Over under" } });
++  select.append(optionNode("", "Over / Under", boardState.side === ""));
++  select.append(optionNode("over", "Over", boardState.side === "over"));
++  select.append(optionNode("under", "Under", boardState.side === "under"));
++  return select;
++}
++
++function optionNode(value, label, selected) {
++  const option = createElement("option", { text: label });
++  option.value = value;
++  option.selected = selected;
++  return option;
++}
++
++function renderCategoryTabs() {
++  return createElement("div", { className: "ob-category-tabs", attrs: { role: "tablist", "aria-label": "Prop categories" } }, CATEGORY_TABS.map((tab) => createElement("button", { className: boardState.categoryTab === tab ? "is-active" : "", type: "button", text: tab, dataset: { categoryTab: tab } })));
++}
++
++function renderBoardShell() {
++  return createElement("section", { className: "ob-board-wrap" }, [createElement("div", { className: "ob-board" }, [createElement("div", { id: "outlierBoardMeta", className: "ob-board-meta", text: "Loading board" }), createElement("div", { id: "outlierBoardTable" })])]);
++}
++
++function bindLocalEvents(host) {
++  host.onclick = (event) => {
++    const action = event.target.closest("[data-action]");
++    if (action?.dataset.action === "reload") return loadBoard();
++    if (action?.dataset.action === "clearFilters") {
++      boardState.market = ""; boardState.side = ""; boardState.game = ""; boardState.query = ""; boardState.categoryTab = "Today"; redraw(); return;
++    }
++    if (action?.dataset.action === "toggleRail") { dispatch("outlier:rail-open", {}); return; }
++    const sport = event.target.closest("[data-sport]");
++    if (sport) { boardState.sport = sport.dataset.sport === "MLB" ? "MLB" : boardState.sport; redraw(); return; }
++    const category = event.target.closest("[data-category-tab]");
++    if (category) { boardState.categoryTab = category.dataset.categoryTab || "Today"; applyFilters(); redraw(); return; }
++    const rowButton = event.target.closest("[data-row-index]");
++    if (rowButton) {
++      const row = boardState.filteredRows[Number(rowButton.dataset.rowIndex)];
++      if (row) import("/outlier-detail.js").then((module) => module.mount?.()).then(() => dispatch("outlier:open-detail", { row, index: Number(rowButton.dataset.rowIndex) }));
++    }
++  };
++
++  host.oninput = (event) => {
++    if (event.target.dataset?.control === "query") { boardState.query = event.target.value; applyFilters(); renderTable(); }
++  };
++
++  host.onchange = (event) => {
++    const control = event.target.dataset?.control;
++    if (control === "date") { boardState.date = event.target.value || todayIso(); loadBoard(); }
++    if (control === "market") { boardState.market = event.target.value; loadBoard(); }
++    if (control === "game") { boardState.game = event.target.value; applyFilters(); renderTable(); }
++    if (control === "side") { boardState.side = event.target.value; applyFilters(); renderTable(); }
++  };
+ }
+ 
+-async function loadBoard(shellState = {}) {
++async function loadBoard() {
+   const meta = document.getElementById("outlierBoardMeta");
+   const table = document.getElementById("outlierBoardTable");
+-  boardState.loading = true;
+-  boardState.error = "";
++  boardState.loading = true; boardState.error = "";
+   if (meta) meta.textContent = "Loading board";
+-  replaceChildren(table, [renderStatePanel("Loading board", "Fetching cached EdgeBoard payload.", "partial")]);
++  replaceChildren(table, [renderLoading()]);
+   try {
+     const params = new URLSearchParams();
+-    if (shellState.date) params.set("date", shellState.date);
++    if (boardState.date) params.set("date", boardState.date);
+     if (boardState.market) params.set("market", boardState.market);
+     const { payload, requestId } = await jsonFetch(`/api/edge-board${params.toString() ? `?${params}` : ""}`);
+     boardState.rows = normalizeRows(payload);
+@@ -77,21 +180,40 @@
+     renderTable();
+   } catch (error) {
+     boardState.error = text(error?.message, "Failed to load EdgeBoard.");
+-    replaceChildren(table, [renderStatePanel("Missing Data", boardState.error, "bad")]);
++    replaceChildren(table, [renderEmpty("Missing Data", boardState.error)]);
+     if (meta) meta.textContent = "Missing Data";
+-  } finally {
+-    boardState.loading = false;
+-  }
++  } finally { boardState.loading = false; }
++}
++
++function redraw() {
++  const host = document.getElementById("outlierWorkspace");
++  if (!host) return;
++  replaceChildren(host, [layout()]); bindLocalEvents(host); applyFilters(); renderTable();
+ }
+ 
+ function applyFilters() {
+-  const search = String(boardState.filters.search || "").toLowerCase().trim();
++  const query = String(boardState.query || "").toLowerCase().trim();
++  const selectedSide = String(boardState.side || "").toLowerCase();
+   boardState.filteredRows = boardState.rows.filter((row) => {
+     const marketMatch = !boardState.market || row.market === boardState.market || row.marketDisplay === boardState.market;
+-    const haystack = [row.player, row.playerName, row.team, row.opponent, row.market, row.marketDisplay].join(" ").toLowerCase();
+-    const searchMatch = !search || haystack.includes(search);
+-    return marketMatch && searchMatch;
++    const side = String(row.rawLabel || row.side || row.pickSide || "").toLowerCase();
++    const sideMatch = !selectedSide || side.includes(selectedSide);
++    const game = gameLabel(row);
++    const gameMatch = !boardState.game || game === boardState.game;
++    const haystack = [row.player, row.playerName, row.team, row.opponent, row.market, row.marketDisplay, game].join(" ").toLowerCase();
++    const searchMatch = !query || haystack.includes(query);
++    return marketMatch && sideMatch && gameMatch && searchMatch && categoryAllows(row);
+   }).sort((a, b) => Number(b.finalEdgePercent || b.edge || 0) - Number(a.finalEdgePercent || a.edge || 0));
++  dispatchBoardStats();
++}
++
++function categoryAllows(row) {
++  const market = String(row.market || "").toLowerCase();
++  if (boardState.categoryTab === "Batter Props") return market.startsWith("batter_");
++  if (boardState.categoryTab === "Pitcher Props") return market.startsWith("pitcher_");
++  if (boardState.categoryTab === "Team Props") return market.startsWith("team_");
++  if (boardState.categoryTab === "Saved") return false;
++  return true;
+ }
+ 
+ function renderTable() {
+@@ -99,55 +221,87 @@
+   const meta = document.getElementById("outlierBoardMeta");
+   if (!table) return;
+   if (!boardState.filteredRows.length) {
+-    replaceChildren(table, [renderStatePanel("No board rows", "No market rows matched the active filters. This is Missing Data, not a fallback board.", "bad")]);
+-    if (meta) meta.textContent = "0 rows";
+-    return;
++    replaceChildren(table, [renderEmpty("No props match the current filters.", "Adjust proposition, player, game, side, or saved status. This is Missing Data, not a fallback board.")]);
++    if (meta) meta.textContent = "0 MLB props";
++    updatePropCount(); return;
+   }
+-  const rows = boardState.filteredRows.slice(0, 80);
+-  const grid = createElement("div", { className: "ob-table-grid", attrs: { role: "table", "aria-label": "Outlier edge board" } });
+-  grid.append(headerRow());
+-  rows.forEach((row, index) => grid.append(dataRow(row, index)));
+-  replaceChildren(table, [grid]);
++  const rows = boardState.filteredRows.slice(0, PAGE_SIZE);
++  replaceChildren(table, [tableNode(rows)]);
+   if (meta) {
+     const cache = boardState.cache?.hit ? "cache hit" : "cache miss";
+-    meta.textContent = `${boardState.filteredRows.length} rows · ${cache}${boardState.requestId ? ` · ${boardState.requestId}` : ""}`;
++    meta.textContent = `${boardState.filteredRows.length} MLB props from EdgeBoard · ${cache}${boardState.requestId ? ` · ${boardState.requestId}` : ""}`;
+   }
++  updatePropCount();
+ }
+ 
+-function headerRow() {
+-  return createElement("div", { className: "ob-table-row ob-table-head", attrs: { role: "row" } }, [
+-    cell("Player", "head"), cell("Prop", "head"), cell("Model", "head"), cell("Implied", "head"), cell("Edge", "head"), cell("Odds", "head"), cell("Readiness", "head"),
+-  ]);
++function tableNode(rows) {
++  const wrap = createElement("div", { className: "ob-table-scroll" });
++  const table = createElement("table", { className: "ob-table", attrs: { "aria-label": "Outlier edge board" } });
++  table.append(colgroup(), thead(), tbody(rows)); wrap.append(table); return wrap;
++}
++
++function colgroup() {
++  const group = document.createElement("colgroup");
++  ["ob-col-action", "ob-col-player", "ob-col-prop", "ob-col-line", "ob-col-odds", "ob-col-ip", "ob-col-hit", "ob-col-hit", "ob-col-hit", "ob-col-hit", "ob-col-hit", "ob-col-hit"].forEach((className) => group.append(createElement("col", { className })));
++  return group;
++}
++
++function thead() {
++  const head = document.createElement("thead");
++  const row = document.createElement("tr");
++  ["", "Player", "Proposition", "Line", "Odds", "IP", ...HIT_COLUMNS.map(([, label]) => label)].forEach((label) => { const th = document.createElement("th"); th.append(createElement("span", { text: label })); row.append(th); });
++  head.append(row); return head;
++}
++
++function tbody(rows) {
++  const body = document.createElement("tbody");
++  rows.forEach((row, index) => body.append(dataRow(row, index)));
++  return body;
+ }
+ 
+ function dataRow(row, index) {
+-  const model = row.finalProbabilityPercent || row.modelProbability || row.probability;
+-  const implied = row.sportsbookImpliedPercent || row.impliedProbability;
++  const tr = createElement("tr", { dataset: { rowIndex: index }, attrs: { tabindex: "0" } });
++  tr.append(td(createElement("button", { className: "ob-plus", type: "button", text: "+", attrs: { "aria-label": "Save prop" } })), playerCell(row), propCell(row), td(createElement("div", { className: "ob-cell ob-number", text: text(row.line || row.propLine) })), oddsCell(row), td(createElement("div", { className: "ob-cell ob-ip", text: percent(row.finalProbabilityPercent || row.modelProbability || row.probability) })), ...HIT_COLUMNS.map(([key]) => hitCell(row, key)));
++  return tr;
++}
++
++function td(child, className = "") { const node = createElement("td", { className }); if (child) node.append(child); return node; }
++
++function playerCell(row) {
++  const player = text(row.player || row.playerName || row.team, "MLB");
++  const matchup = gameLabel(row) || "Matchup unavailable";
++  const pitcher = text(row.pitcher || row.probablePitcher, "Starter pending");
++  return td(createElement("div", { className: "ob-cell" }, [createElement("div", { className: "ob-player" }, [createElement("div", { className: "ob-avatar", text: initials(player) }), createElement("div", {}, [createElement("div", { className: "ob-player-name", text: player }), createElement("div", { className: "ob-player-sub", text: matchup }), createElement("div", { className: "ob-player-sub ob-player-pitcher", text: `vs ${pitcher}` })])])])) ;
++}
++
++function propCell(row) {
++  return td(createElement("div", { className: "ob-cell" }, [createElement("div", {}, [createElement("div", { className: "ob-prop-title", text: propLabel(row) }), createElement("div", { className: "ob-prop-sub", text: text(row.recommendation || row.marketDisplay || row.market, "Research only") })])])) ;
++}
++
++function oddsCell(row) {
+   const edge = row.finalEdgePercent || row.edge;
+-  const readiness = row.modelCard?.status || row.readiness || row.confidence || (row.missingData?.length ? "Research Only" : "Ready Check");
+-  const element = createElement("button", {
+-    className: `ob-table-row ob-data-row ${Number(edge) > 0 ? "is-positive" : "is-neutral"}`,
+-    type: "button",
+-    dataset: { key: rowKey(row), index },
+-    attrs: { role: "row" },
+-  }, [
+-    cell(text(row.player || row.playerName || row.team, "Unknown"), "strong"),
+-    cell(propLabel(row)),
+-    cell(percent(model)),
+-    cell(percent(implied)),
+-    cell(signedPercent(edge)),
+-    cell(formatOdds(row.americanOdds || row.odds)),
+-    cell(readiness),
+-  ]);
+-  element.addEventListener("click", () => {
+-    dispatch("outlier:prop-selected", { row, index, source: "edge-board" });
+-    import("/outlier-detail.js").then((module) => module.mount?.()).then(() => dispatch("outlier:open-detail", { row, index }));
+-  });
+-  return element;
++  const className = Number(edge) >= 5 ? "ob-edge-badge is-good" : Number(edge) >= 0 ? "ob-edge-badge is-watch" : "ob-edge-badge is-bad";
++  return td(createElement("div", { className: "ob-cell ob-odds" }, [createElement("span", { text: formatOdds(row.americanOdds || row.odds) }), createElement("span", { className, text: signedPercent(edge) })]));
+ }
+ 
+-function cell(value, kind = "cell") {
+-  return createElement("span", { className: `ob-table-cell ob-${kind}`, text: value, attrs: { role: kind === "head" ? "columnheader" : "cell" } });
++function hitCell(row, key) {
++  const value = hitWindow(row, key);
++  if (!value) return td(createElement("span", { text: "--" }), "ob-hit-cell is-empty");
++  const pct = Number(value.pct ?? value.percent ?? value.rate ?? NaN);
++  const tone = pct >= 80 ? "ob-pct--high" : pct >= 60 ? "ob-pct--mid" : "ob-pct--low";
++  return td(createElement("span", { text: percent(pct), title: `${text(value.hits, "?")} of ${text(value.total, "?")}` }), `ob-hit-cell ${tone}`);
+ }
+ 
+-export const __testHooks = { boardState, applyFilters };
++function renderLoading() { return createElement("div", { className: "ob-empty" }, [createElement("strong", { text: "Loading board" }), createElement("span", { text: "Fetching cached EdgeBoard payload." })]); }
++function renderEmpty(title, copy) { return createElement("div", { className: "ob-empty" }, [createElement("strong", { text: title }), createElement("span", { text: copy })]); }
++function activeFilterCount() { return [boardState.market, boardState.side, boardState.game, boardState.query, boardState.categoryTab !== "Today" ? boardState.categoryTab : ""].filter(Boolean).length; }
++function availableGames() { return Array.from(new Set(boardState.rows.map(gameLabel).filter(Boolean))).sort(); }
++function gameLabel(row) { const away = text(row.away || row.team, ""); const home = text(row.home || row.opponent, ""); return away && home ? `${away} @ ${home}` : text(row.game || row.matchup, ""); }
++function hitWindow(row, key) { const hitRates = row.hitRates || row.hit_rate || row.hitRate || {}; return hitRates[key] || row[key] || null; }
++function initials(value) { return text(value, "MLB").split(/\s+/).slice(0, 2).map((part) => part[0] || "").join("").toUpperCase() || "MLB"; }
++function updatePropCount() { const count = document.getElementById("obPropCount"); if (count) count.textContent = `${boardState.filteredRows.length}/${boardState.rows.length} Props`; const badge = document.querySelector(".ob-filter-count"); if (badge) badge.textContent = String(activeFilterCount()); const clear = document.querySelector(".ob-clear-filter"); if (clear) clear.classList.toggle("is-hidden", activeFilterCount() === 0); }
++function dispatchBoardStats() { const positive = boardState.filteredRows.filter((row) => Number(row.finalEdgePercent || row.edge || 0) > 0).length; const avgEdge = boardState.filteredRows.length ? boardState.filteredRows.reduce((sum, row) => sum + Number(row.finalEdgePercent || row.edge || 0), 0) / boardState.filteredRows.length : 0; dispatch("outlier:board-stats", { total: boardState.filteredRows.length, positive, avgEdge }); }
++function todayIso() { const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 10); }
++
++export const __testHooks = { boardState, applyFilters, renderTable };
++export const OUTLIER_MODULE_VERSION = "phase8-classic-visual-v1";
+diff -ruN current_phase8/public/outlier-core.js phase8_outlier_visual_restore_full/public/outlier-core.js
+--- current_phase8/public/outlier-core.js	2026-05-07 22:07:22.000000000 +0000
++++ phase8_outlier_visual_restore_full/public/outlier-core.js	2026-05-07 23:03:41.175076614 +0000
+@@ -1,4 +1,15 @@
+-import { MODULES, createElement, replaceChildren, jsonFetch, text, todayIso } from "/outlier-shared.js";
++import { createElement, replaceChildren, jsonFetch, text, todayIso, dispatch } from "/outlier-shared.js";
++
++const NAV_ITEMS = [
++  { label: "Insights", module: "model-room" },
++  { label: "Popular", module: "board" },
++  { label: "Games", module: "board" },
++  { label: "Props", module: "board" },
++  { label: "EV+", module: "board" },
++  { label: "Boosts", module: "board" },
++  { label: "Arbitrage", module: "board" },
++  { label: "Middle Bets", module: "board" },
++];
+ 
+ const moduleLoaders = {
+   board: () => import("/outlier-board.js"),
+@@ -10,109 +21,153 @@
+ 
+ const loaded = new Map();
+ const state = {
+-  activeView: "today",
++  nav: "Props",
++  activeModule: "board",
+   date: todayIso(),
+-  market: "",
+-  search: "",
+   status: null,
+   requestId: "",
++  selected: null,
++  railOpen: false,
++  boardStats: { total: 0, positive: 0, avgEdge: 0 },
+ };
+ 
+ export async function bootOutlierApp({ params } = {}) {
+   if (params?.get("view") && params.get("view") !== "outlier") return;
+   createShell();
+   bindShellEvents();
+-  await loadStatus();
+-  await activateView("today");
++  await Promise.allSettled([loadStatus(), ensureModule("detail")]);
++  await activateNav("Props");
+ }
+ 
+ function createShell() {
+-  const main = document.querySelector("main") || document.body;
+-  const shell = createElement("main", { id: "outlierApp", className: "ob-shell ob-shell-modular" });
+-  const nav = createElement("nav", { className: "ob-sidebar", attrs: { "aria-label": "Outlier navigation" } });
+-  nav.append(
++  document.body.classList.add("outlier-mode");
++  const currentMain = document.querySelector("main.app-shell") || document.querySelector("main") || document.body;
++  const root = createElement("section", { id: "outlierApp", className: "outlier-app", attrs: { "data-visual": "classic-outlier" } });
++  root.append(renderSidebar(), renderMain(), renderRightRailHost(), renderRailOverlay());
++  currentMain.replaceWith(root);
++}
++
++function renderSidebar() {
++  const sidebar = createElement("aside", { className: "ob-sidebar", attrs: { "aria-label": "Application navigation" } });
++  sidebar.append(
+     createElement("div", { className: "ob-brand" }, [
+-      createElement("span", { className: "ob-brand-mark", text: "O" }),
+-      createElement("div", {}, [
+-        createElement("strong", { text: "Outlier" }),
+-        createElement("small", { text: "MLB research desk" }),
++      createElement("div", { className: "ob-brand-lockup" }, [
++        createElement("div", { className: "ob-mark", attrs: { "aria-hidden": "true" } }),
++        createElement("div", {}, [
++          createElement("strong", { text: "Baseball Edge" }),
++          createElement("span", { text: "MLB props" }),
++        ]),
+       ]),
++      createElement("div", { className: "ob-season-chip", text: "2026" }),
+     ]),
+-    createElement("div", { className: "ob-nav-list" }, Object.entries(MODULES).map(([key, item]) => {
+-      const button = createElement("button", {
+-        className: `ob-nav-item${key === state.activeView ? " is-active" : ""}${item.devOnly ? " is-dev-only" : ""}`,
+-        type: "button",
+-        text: item.label,
+-        dataset: { view: key, module: item.module },
+-      });
+-      return button;
+-    }))
++    createElement("nav", { className: "ob-nav", attrs: { "aria-label": "Outlier sections" } }, NAV_ITEMS.map((item) => navButton(item))),
++    renderSidebarFooter()
+   );
++  return sidebar;
++}
+ 
+-  const header = createElement("header", { className: "ob-topbar" }, [
+-    createElement("div", {}, [
+-      createElement("p", { className: "ob-kicker", text: "Controlled promotion runtime" }),
+-      createElement("h1", { text: "Today’s MLB Edge Board" }),
+-    ]),
+-    createElement("div", { className: "ob-topbar-actions" }, [
+-      createElement("input", {
+-        className: "ob-input",
+-        type: "date",
+-        value: state.date,
+-        dataset: { control: "date" },
+-        attrs: { "aria-label": "Board date" },
+-      }),
+-      createElement("input", {
+-        className: "ob-input ob-input-search",
+-        type: "search",
+-        placeholder: "Search player, team, market",
+-        dataset: { control: "search" },
+-        attrs: { "aria-label": "Search board" },
+-      }),
++function navButton(item) {
++  return createElement("button", {
++    className: item.label === state.nav ? "is-active" : "",
++    type: "button",
++    dataset: { nav: item.label, module: item.module },
++    attrs: { "aria-label": item.label },
++  }, [
++    createElement("span", { className: "ob-nav-icon", attrs: { "aria-hidden": "true" } }),
++    createElement("span", { text: item.label }),
++  ]);
++}
++
++function renderSidebarFooter() {
++  const total = Number(state.boardStats.total || 0);
++  const positive = Number(state.boardStats.positive || 0);
++  const avgEdge = Number(state.boardStats.avgEdge || 0);
++  return createElement("div", { className: "ob-sidebar-footer" }, [
++    createElement("div", { className: "ob-mini-metric" }, [
++      createElement("span", { text: "Positive edges" }),
++      createElement("strong", { id: "obSidebarPositive", text: String(positive) }),
++      createElement("span", { id: "obSidebarAverage", text: `${total ? signed(avgEdge) : "+0.0%"} avg edge` }),
+     ]),
+   ]);
++}
++
++function renderMain() {
++  return createElement("main", { className: "ob-main" }, [
++    createElement("div", { id: "outlierTrustSurface", className: "ob-trust-strip", attrs: { "aria-live": "polite" } }),
++    createElement("section", { id: "outlierWorkspace", className: "ob-workspace", attrs: { "aria-live": "polite" } }),
++  ]);
++}
+ 
+-  const trust = createElement("section", { id: "outlierTrustSurface", className: "ob-trust-panel" });
+-  const workspace = createElement("section", { id: "outlierWorkspace", className: "ob-workspace", attrs: { "aria-live": "polite" } });
+-  const rail = createElement("aside", { id: "outlierDetailHost", className: "ob-detail-host" });
+-  const content = createElement("section", { className: "ob-main" }, [header, trust, workspace]);
+-  shell.append(nav, content, rail);
+-  main.replaceWith(shell);
++function renderRightRailHost() {
++  const rail = createElement("aside", { id: "outlierDetailHost", className: "ob-right-rail", attrs: { "aria-label": "Matchup rail" } });
++  rail.append(renderRailEmpty());
++  return rail;
++}
++
++function renderRailOverlay() {
++  return createElement("button", {
++    className: "ob-rail-overlay",
++    type: "button",
++    attrs: { "aria-label": "Close matchup panel" },
++    dataset: { action: "closeRail" },
++  });
++}
++
++function renderRailEmpty() {
++  return createElement("div", {}, [
++    createElement("div", { className: "ob-rail-tabs" }, [
++      createElement("button", { className: "is-active", type: "button", text: "Matchup" }),
++      createElement("button", { type: "button", text: "Trends" }),
++      createElement("button", { type: "button", text: "Model" }),
++    ]),
++    createElement("article", { className: "ob-rail-card" }, [
++      createElement("div", { className: "ob-rail-card-header" }, [
++        createElement("h3", { text: "Select a prop" }),
++        createElement("span", { text: "Research rail" }),
++      ]),
++      createElement("div", { className: "ob-rail-body" }, [
++        createElement("p", { className: "ob-pick-copy", text: "Open a board row to inspect matchup, model, and trust-context details without leaving the high-density board." }),
++      ]),
++    ]),
++  ]);
+ }
+ 
+ function bindShellEvents() {
+   document.addEventListener("click", async (event) => {
+-    const nav = event.target.closest("[data-view]");
++    const action = event.target.closest("[data-action]");
++    if (action?.dataset.action === "closeRail") {
++      closeRail();
++      return;
++    }
++
++    const nav = event.target.closest("[data-nav]");
+     if (nav) {
+-      await activateView(nav.dataset.view);
++      await activateNav(nav.dataset.nav || "Props");
+     }
+   });
+ 
+-  document.addEventListener("input", async (event) => {
+-    const control = event.target.dataset?.control;
+-    if (control === "search") {
+-      state.search = event.target.value;
+-      document.dispatchEvent(new CustomEvent("outlier:filters", { detail: { ...state } }));
+-    }
++  document.addEventListener("outlier:board-stats", (event) => {
++    state.boardStats = event.detail || state.boardStats;
++    updateSidebarStats();
+   });
+ 
+-  document.addEventListener("change", async (event) => {
+-    const control = event.target.dataset?.control;
+-    if (control === "date") {
+-      state.date = event.target.value || todayIso();
+-      document.dispatchEvent(new CustomEvent("outlier:filters", { detail: { ...state } }));
+-    }
++  document.addEventListener("outlier:rail-open", () => {
++    state.railOpen = true;
++    document.getElementById("outlierApp")?.classList.add("is-rail-open");
+   });
++
++  document.addEventListener("outlier:rail-close", closeRail);
+ }
+ 
+-async function activateView(key) {
+-  const item = MODULES[key] || MODULES.today;
+-  state.activeView = key in MODULES ? key : "today";
+-  document.querySelectorAll(".ob-nav-item").forEach((node) => {
+-    node.classList.toggle("is-active", node.dataset.view === state.activeView);
++async function activateNav(label) {
++  const item = NAV_ITEMS.find((entry) => entry.label === label) || NAV_ITEMS.find((entry) => entry.label === "Props");
++  state.nav = item.label;
++  state.activeModule = item.module;
++  document.querySelectorAll(".ob-nav button").forEach((node) => {
++    node.classList.toggle("is-active", node.dataset.nav === state.nav);
+   });
+   await ensureModule(item.module);
+-  document.dispatchEvent(new CustomEvent("outlier:view", { detail: { view: state.activeView, module: item.module, state: { ...state } } }));
++  dispatch("outlier:view", { nav: state.nav, module: item.module, state: { ...state } });
+ }
+ 
+ async function ensureModule(name) {
+@@ -130,70 +185,76 @@
+ async function loadStatus() {
+   const host = document.getElementById("outlierTrustSurface");
+   if (!host) return;
+-  host.replaceChildren(renderTrustSkeleton());
++  replaceChildren(host, [renderTrustSkeleton()]);
+   try {
+     const { payload, requestId } = await jsonFetch("/api/app/status");
+     state.status = payload;
+     state.requestId = requestId || payload?.meta?.requestId || "";
+-    host.replaceChildren(renderTrust(payload, state.requestId));
++    replaceChildren(host, [renderTrustCompact(payload, state.requestId)]);
+   } catch (error) {
+-    host.replaceChildren(renderTrustFailure(error));
++    replaceChildren(host, [renderTrustFailure(error)]);
+   }
+ }
+ 
+ function renderTrustSkeleton() {
+-  return createElement("div", { className: "ob-trust-grid" }, [
+-    createElement("div", {}, [
+-      createElement("p", { className: "ob-kicker", text: "Research Only" }),
+-      createElement("h2", { text: "Checking model readiness" }),
+-      createElement("p", { text: "The board stays research-only until app status confirms data health and readiness." }),
+-    ]),
++  return createElement("div", { className: "ob-trust-compact is-partial" }, [
++    createElement("span", { className: "ob-trust-badge", text: "Research Only" }),
++    createElement("strong", { text: "Checking model readiness" }),
++    createElement("span", { text: "Board remains research-only until data health is confirmed." }),
+   ]);
+ }
+ 
+-function renderTrust(payload, requestId) {
++function renderTrustCompact(payload, requestId) {
+   const label = text(payload?.productStateDetail?.label || payload?.productState, "Research Only");
+   const confidence = text(payload?.dataConfidence || payload?.playerboard?.dataConfidence, "Missing");
++  const grading = text(payload?.grading?.state, "not_started");
++  const boardDate = text(payload?.latestBoardDate || payload?.playerboard?.latestAvailableDate, "--");
+   const markets = Array.isArray(payload?.productionEligibleMarkets) ? payload.productionEligibleMarkets.length : 0;
+-  const panel = createElement("div", { className: `ob-trust-grid ${confidence.toLowerCase() === "good" ? "is-good" : "is-partial"}` });
+-  panel.append(
+-    createElement("div", {}, [
+-      createElement("p", { className: "ob-kicker", text: label }),
+-      createElement("h2", { text: "Trust surface is live" }),
+-      createElement("p", { text: text(payload?.productStateDetail?.message, "Treat picks as research-only unless market readiness is explicit.") }),
+-    ]),
+-    metricGroup([
+-      ["Board date", payload?.latestBoardDate || payload?.playerboard?.latestAvailableDate],
+-      ["Data confidence", confidence],
+-      ["Grading", payload?.grading?.state],
+-      ["Production markets", markets],
+-      ["Request ID", requestId || payload?.meta?.requestId],
+-    ])
+-  );
+-  return panel;
++  return createElement("div", { className: `ob-trust-compact ${confidence.toLowerCase() === "good" ? "is-good" : "is-partial"}` }, [
++    createElement("span", { className: "ob-trust-badge", text: label }),
++    createElement("strong", { text: "Trust surface live" }),
++    trustMetric("Date", boardDate),
++    trustMetric("Confidence", confidence),
++    trustMetric("Grading", grading),
++    trustMetric("Markets", String(markets)),
++    requestId ? trustMetric("Request", requestId) : null,
++  ].filter(Boolean));
++}
++
++function trustMetric(label, value) {
++  return createElement("span", { className: "ob-trust-mini" }, [
++    createElement("em", { text: label }),
++    createElement("b", { text: text(value) }),
++  ]);
+ }
+ 
+ function renderTrustFailure(error) {
+-  return createElement("div", { className: "ob-trust-grid is-bad" }, [
+-    createElement("div", {}, [
+-      createElement("p", { className: "ob-kicker", text: "Research Only" }),
+-      createElement("h2", { text: "Status unavailable" }),
+-      createElement("p", { text: text(error?.message, "Missing app-status contract. Treat all markets as research-only.") }),
+-    ]),
++  return createElement("div", { className: "ob-trust-compact is-bad" }, [
++    createElement("span", { className: "ob-trust-badge", text: "Research Only" }),
++    createElement("strong", { text: "Status unavailable" }),
++    createElement("span", { text: text(error?.message, "Missing app-status contract. Treat all markets as research-only.") }),
+   ]);
+ }
+ 
+-function metricGroup(rows) {
+-  const list = createElement("dl", { className: "ob-trust-metrics" });
+-  rows.forEach(([label, value]) => {
+-    list.append(
+-      createElement("div", {}, [
+-        createElement("dt", { text: label }),
+-        createElement("dd", { text: text(value) }),
+-      ])
+-    );
+-  });
+-  return list;
++function updateSidebarStats() {
++  const positive = document.getElementById("obSidebarPositive");
++  const avg = document.getElementById("obSidebarAverage");
++  const total = Number(state.boardStats.total || 0);
++  const positiveCount = Number(state.boardStats.positive || 0);
++  const avgEdge = Number(state.boardStats.avgEdge || 0);
++  if (positive) positive.textContent = String(positiveCount);
++  if (avg) avg.textContent = `${total ? signed(avgEdge) : "+0.0%"} avg edge`;
++}
++
++function closeRail() {
++  state.railOpen = false;
++  document.getElementById("outlierApp")?.classList.remove("is-rail-open");
++}
++
++function signed(value) {
++  const parsed = Number(value);
++  if (!Number.isFinite(parsed)) return "+0.0%";
++  return `${parsed >= 0 ? "+" : ""}${parsed.toFixed(1)}%`;
+ }
+ 
+-export const __testHooks = { moduleLoaders, loaded, state, activateView };
++export const __testHooks = { moduleLoaders, loaded, state, activateNav };
+diff -ruN current_phase8/public/outlier-detail.js phase8_outlier_visual_restore_full/public/outlier-detail.js
+--- current_phase8/public/outlier-detail.js	2026-05-07 22:07:22.000000000 +0000
++++ phase8_outlier_visual_restore_full/public/outlier-detail.js	2026-05-07 23:04:25.273578209 +0000
+@@ -1,88 +1,81 @@
+-import { createElement, dispatch, jsonFetch, propLabel, replaceChildren, text, percent, signedPercent, formatOdds, renderStatePanel, listen } from "/outlier-shared.js";
++import { createElement, replaceChildren, text, percent, signedPercent, formatOdds, propLabel, dispatch, listen } from "/outlier-shared.js";
+ 
+-let mounted = false;
+-let selectedRow = null;
++const detailState = { mounted: false, row: null };
+ 
+ export async function mount() {
+-  if (mounted) return;
+-  mounted = true;
+-  listen("outlier:open-detail", (event) => openDetail(event.detail.row));
+-  listen("outlier:prop-selected", (event) => { selectedRow = event.detail.row; });
++  if (detailState.mounted) return;
++  detailState.mounted = true;
++  listen("outlier:open-detail", (event) => {
++    detailState.row = event.detail?.row || null;
++    renderDetail(detailState.row);
++    dispatch("outlier:rail-open", {});
++  });
++  listen("outlier:rail-close", () => {
++    detailState.row = null;
++    renderDetail(null);
++  });
+ }
+ 
+-async function openDetail(row) {
+-  selectedRow = row;
++function renderDetail(row) {
+   const host = document.getElementById("outlierDetailHost");
+   if (!host) return;
+-  host.classList.add("is-open");
+-  replaceChildren(host, [detailShell(row, renderStatePanel("Loading prop detail", "Reusing cached EdgeBoard row before requesting extra context.", "partial"))]);
+-  try {
+-    const params = new URLSearchParams();
+-    const player = row.player || row.playerName;
+-    if (player) params.set("player", player);
+-    if (row.market) params.set("market", row.market);
+-    if (row.line) params.set("line", row.line);
+-    if (row.rawLabel || row.side) params.set("side", row.rawLabel || row.side);
+-    const { payload, requestId } = await jsonFetch(`/api/prop-detail?${params}`);
+-    replaceChildren(host, [detailShell(row, renderDetail(payload, requestId))]);
+-  } catch (error) {
+-    replaceChildren(host, [detailShell(row, renderStatePanel("Detail unavailable", text(error?.message, "Missing prop detail data."), "bad"))]);
+-  }
++  replaceChildren(host, [row ? detailPanel(row) : emptyPanel()]);
+ }
+ 
+-function detailShell(row, body) {
+-  const close = createElement("button", { className: "ob-detail-close", type: "button", text: "×", attrs: { "aria-label": "Close detail" } });
+-  close.addEventListener("click", () => {
+-    const host = document.getElementById("outlierDetailHost");
+-    if (host) {
+-      host.classList.remove("is-open");
+-      host.replaceChildren();
+-    }
+-    dispatch("outlier:detail-closed", { row: selectedRow });
+-  });
+-  return createElement("section", { className: "ob-detail-panel" }, [
+-    createElement("div", { className: "ob-detail-header" }, [
+-      createElement("div", {}, [
+-        createElement("p", { className: "ob-kicker", text: "Prop Detail" }),
+-        createElement("h2", { text: text(row.player || row.playerName || row.team, "Selected prop") }),
+-        createElement("p", { text: propLabel(row) }),
+-      ]),
+-      close,
++function emptyPanel() {
++  return createElement("div", {}, [
++    railTabs(),
++    createElement("article", { className: "ob-rail-card" }, [
++      createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "Select a prop" }), createElement("span", { text: "Research rail" })]),
++      createElement("div", { className: "ob-rail-body" }, [createElement("p", { className: "ob-pick-copy", text: "Click any board row to inspect matchup, model probability, implied price, and data-readiness context." })]),
+     ]),
+-    body,
+   ]);
+ }
+ 
+-function renderDetail(payload, requestId) {
+-  const detail = payload?.detail || payload?.propDetail || payload || {};
+-  const source = detail?.source || payload?.source || {};
+-  return createElement("div", { className: "ob-detail-body" }, [
+-    metricCards([
+-      ["Model", percent(detail.finalProbabilityPercent || detail.modelProbability)],
+-      ["Implied", percent(detail.sportsbookImpliedPercent || detail.impliedProbability)],
+-      ["Edge", signedPercent(detail.finalEdgePercent || detail.edge)],
+-      ["Odds", formatOdds(detail.americanOdds || detail.odds)],
+-    ]),
+-    createElement("section", { className: "ob-detail-copy" }, [
+-      createElement("h3", { text: "Readiness" }),
+-      createElement("p", { text: text(detail.modelCard?.status || detail.readiness || detail.confidence, "Research Only") }),
+-      createElement("p", { text: text(detail.modelCard?.message || detail.reason || "No silent fallback: missing model-card context remains research-only.") }),
++function detailPanel(row) {
++  const player = text(row.player || row.playerName || row.team, "MLB");
++  return createElement("div", {}, [
++    railTabs(),
++    createElement("article", { className: "ob-rail-card" }, [
++      createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: player }), createElement("span", { text: text(row.team || row.away || "MLB") })]),
++      createElement("div", { className: "ob-rail-body" }, [
++        createElement("p", { className: "ob-pick-title", text: propLabel(row) }),
++        createElement("p", { className: "ob-pick-copy", text: matchupCopy(row) }),
++        metricGrid([["Model", percent(row.finalProbabilityPercent || row.modelProbability || row.probability)], ["Implied", percent(row.sportsbookImpliedPercent || row.impliedProbability)], ["Edge", signedPercent(row.finalEdgePercent || row.edge)], ["Odds", formatOdds(row.americanOdds || row.odds)], ["Line", text(row.line || row.propLine)], ["Trust", readiness(row)]]),
++      ]),
+     ]),
+-    metricCards([
+-      ["Detail source", text(source.modelCardSource || "edge_board_row")],
+-      ["Board cache", source.boardCache?.hit ? "hit" : "miss/unknown"],
+-      ["Request ID", requestId || payload?.meta?.requestId],
++    createElement("article", { className: "ob-rail-card" }, [
++      createElement("div", { className: "ob-rail-card-header" }, [createElement("h3", { text: "No silent fallback" }), createElement("span", { text: "Trust" })]),
++      createElement("div", { className: "ob-rail-body" }, [createElement("p", { className: "ob-pick-copy", text: readinessCopy(row) })]),
+     ]),
+   ]);
+ }
+ 
+-function metricCards(rows) {
+-  return createElement("dl", { className: "ob-metric-cards" }, rows.map(([label, value]) => {
+-    return createElement("div", { className: "ob-metric-card" }, [
+-      createElement("dt", { text: label }),
+-      createElement("dd", { text: text(value) }),
+-    ]);
+-  }));
++function railTabs() {
++  return createElement("div", { className: "ob-rail-tabs" }, [createElement("button", { className: "is-active", type: "button", text: "Matchup" }), createElement("button", { type: "button", text: "Trends" }), createElement("button", { type: "button", text: "Model" })]);
++}
++
++function metricGrid(rows) {
++  return createElement("div", { className: "ob-rail-metrics" }, rows.map(([label, value]) => createElement("div", { className: "ob-rail-metric" }, [createElement("span", { text: label }), createElement("strong", { text: value })])));
++}
++
++function matchupCopy(row) {
++  const away = text(row.away || row.team, "");
++  const home = text(row.home || row.opponent, "");
++  const pitcher = text(row.pitcher || row.probablePitcher, "Starter pending");
++  const matchup = away && home ? `${away} @ ${home}` : text(row.game || row.matchup, "Matchup unavailable");
++  return `${matchup} · vs ${pitcher}`;
++}
++
++function readiness(row) {
++  return text(row.modelCard?.status || row.readiness || row.confidence || (Array.isArray(row.missingData) && row.missingData.length ? "Research Only" : "Ready Check"));
++}
++
++function readinessCopy(row) {
++  if (Array.isArray(row.missingData) && row.missingData.length) {
++    return `Missing Data: ${row.missingData.map((item) => text(item, "")).filter(Boolean).join(", ")}`;
++  }
++  return "Model and data-readiness values are shown explicitly. Missing readiness should be treated as Research Only, not as a generic fallback.";
+ }
+ 
+-export const __testHooks = { detailShell, renderDetail };
++export const __testHooks = { detailState, renderDetail };
+diff -ruN current_phase8/public/outlier-ui.css phase8_outlier_visual_restore_full/public/outlier-ui.css
+--- current_phase8/public/outlier-ui.css	2026-05-07 22:07:22.000000000 +0000
++++ phase8_outlier_visual_restore_full/public/outlier-ui.css	2026-05-07 23:04:45.063270744 +0000
+@@ -2932,54 +2932,29 @@
+   }
+ }
+ 
+-/* Phase 8 modular Outlier shell additions. These classes intentionally layer on top of
+-   the existing premium visual language without forcing a full visual rewrite. */
+-.ob-shell-modular { min-height: 100vh; display: grid; grid-template-columns: 260px minmax(0, 1fr) minmax(0, 420px); gap: 18px; padding: 18px; background: radial-gradient(circle at top left, rgba(24,217,156,.12), transparent 34%), #060912; color: #f7fafc; }
+-.ob-shell-error { padding: 32px; background: #060912; color: #f7fafc; }
+-.ob-sidebar, .ob-main, .ob-detail-host { border: 1px solid rgba(255,255,255,.08); background: rgba(9,13,26,.78); border-radius: 24px; box-shadow: 0 24px 80px rgba(0,0,0,.35); }
+-.ob-sidebar { padding: 18px; position: sticky; top: 18px; height: calc(100vh - 36px); }
+-.ob-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+-.ob-brand-mark { width: 38px; height: 38px; display: inline-grid; place-items: center; border-radius: 14px; background: linear-gradient(135deg, #18d99c, #8b5cf6); color: #071014; font-weight: 900; }
+-.ob-brand small, .ob-kicker { color: rgba(247,250,252,.62); text-transform: uppercase; letter-spacing: .14em; font-size: 11px; }
+-.ob-nav-list { display: grid; gap: 8px; }
+-.ob-nav-item, .ob-chip, .ob-data-row, .ob-detail-close { cursor: pointer; border: 0; }
+-.ob-nav-item { width: 100%; text-align: left; border-radius: 16px; padding: 12px 14px; background: transparent; color: rgba(247,250,252,.72); }
+-.ob-nav-item.is-active { background: rgba(24,217,156,.12); color: #fff; box-shadow: inset 0 0 0 1px rgba(24,217,156,.35); }
+-.ob-nav-item.is-dev-only { opacity: .76; }
+-.ob-main { padding: 18px; min-width: 0; }
+-.ob-topbar { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-bottom: 16px; }
+-.ob-topbar h1, .ob-section-heading h2, .ob-detail-header h2 { margin: 4px 0 0; }
+-.ob-topbar-actions, .ob-filter-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+-.ob-input { border: 1px solid rgba(255,255,255,.1); border-radius: 14px; padding: 10px 12px; color: #f7fafc; background: rgba(255,255,255,.06); }
+-.ob-input-search { min-width: 260px; }
+-.ob-trust-panel, .ob-board-module, .ob-picks-module, .ob-model-room, .ob-admin-module { margin-top: 14px; }
+-.ob-trust-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 16px; border-radius: 22px; padding: 16px; border: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.045); }
+-.ob-trust-grid.is-good { border-color: rgba(24,217,156,.34); }
+-.ob-trust-grid.is-bad, .ob-state-bad { border-color: rgba(248,113,113,.42); }
+-.ob-trust-metrics, .ob-metric-cards, .ob-mini-dl { display: grid; gap: 10px; margin: 0; }
+-.ob-trust-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+-.ob-trust-metrics div, .ob-metric-card, .ob-model-card, .ob-pick-card, .ob-health-summary { border-radius: 18px; padding: 12px; background: rgba(0,0,0,.22); border: 1px solid rgba(255,255,255,.07); }
+-.ob-trust-metrics dt, .ob-metric-card dt, .ob-mini-dl dt { color: rgba(247,250,252,.58); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+-.ob-trust-metrics dd, .ob-metric-card dd, .ob-mini-dl dd { margin: 4px 0 0; font-weight: 750; }
+-.ob-section-heading { display: flex; justify-content: space-between; align-items: end; gap: 12px; margin-bottom: 14px; }
+-.ob-board-meta { color: rgba(247,250,252,.58); font-size: 12px; }
+-.ob-chip { padding: 9px 12px; border-radius: 999px; background: rgba(255,255,255,.055); color: rgba(247,250,252,.76); }
+-.ob-chip.is-active { background: rgba(24,217,156,.16); color: #fff; box-shadow: inset 0 0 0 1px rgba(24,217,156,.32); }
+-.ob-table-grid { display: grid; gap: 6px; }
+-.ob-table-row { display: grid; grid-template-columns: 1.35fr 1.4fr .7fr .7fr .65fr .55fr .9fr; gap: 10px; align-items: center; width: 100%; border-radius: 16px; padding: 11px 12px; color: #f7fafc; }
+-.ob-table-head { background: rgba(255,255,255,.04); color: rgba(247,250,252,.58); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+-.ob-data-row { text-align: left; background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.055); }
+-.ob-data-row:hover { background: rgba(24,217,156,.075); }
+-.ob-data-row.is-positive .ob-table-cell:nth-child(5) { color: #18d99c; }
+-.ob-state { border: 1px solid rgba(255,255,255,.08); border-radius: 22px; padding: 18px; background: rgba(255,255,255,.04); }
+-.ob-detail-host { display: none; padding: 0; overflow: hidden; }
+-.ob-detail-host.is-open { display: block; }
+-.ob-detail-panel { padding: 16px; }
+-.ob-detail-header { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 14px; }
+-.ob-detail-close { width: 36px; height: 36px; border-radius: 50%; color: #fff; background: rgba(255,255,255,.08); font-size: 22px; }
+-.ob-metric-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 14px; }
+-.ob-model-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+-.ob-pick-list { display: grid; gap: 10px; }
+-.ob-admin-list { display: grid; gap: 8px; color: rgba(247,250,252,.74); }
+-@media (max-width: 1180px) { .ob-shell-modular { grid-template-columns: 1fr; } .ob-sidebar { position: static; height: auto; } .ob-detail-host { min-height: 0; } }
+-@media (max-width: 760px) { .ob-topbar, .ob-section-heading, .ob-trust-grid { display: block; } .ob-table-row { grid-template-columns: 1fr; } .ob-table-head { display: none; } .ob-input-search { min-width: 0; width: 100%; } }
++/* Phase 8 visual correction: keep the modular code path, but restore the
++   original Outlier visual language. These rules are intentionally scoped to
++   body.outlier-mode and the classic .outlier-app shell. */
++body.outlier-mode #outlierTrustSurface.ob-trust-strip { margin: 0 0 12px; }
++body.outlier-mode .ob-trust-compact { display: flex; align-items: center; gap: 10px; min-height: 42px; overflow-x: auto; border: 1px solid var(--ob-line-soft); border-radius: var(--ob-radius); padding: 9px 11px; color: #d9e3df; background: linear-gradient(90deg, rgba(24, 217, 156, 0.09), rgba(255,255,255,0.025)); scrollbar-width: none; }
++body.outlier-mode .ob-trust-compact::-webkit-scrollbar { display: none; }
++body.outlier-mode .ob-trust-compact.is-bad { background: linear-gradient(90deg, rgba(255, 107, 107, 0.11), rgba(255,255,255,0.025)); }
++body.outlier-mode .ob-trust-compact strong { flex: 0 0 auto; color: var(--ob-text); font-size: 0.78rem; font-weight: 950; }
++body.outlier-mode .ob-trust-compact > span:not(.ob-trust-badge):not(.ob-trust-mini) { color: var(--ob-muted); font-size: 0.73rem; font-weight: 760; }
++body.outlier-mode .ob-trust-badge { flex: 0 0 auto; border: 1px solid rgba(24, 217, 156, 0.34); border-radius: 999px; padding: 5px 8px; color: var(--ob-green); background: rgba(24, 217, 156, 0.09); font-size: 0.66rem; font-weight: 950; letter-spacing: 0.08em; text-transform: uppercase; }
++body.outlier-mode .ob-trust-compact.is-bad .ob-trust-badge { border-color: rgba(255, 107, 107, 0.38); color: var(--ob-red); background: rgba(255, 107, 107, 0.09); }
++body.outlier-mode .ob-trust-mini { display: inline-flex; flex: 0 0 auto; align-items: baseline; gap: 5px; border-left: 1px solid rgba(255,255,255,0.07); padding-left: 10px; font-size: 0.72rem; }
++body.outlier-mode .ob-trust-mini em { color: var(--ob-dim); font-style: normal; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase; }
++body.outlier-mode .ob-trust-mini b { max-width: 128px; overflow: hidden; color: var(--ob-text); font-weight: 950; text-overflow: ellipsis; white-space: nowrap; }
++body.outlier-mode .ob-props-module { display: block; }
++body.outlier-mode .ob-workspace { min-width: 0; }
++body.outlier-mode .ob-board-wrap { padding-bottom: 18px; }
++body.outlier-mode .ob-table tbody tr[tabindex] { cursor: pointer; }
++body.outlier-mode .ob-table tbody tr[tabindex]:focus-visible { outline: 2px solid rgba(24, 217, 156, 0.5); outline-offset: -2px; }
++body.outlier-mode .ob-pct--high span, body.outlier-mode .ob-hit-cell.ob-pct--high span { color: #07110e; background: var(--ob-green); }
++body.outlier-mode .ob-pct--mid span, body.outlier-mode .ob-hit-cell.ob-pct--mid span { color: #1d1706; background: var(--ob-amber); }
++body.outlier-mode .ob-pct--low span, body.outlier-mode .ob-hit-cell.ob-pct--low span { color: #f8fbfa; background: #3a403e; }
++body.outlier-mode .ob-right-rail .ob-rail-card:first-of-type { margin-top: 0; }
++body.outlier-mode .ob-rail-overlay { display: none; }
++@media (max-width: 1280px) { body.outlier-mode .outlier-app.is-rail-open .ob-rail-overlay { display: block; position: fixed; inset: 0; z-index: 90; border: 0; padding: 0; background: rgba(0, 0, 0, 0.42); } }
++@media (max-width: 760px) { body.outlier-mode .ob-trust-compact { align-items: flex-start; flex-direction: column; } body.outlier-mode .ob-trust-mini { border-left: 0; padding-left: 0; } }
+Binary files current_phase8/tests/__pycache__/test_phase8_frontend_architecture.cpython-313-pytest-9.0.2.pyc and phase8_outlier_visual_restore_full/tests/__pycache__/test_phase8_frontend_architecture.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN current_phase8/tests/test_phase8_frontend_architecture.py phase8_outlier_visual_restore_full/tests/test_phase8_frontend_architecture.py
+--- current_phase8/tests/test_phase8_frontend_architecture.py	2026-05-07 22:21:22.000000000 +0000
++++ phase8_outlier_visual_restore_full/tests/test_phase8_frontend_architecture.py	2026-05-07 23:04:52.069977826 +0000
+@@ -48,13 +48,15 @@
+     assert 'picks: () => import("/outlier-picks.js")' in source
+     assert '"model-room": () => import("/outlier-model-room.js")' in source
+     assert 'admin: () => import("/outlier-admin.js")' in source
+-    assert 'await activateView("today")' in source
++    assert 'await activateNav("Props")' in source
++    assert 'className: "ob-sidebar"' in source
++    assert 'className: "ob-right-rail"' in source
+ 
+ 
+ def test_board_module_loads_detail_only_after_row_selection() -> None:
+     source = read("outlier-board.js")
+     assert 'import("/outlier-detail.js")' in source
+-    assert "addEventListener(\"click\"" in source
++    assert "host.onclick" in source
+     assert "outlier:open-detail" in source
+ 
+ 
+@@ -80,3 +82,16 @@
+     findings = linter.scan(tmp_path, ["public/outlier-*.js"])
+     assert findings
+     assert findings[0].kind == "unsafe_markup_assignment"
++
++
++def test_phase8_visual_restores_classic_outlier_shell() -> None:
++    core = read("outlier-core.js")
++    board = read("outlier-board.js")
++    css = read("outlier-ui.css")
++    assert 'className: "outlier-app"' in core
++    assert 'Baseball Edge' in core
++    assert 'className: "ob-hero"' in board
++    assert 'className: "ob-filter-shell"' in board
++    assert 'className: "ob-table"' in board
++    assert 'ob-shell-modular' not in core
++    assert 'ob-shell-modular' not in css
+Binary files current_phase8/tools/__pycache__/lint_frontend_safety.cpython-313.pyc and phase8_outlier_visual_restore_full/tools/__pycache__/lint_frontend_safety.cpython-313.pyc differ

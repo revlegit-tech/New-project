@@ -1,0 +1,90 @@
+{
+  "checkedAt": "2026-05-07T16:45:00Z",
+  "dataConfidence": "Stale",
+  "generatedAt": "2026-05-07T16:45:00Z",
+  "grading": {
+    "backtestRowsForDate": 12,
+    "date": "2026-05-06",
+    "gradedBacktestRowsForDate": 12,
+    "gradedMlRowsForDate": 8,
+    "latestFullyGradedDate": "2026-05-06",
+    "mlRowsForDate": 8,
+    "ok": true,
+    "state": "graded"
+  },
+  "latestBoardDate": "2026-05-06",
+  "latestFullyGradedDate": "2026-05-06",
+  "meta": {
+    "generatedAt": "2026-05-07T16:45:00Z",
+    "requestId": "fixture-request",
+    "route": "/api/app/status",
+    "schema": "app-status-v1"
+  },
+  "modelPolicy": {
+    "genericFallbackAllowed": false,
+    "minimumTrainingRows": 200,
+    "requiresExactMarketArtifact": true
+  },
+  "ok": false,
+  "playerboard": {
+    "badShiftedRows": 0,
+    "dataConfidence": "Stale",
+    "date": "2026-05-06",
+    "latestAvailableDate": "2026-05-06",
+    "latestSnapshotAt": "2026-05-06T23:59:00Z",
+    "missingMarketDisplayRows": 0,
+    "ok": false,
+    "rowsLoaded": 128,
+    "totalRowsInFile": 128
+  },
+  "productState": "research_mode",
+  "productStateDetail": {
+    "allowedDecisionLabels": [
+      "No bet",
+      "Watchlist",
+      "Model lean"
+    ],
+    "generatedAt": "2026-05-07T21:46:16.306677+00:00",
+    "label": "Research Mode",
+    "message": "Board freshness is stale.",
+    "productState": "research_mode",
+    "researchMode": true,
+    "severity": "warning",
+    "state": "research_mode"
+  },
+  "productionEligibleMarkets": [
+    "batter_hits"
+  ],
+  "researchMode": true,
+  "season": 2026,
+  "status": "ok",
+  "trainedMarkets": [
+    "batter_hits",
+    "pitcher_strikeouts"
+  ],
+  "warnings": [
+    "Board file is older than expected.",
+    "Playerboard needs attention."
+  ],
+  "workflows": {
+    "dailyGrading": {
+      "checkedAt": "2026-05-07T16:40:00Z",
+      "date": "2026-05-07",
+      "exists": true,
+      "ok": true
+    },
+    "dailyHealth": {
+      "checkedAt": "2026-05-07T16:35:00Z",
+      "date": "2026-05-07",
+      "exists": true,
+      "ok": true
+    },
+    "ok": true,
+    "weeklyRepair": {
+      "checkedAt": "2026-05-04T09:00:00Z",
+      "date": "2026-05-04",
+      "exists": true,
+      "ok": true
+    }
+  }
+}

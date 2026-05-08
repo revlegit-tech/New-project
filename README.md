@@ -2,15 +2,39 @@
 
 A lightweight local app for predicting baseball props using aggregate batting, pitching, batting-against, and team context CSVs.
 
-## Run
+## Run the production app
 
-```powershell
-python app.py
+`mlb_app/` is the canonical runtime. The legacy root `app.py` entrypoint has been retired and is not shipped in the Phase 10 production tree.
+
+Local development:
+
+```bash
+make run
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
 
-The app automatically loads ` if it exists. You can also upload more CSVs from the browser.
+Production-style WSGI/Gunicorn runtime:
+
+```bash
+make serve
+```
+
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
+
+Experimental ASGI comparison runtime:
+
+```bash
+make serve-asgi
+```
+
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
+
+Modular Outlier UI preview:
+
+```text
+http://127.0.0.1:8765/?view=outlier
+```
 
 ## Batch MLB Prop Analyzer
 
@@ -104,19 +128,19 @@ Baseball Reference season pages are supported for URL imports, including comment
 
 ## Python Setup
 
-Use Python 3.12 if possible. The app currently uses only the Python standard library, so setup is intentionally small:
+Use Python 3.12 if possible. Install project requirements before running the canonical server:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python app.py
+make run
 ```
 
 Run the smoke tests with:
 
 ```powershell
-python -m unittest discover -s tests
+make smoke
 ```
 
 ## GitHub Setup
@@ -162,7 +186,7 @@ GITHUB_REPOSITORY=your-username/your-repo
 Restart the app after changing `.env`:
 
 ```powershell
-python app.py 8765
+make run
 ```
 
 In the browser, enter a repo like `octocat/Hello-World` or your own `username/repo` in the GitHub API panel and click `Check Repo`.
@@ -182,7 +206,7 @@ python -m pip install -r requirements.txt
 Then restart:
 
 ```powershell
-python app.py 8765
+make run
 ```
 
 Use the `MLB StatsAPI` panel to look up a player by name and season. The backend endpoint is:
@@ -332,3 +356,30 @@ Because the original batting CSV does not include game-by-game opponents or oppo
 ## CSV Columns
 
 The parser expects common batting columns such as `Player`, `Team`, `G`, `PA`, `AB`, `H`, `BB`, `SO`, `BA`, `OBP`, `SLG`, and `OPS`.
+
+---
+
+## P2 Developer Workflow
+
+`mlb_app/` is now the only runtime shipped in the production tree. Historical endpoint mapping lives in `docs/endpoint-triage/`.
+
+Recommended checks:
+
+```bash
+make security
+make lint
+make typecheck
+make test
+make test-contracts
+make safe-export
+```
+
+UI smoke tests are available with Playwright:
+
+```bash
+npm install
+npm run install:browsers
+make test-ui
+```
+
+See `docs/DEVELOPER_GUIDE.md`, `docs/API_CONTRACTS.md`, `docs/DATA_SCHEMAS.md`, and `docs/RELEASE_CHECKLIST.md` for the production workflow.

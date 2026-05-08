@@ -12,6 +12,17 @@ env/
 .env.*
 !.env.example
 
+# Strict local secret hygiene
+.env
+.env.*
+*.env
+!.env.example
+.en
+*.key
+*.pem
+secrets.*
+*.secret
+
 # Runtime logs
 *.log
 *.err.log
@@ -145,3 +156,27 @@ data/cache/oddspapi/historical_game_markets_pregame_latest_*_season*.csv
 # Generated team/game market model artifacts
 models/team_game_markets/
 data/ml/team_game_markets_model_summary_*.json
+
+# Safe export / generated artifacts
+dist/
+logs/
+screenshots/
+tmp/
+tmp*/
+tmpl*/
+data/cache/
+data/warehouse/
+data/models/
+!data/models/model_registry.example.json
+
+# P2 developer tooling outputs
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+node_modules/
+playwright-report/
+test-results/
+reports/

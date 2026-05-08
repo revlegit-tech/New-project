@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const MARKETS = [
     ["batter_hits", "Batter Hits"],
     ["batter_hits_alt", "Batter Hits Ladder"],
@@ -1376,6 +1376,37 @@
             Min Edge %
             <input id="topPlayerboardMinEdge" type="number" step="0.5" value="0" />
           </label>
+          <label>
+            Search
+            <input id="topPlayerboardSearch" type="search" placeholder="Player, team, market" autocomplete="off" />
+          </label>
+          <label>
+            Team
+            <input id="topPlayerboardTeam" type="search" placeholder="Any team" autocomplete="off" maxlength="3" />
+          </label>
+          <label>
+            Book
+            <input id="topPlayerboardBook" type="search" placeholder="Any book" autocomplete="off" />
+          </label>
+          <label>
+            Readiness
+            <select id="topPlayerboardReadiness">
+              <option value="">All readiness</option>
+              <option value="production">Production-ready</option>
+              <option value="experimental">Experimental / candidate</option>
+              <option value="research">Research only</option>
+              <option value="not_ready">No model / not ready</option>
+            </select>
+          </label>
+          <label>
+            Confidence
+            <select id="topPlayerboardConfidence">
+              <option value="">All confidence</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low / research</option>
+            </select>
+          </label>
         </div>
 
         <div id="topPlayerboardStatus" class="muse-status">Board has not loaded yet.</div>
@@ -1420,6 +1451,20 @@
       topPlayerboardPage = 1;
       renderTopPlayerboardPage();
     }, 150));
+
+    ["#topPlayerboardSearch", "#topPlayerboardTeam", "#topPlayerboardBook"].forEach((selector) => {
+      $(selector)?.addEventListener("input", debounce(() => {
+        topPlayerboardPage = 1;
+        renderTopPlayerboardPage();
+      }, 150));
+    });
+
+    ["#topPlayerboardReadiness", "#topPlayerboardConfidence", "#topPlayerboardMarket"].forEach((selector) => {
+      $(selector)?.addEventListener("change", () => {
+        topPlayerboardPage = 1;
+        renderTopPlayerboardPage();
+      });
+    });
 
     $("#topPlayerboardResults")?.addEventListener("click", (event) => {
       if (event.target.closest("[data-playerboard-prev]")) {
@@ -2241,10 +2286,10 @@
     const sorted = [...rows];
 
     sorted.sort((a, b) => {
-      const edgeA = numericValue(a.finalEdgePercent);
-      const edgeB = numericValue(b.finalEdgePercent);
-      const probA = numericValue(a.finalProbabilityPercent);
-      const probB = numericValue(b.finalProbabilityPercent);
+      const edgeA = numericValue(a.edgePercent || a.finalEdgePercent);
+      const edgeB = numericValue(b.edgePercent || b.finalEdgePercent);
+      const probA = numericValue(a.modelProbabilityPercent || a.finalProbabilityPercent);
+      const probB = numericValue(b.modelProbabilityPercent || b.finalProbabilityPercent);
 
       if (sortMode === "prob_desc") return probB - probA;
       if (sortMode === "prob_asc") return probA - probB;
@@ -2259,9 +2304,41 @@
   function currentPlayerboardRows() {
     const minEdge = Number($("#topPlayerboardMinEdge")?.value || 0);
     const sortMode = $("#topPlayerboardSort")?.value || "edge_desc";
+    const search = clean($("#topPlayerboardSearch")?.value).toLowerCase();
+    const team = clean($("#topPlayerboardTeam")?.value).toLowerCase();
+    const book = clean($("#topPlayerboardBook")?.value).toLowerCase();
+    const readiness = clean($("#topPlayerboardReadiness")?.value).toLowerCase();
+    const confidence = clean($("#topPlayerboardConfidence")?.value).toLowerCase();
+    const selectedMarket = clean($("#topPlayerboardMarket")?.value).toLowerCase();
 
     const filtered = topPlayerboardRows.filter((row) => {
-      return Number(row.finalEdgePercent || 0) >= minEdge;
+      const edgeValue = row.edgePercent || row.finalEdgePercent || 0;
+      const haystack = [row.player, row.team, row.opponent, row.market, row.marketDisplay, row.book, row.decisionLabel]
+        .map((value) => clean(value).toLowerCase())
+        .join(" ");
+      const rowTeam = clean(row.team).toLowerCase();
+      const rowOpponent = clean(row.opponent).toLowerCase();
+      const rowBook = clean(row.book).toLowerCase();
+      const rowReadiness = `${clean(row.readinessLabel)} ${clean(row.productionStatus)}`.toLowerCase();
+      const rowConfidence = clean(row.confidence).toLowerCase();
+      const rowMarket = clean(row.market).toLowerCase();
+
+      if (Number(edgeValue || 0) < minEdge) return false;
+      if (selectedMarket && rowMarket !== selectedMarket) return false;
+      if (search && !haystack.includes(search)) return false;
+      if (team && !rowTeam.includes(team) && !rowOpponent.includes(team)) return false;
+      if (book && !rowBook.includes(book)) return false;
+      if (readiness) {
+        if (readiness === "production" && !row.canShowConfidentPick && !rowReadiness.includes("production")) return false;
+        if (readiness === "experimental" && !rowReadiness.includes("experimental") && !rowReadiness.includes("candidate")) return false;
+        if (readiness === "research" && !rowReadiness.includes("research")) return false;
+        if (readiness === "not_ready" && !rowReadiness.includes("not") && !rowReadiness.includes("missing") && !rowReadiness.includes("disabled")) return false;
+      }
+      if (confidence) {
+        if (confidence === "low" && !rowConfidence.includes("low") && !rowConfidence.includes("research")) return false;
+        if (confidence !== "low" && !rowConfidence.includes(confidence)) return false;
+      }
+      return true;
     });
 
     return sortPlayerboardRows(filtered, sortMode);
@@ -2335,10 +2412,42 @@
     button.textContent = "Saving...";
 
     try {
-      const payload = await getJson(`/api/predictions/save?${new URLSearchParams(form).toString()}`, { method: "POST" });
-      setStatus(`Tracked pick: ${form.player} (${payload.predictionId}).`);
+      let payload;
+      if (window.MlbMyPicks?.createPickFromButton) {
+        button.disabled = false;
+        payload = await window.MlbMyPicks.createPickFromButton(button);
+      } else {
+        payload = await getJson("/api/my-picks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            date: form.date,
+            player: form.player,
+            market: form.market,
+            team: form.team,
+            opponent: form.opponent,
+            line: form.line,
+            americanOdds: form.american_odds,
+            book: button.dataset.book || "Best available",
+            decisionLabel: button.dataset.decision || "Watchlist",
+            readinessLabel: button.dataset.readiness || "Research only",
+            confidence: button.dataset.confidence || "Research",
+            modelProbabilityPercent: button.dataset.probability || "",
+            impliedProbabilityPercent: button.dataset.implied || "",
+            edgePercent: button.dataset.edge || "",
+            latestGradedDate: button.dataset.latestGraded || "",
+            suggestedStake: button.dataset.suggestedStake || "Research only",
+            source: "edge_board",
+            status: "Watching",
+            stakeUnits: 0,
+          }),
+        });
+      }
+      const pickId = payload.pick?.id || payload.predictionId || "saved";
+      setStatus(`Tracked pick: ${form.player} (${pickId}).`);
       button.textContent = "Tracked";
       button.classList.add("is-tracked");
+      document.dispatchEvent(new CustomEvent("my-picks:changed", { detail: payload }));
     } catch (error) {
       console.error(error);
       setStatus(`Track failed: ${error.message}`);
@@ -2374,10 +2483,10 @@
       if (resultBox) resultBox.innerHTML = "";
 
       const board = await getJson(
-        `/api/playerboard?season=2026&date=${encodeURIComponent(date)}&market=${encodeURIComponent(market)}&limit=500&buildIfMissing=1`
+        `/api/edge-board?season=2026&date=${encodeURIComponent(date)}&market=${encodeURIComponent(market)}&limit=500&buildIfMissing=1`
       );
 
-      topPlayerboardRows = board.top || [];
+      topPlayerboardRows = board.rows || board.top || [];
       topPlayerboardPage = 1;
       topPlayerboardMeta = board;
 
@@ -2389,7 +2498,10 @@
         const rows = currentPlayerboardRows();
         const endLabel = Math.min(PLAYERBOARD_PAGE_SIZE, rows.length);
         const emptyText = !rows.length && board.message ? ` ${board.message}` : "";
-        statusBox.textContent = `Showing ${rows.length ? 1 : 0}-${endLabel} of ${rows.length} props from ${board.cardsBuilt || 0} ranked props.${cacheText}${savedText}${emptyText}`;
+        const source = board.source || {};
+        const trust = board.trust || {};
+        const confidence = board.dataConfidence ? ` Data confidence: ${board.dataConfidence}.` : "";
+        statusBox.textContent = `Showing ${rows.length ? 1 : 0}-${endLabel} of ${rows.length} props from ${source.cardsBuilt || board.cardsBuilt || 0} ranked props. ${trust.banner || "Research Mode"}.${confidence}${cacheText}${savedText}${emptyText}`;
       }
     } catch (error) {
       console.error(error);
@@ -2430,7 +2542,7 @@
 
   function renderPlayerboardTable(rows) {
     if (!rows || !rows.length) {
-      return `<div class="muse-empty-mini">No ranked props found for this date/market yet. Check that PropLine odds were saved for the date.</div>`;
+      return `<div class="muse-empty-mini">No ranked props found for this date/market/filter set yet. Check saved odds, data health, or relax readiness and edge filters.</div>`;
     }
 
     const edgeClass = (value) => {
@@ -2447,43 +2559,72 @@
       return "conf low";
     };
 
+    const decisionClass = (value) => {
+      const text = String(value || "").toLowerCase();
+      if (text.includes("potential")) return "decision-positive";
+      if (text.includes("lean")) return "decision-lean";
+      if (text.includes("watch")) return "decision-watch";
+      return "decision-muted";
+    };
+
     return `
-      <div class="muse-playerboard-card-list">
+      <div class="muse-playerboard-card-list edge-board-card-list">
         ${rows.map((row, index) => {
           const marketText = playerboardMarketLabel(row);
-          const recText = row.recommendation || "";
+          const decision = row.decisionLabel || "No bet";
+          const readiness = row.readinessLabel || "Research only";
+          const reasons = Array.isArray(row.reasons) && row.reasons.length ? row.reasons : [row.recommendation || "Model-ranked opportunity from saved board."];
+          const warnings = Array.isArray(row.trustWarnings) ? row.trustWarnings : [];
           const matchup = [row.team, row.opponent].filter(Boolean).join(" vs ");
+          const gameMeta = [matchup, row.gameTime].filter(Boolean).join(" · ");
           const pitcherText = row.pitcher ? `Pitcher: ${row.pitcher}` : "";
-          const subLine = [matchup, pitcherText].filter(Boolean).join(" ? ");
+          const subLine = [gameMeta, pitcherText].filter(Boolean).join(" · ");
           const lineText = clean(row.line);
           const oddsText = clean(row.americanOdds);
-          const rank = index + 1;
+          const edgeValue = row.edgePercent || row.finalEdgePercent;
+          const probabilityValue = row.modelProbabilityPercent || row.finalProbabilityPercent;
+          const impliedValue = row.impliedProbabilityPercent;
+          const rank = row.rank || index + 1;
 
           return `
-            <article class="muse-playerboard-pick-card ${rank <= 3 ? "top-three" : ""}">
+            <article class="muse-playerboard-pick-card edge-board-pick-card ${rank <= 3 ? "top-three" : ""}">
               <div class="pb-rank">#${rank}</div>
 
               <div class="pb-card-main">
                 <div class="pb-card-title-row">
-                  <div class="pb-card-title" title="${escapeHtml(row.player)}">${escapeHtml(row.player)}</div>
+                  <span class="edge-decision-badge ${decisionClass(decision)}">${escapeHtml(decision)}</span>
+                  <span class="edge-readiness-badge">${escapeHtml(readiness)}</span>
+                </div>
+
+                <div class="pb-card-title-row edge-title-row">
+                  <div class="pb-card-title" title="${escapeHtml(row.player)}">${escapeHtml(row.player || "Unknown player")}</div>
                   <div class="pb-card-subtitle">${escapeHtml(subLine || "Matchup unavailable")}</div>
                 </div>
 
                 <div class="pb-card-market" title="${escapeHtml(marketText)}">
-                  ${escapeHtml(marketText)} <span>? Line ${escapeHtml(lineText || "--")}</span>
+                  ${escapeHtml(marketText)} <span>· Line ${escapeHtml(lineText || "--")} · ${escapeHtml(row.book || "Best available")}</span>
                 </div>
 
-                <div class="pb-card-read" title="${escapeHtml(recText)}">
-                  ${escapeHtml(recText || "Model-ranked opportunity from saved PropLine board.")}
-                </div>
+                <ul class="edge-board-reasons">
+                  ${reasons.slice(0, 3).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
+                </ul>
+
+                ${warnings.length ? `<div class="edge-warning-line">${escapeHtml(warnings[0])}${warnings.length > 1 ? ` +${warnings.length - 1} more warning${warnings.length > 2 ? "s" : ""}` : ""}</div>` : ""}
               </div>
 
               <div class="pb-card-right">
                 <div class="pb-card-metrics">
-                  <span class="pb-pill prob" title="Model probability">${escapeHtml(row.finalProbabilityPercent)}%</span>
-                  <span class="pb-pill ${edgeClass(row.finalEdgePercent)}" title="Model edge">${signed(row.finalEdgePercent)}</span>
-                  <span class="pb-pill ${confidenceClass(row.confidence)}" title="Confidence">${escapeHtml(row.confidence || "--")}</span>
+                  <span class="pb-pill prob" title="Model probability">${escapeHtml(probabilityValue || "--")}%</span>
+                  <span class="pb-pill ${edgeClass(edgeValue)}" title="Model edge">${signed(edgeValue)}</span>
+                  <span class="pb-pill conf ${confidenceClass(row.confidence).replace("conf ", "")}" title="Confidence">${escapeHtml(row.confidence || "Research")}</span>
                   <span class="pb-pill odds" title="American odds">${escapeHtml(oddsText || "--")}</span>
+                  ${impliedValue ? `<span class="pb-pill implied" title="Book implied probability">${escapeHtml(impliedValue)}% implied</span>` : ""}
+                </div>
+
+                <div class="edge-board-trust-mini">
+                  <span>${escapeHtml(row.trainingRows || 0)} training rows</span>
+                  <span>${escapeHtml(row.latestGradedDate || "No graded slate")}</span>
+                  <span>${escapeHtml(row.suggestedStake || "Research only")}</span>
                 </div>
 
                 <div class="pb-card-actions">
@@ -2492,7 +2633,7 @@
                     data-market="${escapeHtml(row.market)}"
                     data-team="${escapeHtml(row.team)}"
                     data-opponent="${escapeHtml(row.opponent)}"
-                    data-pitcher="${escapeHtml(row.pitcher || "")}"
+                    data-pitcher="${escapeHtml(row.pitcher || "") }"
                     data-line="${escapeHtml(row.line)}"
                     data-odds="${escapeHtml(row.americanOdds)}">
                     Use
@@ -2502,11 +2643,37 @@
                     data-market="${escapeHtml(row.market)}"
                     data-team="${escapeHtml(row.team)}"
                     data-opponent="${escapeHtml(row.opponent)}"
-                    data-pitcher="${escapeHtml(row.pitcher || "")}"
+                    data-pitcher="${escapeHtml(row.pitcher || "") }"
                     data-line="${escapeHtml(row.line)}"
-                    data-odds="${escapeHtml(row.americanOdds)}">
+                    data-odds="${escapeHtml(row.americanOdds)}"
+                    data-book="${escapeHtml(row.book)}"
+                    data-market-display="${escapeHtml(marketText)}"
+                    data-decision="${escapeHtml(decision)}"
+                    data-readiness="${escapeHtml(readiness)}"
+                    data-confidence="${escapeHtml(row.confidence || "Research") }"
+                    data-probability="${escapeHtml(probabilityValue || "") }"
+                    data-implied="${escapeHtml(impliedValue || "") }"
+                    data-edge="${escapeHtml(edgeValue || "") }"
+                    data-latest-graded="${escapeHtml(row.latestGradedDate || "") }"
+                    data-suggested-stake="${escapeHtml(row.suggestedStake || "Research only") }">
                     Track
                   </button>
+                  <button type="button" class="ghost-button" data-prop-detail-open
+                    data-prop-id="${escapeHtml(row.id || "") }"
+                    data-date="${escapeHtml(row.date || "") }"
+                    data-player="${escapeHtml(row.player)}"
+                    data-market="${escapeHtml(row.market)}"
+                    data-team="${escapeHtml(row.team)}"
+                    data-opponent="${escapeHtml(row.opponent)}"
+                    data-line="${escapeHtml(row.line)}"
+                    data-odds="${escapeHtml(row.americanOdds)}"
+                    data-book="${escapeHtml(row.book)}"
+                    data-decision="${escapeHtml(decision)}"
+                    data-readiness="${escapeHtml(readiness)}"
+                    data-confidence="${escapeHtml(row.confidence || "Research") }">
+                    Detail
+                  </button>
+                  <button type="button" class="ghost-button" data-model-card-open="${escapeHtml(row.market)}">Model Card</button>
                 </div>
               </div>
             </article>
