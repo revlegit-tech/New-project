@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Hashable, Iterable
 
+from mlb_app.observability.metrics import MetricsRegistry
+
 DependencyPath = str | Path
 BoardBuilder = Callable[[], dict[str, Any]]
 
@@ -68,9 +70,18 @@ class BoardCache:
     are updated on disk.
     """
 
-    def __init__(self, *, ttl_seconds: float = 30.0, now: Callable[[], float] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        ttl_seconds: float = 30.0,
+        max_keys: int = 256,
+        now: Callable[[], float] | None = None,
+        metrics: MetricsRegistry | None = None,
+    ) -> None:
         self.ttl_seconds = float(ttl_seconds)
+        self.max_keys = max(1, int(max_keys))
         self._now = now or time.monotonic
+        self._metrics = metrics
         self._lock = threading.RLock()
         self._key_locks: dict[Hashable, threading.RLock] = {}
         self._entries: dict[Hashable, BoardCacheEntry] = {}
@@ -79,6 +90,9 @@ class BoardCache:
         self._sets = 0
         self._builds = 0
         self._invalidations = 0
+        self._evictions = 0
+        with self._lock:
+            self._emit_cache_size_metrics_locked()
 
     def get(self, key: Hashable, *, dependency_paths: Iterable[DependencyPath] = ()) -> BoardCacheBuildResult | None:
         """Return a cached payload if TTL and dependency signatures are still valid."""
@@ -89,20 +103,30 @@ class BoardCache:
             entry = self._entries.get(key)
             if entry is None:
                 self._misses += 1
+                self._increment_metric("board_cache_misses_total")
+                self._emit_cache_size_metrics_locked()
                 return None
             if entry.age_seconds(now) > entry.ttl_seconds:
                 self._entries.pop(key, None)
+                self._key_locks.pop(key, None)
                 self._misses += 1
                 self._invalidations += 1
+                self._increment_metric("board_cache_misses_total")
+                self._emit_cache_size_metrics_locked()
                 return None
             if entry.signatures != signatures:
                 self._entries.pop(key, None)
+                self._key_locks.pop(key, None)
                 self._misses += 1
                 self._invalidations += 1
+                self._increment_metric("board_cache_misses_total")
+                self._emit_cache_size_metrics_locked()
                 return None
             entry.hits += 1
             entry.last_hit_at = now
             self._hits += 1
+            self._increment_metric("board_cache_hits_total")
+            self._emit_cache_size_metrics_locked()
             return BoardCacheBuildResult(
                 payload=copy.deepcopy(entry.payload),
                 hit=True,
@@ -135,6 +159,8 @@ class BoardCache:
         with self._lock:
             self._entries[key] = entry
             self._sets += 1
+            self._evict_overflow_locked()
+            self._emit_cache_size_metrics_locked()
         return BoardCacheBuildResult(
             payload=copy.deepcopy(payload),
             hit=False,
@@ -181,10 +207,13 @@ class BoardCache:
             if key is None:
                 removed = len(self._entries)
                 self._entries.clear()
+                self._key_locks.clear()
             else:
                 removed = 1 if key in self._entries else 0
                 self._entries.pop(key, None)
+                self._key_locks.pop(key, None)
             self._invalidations += removed
+            self._emit_cache_size_metrics_locked()
 
     def status(self) -> dict[str, Any]:
         """Return dev/debug-safe cache state without embedding full payloads."""
@@ -216,12 +245,15 @@ class BoardCache:
                 )
             return {
                 "ttlSeconds": self.ttl_seconds,
+                "maxKeys": self.max_keys,
                 "entryCount": len(self._entries),
+                "keyLockCount": len(self._key_locks),
                 "hits": self._hits,
                 "misses": self._misses,
                 "sets": self._sets,
                 "builds": self._builds,
                 "invalidations": self._invalidations,
+                "evictions": self._evictions,
                 "entries": entries,
             }
 
@@ -232,6 +264,31 @@ class BoardCache:
                 lock = threading.RLock()
                 self._key_locks[key] = lock
             return lock
+
+    def _evict_overflow_locked(self) -> None:
+        while len(self._entries) > self.max_keys:
+            victim_key = min(
+                self._entries,
+                key=lambda key: (
+                    self._entries[key].last_hit_at or self._entries[key].created_at,
+                    self._entries[key].created_at,
+                ),
+            )
+            self._entries.pop(victim_key, None)
+            self._key_locks.pop(victim_key, None)
+            self._evictions += 1
+            self._increment_metric("board_cache_evictions_total")
+
+    def _emit_cache_size_metrics_locked(self) -> None:
+        if self._metrics is None:
+            return
+        self._metrics.set("board_cache_entries", len(self._entries))
+        self._metrics.set("board_cache_key_locks", len(self._key_locks))
+
+    def _increment_metric(self, name: str, value: float = 1.0) -> None:
+        if self._metrics is None:
+            return
+        self._metrics.increment(name, value)
 
     @staticmethod
     def _signatures(paths: Iterable[DependencyPath]) -> tuple[FileSignature, ...]:

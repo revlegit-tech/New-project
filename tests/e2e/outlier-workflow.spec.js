@@ -49,7 +49,7 @@ const rows = [
 async function mockApis(page, overrides = {}) {
   let exposure = { activePickCount: 0, totalStakeUnits: 0, warnings: [] };
   await page.route('**/api/app/status', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(overrides.status || statusPayload) }));
-  await page.route('**/api/edge-board**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', rows, source: { label: 'mock EdgeBoard' }, filters: {}, summary: {} }) }));
+  await page.route('**/api/edge-board**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', rows: overrides.rows || rows, source: { label: 'mock EdgeBoard' }, filters: {}, summary: {} }) }));
   await page.route('**/api/exposure/summary', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', exposure }) }));
   await page.route('**/api/my-picks', async (route) => {
     if (route.request().method() === 'POST') {
@@ -61,6 +61,44 @@ async function mockApis(page, overrides = {}) {
     }
   });
 }
+
+
+test('production shell uses fingerprinted Vite assets instead of raw legacy outlier files', async ({ page, request }) => {
+  const response = await request.get('/');
+  expect(response.ok()).toBeTruthy();
+  const html = await response.text();
+  expect(html).toMatch(/\/assets\/outlier-[A-Za-z0-9_-]+\.js/);
+  expect(html).not.toContain('/src/outlier/main.ts');
+  expect(html).not.toContain('/outlier-board.js');
+  expect(html).not.toContain('/outlier-detail.js');
+
+  const requestedPaths = [];
+  page.on('request', (req) => requestedPaths.push(new URL(req.url()).pathname));
+  await mockApis(page);
+  await page.goto('/');
+  await expect(page.locator('#outlierApp')).toBeVisible();
+  expect(requestedPaths.some((path) => /^\/assets\/outlier-[A-Za-z0-9_-]+\.js$/.test(path))).toBeTruthy();
+  expect(requestedPaths).not.toContain('/outlier-board.js');
+  expect(requestedPaths).not.toContain('/outlier-detail.js');
+});
+
+test('board renders a virtualized DOM window for large slates', async ({ page }) => {
+  const manyRows = Array.from({ length: 1200 }, (_, index) => ({
+    ...rows[index % rows.length],
+    id: `row-${index}`,
+    player: `Virtual Player ${index}`,
+    finalEdgePercent: (index % 30) - 10,
+  }));
+  await mockApis(page, { rows: manyRows });
+  await page.goto('/');
+  await expect(page.locator('#boardHost')).toContainText('Virtual Player 0');
+  await expect(page.locator('#boardMeta')).toContainText('rendering rows');
+  const renderedRows = await page.locator('#boardHost tbody tr[data-row-index]').count();
+  expect(renderedRows).toBeGreaterThan(0);
+  expect(renderedRows).toBeLessThan(120);
+  await page.locator('#boardHost').evaluate((node) => { node.scrollTop = 58 * 500; node.dispatchEvent(new Event('scroll')); });
+  await expect(page.locator('#boardHost')).toContainText('Virtual Player 500');
+});
 
 test('Outlier board loads, filters rows, and opens detail rail', async ({ page }) => {
   await mockApis(page);

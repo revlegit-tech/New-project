@@ -18,12 +18,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements/dev.lock.txt
-      - name: Run source-only safety and WSGI smoke tests
+      - name: Run source-only safety and ASGI smoke tests
         run: |
           make smoke
       - name: Boot canonical Gunicorn runtime
         run: |
-          gunicorn mlb_app.wsgi:application --workers 2 --bind 127.0.0.1:8765 --timeout 30 --access-logfile - > /tmp/mlb_app_gunicorn.log 2>&1 &
+          GUNICORN_WORKERS=2 GUNICORN_BIND=127.0.0.1:8765 GUNICORN_TIMEOUT=30 gunicorn --config config/gunicorn.asgi.conf.py -k uvicorn.workers.UvicornWorker mlb_app.asgi:app > /tmp/mlb_app_gunicorn.log 2>&1 &
           echo $! > /tmp/mlb_app_gunicorn.pid
           python - <<'PY'
           import socket, time

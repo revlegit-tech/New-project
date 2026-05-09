@@ -1,0 +1,1 @@
+{"version":3,"file":"legacy-BLAdKrDB.js","sources":["../../frontend/src/legacy/main.ts"],"sourcesContent":["import \"../shared/styles/tokens.css\";\n\ndocument.documentElement.dataset.runtimeUi = \"legacy\";\nconsole.info(\"Legacy operations UI loaded. Outlier production UI is served from /.\");\n"],"names":[],"mappings":"6BAEA,SAAS,gBAAgB,QAAQ,UAAY,SAC7C,QAAQ,KAAK,sEAAsE"}

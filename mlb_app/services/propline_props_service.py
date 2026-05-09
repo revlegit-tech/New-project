@@ -170,7 +170,7 @@ def sync_propline_props(request: PropLineSyncRequest) -> dict[str, Any]:
     markets = tuple(market.strip() for market in request.markets if str(market).strip()) or tuple(PROPLINE_MARKETS)
 
     try:
-        from propline_value_client import get_events, get_event_player_props, value_client_status
+        from mlb_app.integrations.propline.client import get_events, get_event_player_props, value_client_status
     except Exception as error:  # pragma: no cover - import environment dependent
         raise PropLineSyncError(f"Could not import PropLine client helpers: {error}") from error
 
@@ -265,3 +265,15 @@ def sync_propline_props(request: PropLineSyncRequest) -> dict[str, Any]:
         "eventsPreview": event_summaries[:20],
         "tokenGuard": token_guard,
     }
+
+
+class ProplinePropsService:
+    """Application-scoped service wrapper for PropLine admin syncs.
+
+    The sync implementation remains a module function for CLI compatibility,
+    but native FastAPI routes depend on this class through AppContainer so the
+    production request path has one dependency-injection story.
+    """
+
+    def sync(self, request: PropLineSyncRequest) -> dict[str, Any]:
+        return sync_propline_props(request)

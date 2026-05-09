@@ -10,16 +10,16 @@ Local development:
 make run
 ```
 
-Production-style WSGI/Gunicorn runtime:
+Production ASGI/Gunicorn runtime:
 
 ```bash
 make serve
 ```
 
-Experimental ASGI comparison runtime:
+Local ASGI developer runtime:
 
 ```bash
-make serve-asgi
+make serve-asgi-local
 ```
 
 Live smoke check against a running server:
@@ -60,12 +60,12 @@ http://127.0.0.1:8765/api/data-health/dashboard
 
 ## Production boundary
 
-`mlb_app/` is now the only shipped application runtime. The root legacy entrypoint has no Makefile target, no Docker entrypoint, and no CI smoke path.
+`mlb_app/` is now the only shipped application boundary. Production enters through `mlb_app.asgi:app`; the root legacy entrypoint has no Makefile target, no Docker entrypoint, and no CI smoke path.
 
 Historical endpoint mapping remains in `docs/endpoint-triage/` for auditability. New product behavior must land in:
 
 ```text
-mlb_app/routes/
+mlb_app/api/routes/
 mlb_app/services/
 mlb_app/repositories/
 mlb_app/schemas/

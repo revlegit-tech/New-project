@@ -34,6 +34,7 @@ class MetricsRegistry:
         self._lock = threading.RLock()
         self._counters: dict[tuple[str, LabelPairs], float] = defaultdict(float)
         self._histograms: dict[tuple[str, LabelPairs], deque[float]] = defaultdict(lambda: deque(maxlen=self.max_samples_per_series))
+        self._gauges: dict[tuple[str, LabelPairs], float] = {}
 
     def increment(self, name: str, value: float = 1.0, *, labels: dict[str, Any] | None = None) -> None:
         key = (str(name), _labels(labels))
@@ -44,6 +45,13 @@ class MetricsRegistry:
         key = (str(name), _labels(labels))
         with self._lock:
             self._histograms[key].append(float(value))
+
+    def set(self, name: str, value: float, *, labels: dict[str, Any] | None = None) -> None:
+        """Set the latest value for a gauge-like metric series."""
+
+        key = (str(name), _labels(labels))
+        with self._lock:
+            self._gauges[key] = float(value)
 
     def timer(self, name: str, *, labels: dict[str, Any] | None = None) -> "MetricsTimer":
         return MetricsTimer(self, name, dict(labels or {}), now=self._now)
@@ -58,12 +66,17 @@ class MetricsRegistry:
                 _histogram_snapshot(name, labels, values)
                 for (name, labels), values in sorted(self._histograms.items(), key=lambda item: (item[0][0], item[0][1]))
             ]
-        return {"status": "ok", "counters": counters, "histograms": histograms}
+            gauges = [
+                {"name": name, "labels": dict(labels), "value": value}
+                for (name, labels), value in sorted(self._gauges.items(), key=lambda item: (item[0][0], item[0][1]))
+            ]
+        return {"status": "ok", "counters": counters, "histograms": histograms, "gauges": gauges}
 
     def reset(self) -> None:
         with self._lock:
             self._counters.clear()
             self._histograms.clear()
+            self._gauges.clear()
 
 
 class MetricsTimer:

@@ -4,6 +4,18 @@
 
 A lightweight local app for predicting baseball props using aggregate batting, pitching, batting-against, and team context CSVs.
 
+## Production runtime truth
+
+`mlb_app.asgi:app` is the canonical production entrypoint. The production process manager should run FastAPI through Gunicorn with Uvicorn workers:
+
+```bash
+gunicorn --config config/gunicorn.asgi.conf.py -k uvicorn.workers.UvicornWorker mlb_app.asgi:app
+```
+
+`make serve` runs that command. `make serve-wsgi-legacy` is compatibility-only and must not be used for production traffic.
+
+Sprint 7 production hardening is configured through environment variables: enforce CSP with `MLB_CSP_REPORT_ONLY=0`, keep `MLB_CSP_ALLOW_INLINE=0`, set read/admin rate limits, and configure `MLB_TRUSTED_PROXY_CIDRS` to the actual proxy CIDRs. See `docs/security/SPRINT7_PRODUCTION_SECURITY.md`.
+
 ## Run the production app
 
 `mlb_app/` is the canonical runtime. The legacy root `app.py` entrypoint has been retired and is not shipped in the Phase 10 production tree.
@@ -16,7 +28,7 @@ make run
 
 Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
 
-Production-style WSGI/Gunicorn runtime:
+Production ASGI/Gunicorn runtime:
 
 ```bash
 make serve
@@ -24,10 +36,10 @@ make serve
 
 Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
 
-Experimental ASGI comparison runtime:
+Local ASGI developer runtime:
 
 ```bash
-make serve-asgi
+make serve-asgi-local
 ```
 
 Open [http://127.0.0.1:8765](http://127.0.0.1:8765).

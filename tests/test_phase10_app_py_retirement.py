@@ -15,14 +15,16 @@ def test_makefile_has_no_legacy_runtime_target() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert "run-legacy" not in makefile
     assert "python app.py" not in makefile
-    assert "mlb_app.wsgi:application" in makefile
+    assert "serve-wsgi-legacy" in makefile
     assert "mlb_app.asgi:app" in makefile
+    assert "-k uvicorn.workers.UvicornWorker" in makefile
 
 
-def test_dockerfile_uses_mlb_app_wsgi() -> None:
+def test_dockerfile_uses_mlb_app_asgi() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "app.py" not in dockerfile
-    assert "mlb_app.wsgi:application" in dockerfile
+    assert "mlb_app.asgi:app" in dockerfile
+    assert "uvicorn.workers.UvicornWorker" in dockerfile
 
 
 def test_runtime_retirement_validator_passes() -> None:

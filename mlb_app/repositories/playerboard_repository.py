@@ -27,6 +27,10 @@ class PlayerboardReadResult:
     rows: list[dict[str, Any]]
     total_rows: int
     schema_version: str = PLAYERBOARD_SCHEMA_VERSION
+    source: str = "csv"
+    snapshot_ids: tuple[str, ...] = ()
+    snapshot_at: str = ""
+    selected_date: str = ""
 
 
 class PlayerboardRepository:

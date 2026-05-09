@@ -35,7 +35,8 @@ def test_native_health_and_security_headers(tmp_path: Path) -> None:
     assert response.headers["X-Request-Id"] == "native-health"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "DENY"
-    assert "Content-Security-Policy-Report-Only" in response.headers
+    assert "Content-Security-Policy" in response.headers
+    assert "Content-Security-Policy-Report-Only" not in response.headers
 
 
 def test_native_route_precedes_legacy_gateway(tmp_path: Path) -> None:

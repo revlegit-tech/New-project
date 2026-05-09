@@ -11,9 +11,17 @@ const NAV_ITEMS = [
   { label: "Middle Bets", module: "board" },
 ];
 
+const viteBoardRedirect = () => ({
+  mount: async () => {
+    if (window.location.pathname !== "/") window.location.assign("/");
+  },
+});
+
+const inertDetailModule = () => ({ mount: async () => undefined, openRow: () => undefined });
+
 const moduleLoaders = {
-  board: () => import("/outlier-board.js"),
-  detail: () => import("/outlier-detail.js"),
+  board: async () => viteBoardRedirect(),
+  detail: async () => inertDetailModule(),
   picks: () => import("/outlier-picks.js"),
   "model-room": () => import("/outlier-model-room.js"),
   admin: () => import("/outlier-admin.js"),

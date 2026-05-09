@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from http import HTTPStatus
 from typing import Any
@@ -8,11 +8,15 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
-from mlb_app.api.middleware import RequestMetadataMiddleware, SecurityHeadersMiddleware
-from mlb_app.api.routes import edge_board, health, model_cards, observability, picks, playerboard, predictions, prop_detail, status
+from mlb_app.api.middleware import ReadRateLimitMiddleware, RequestMetadataMiddleware, SecurityHeadersMiddleware
+from mlb_app.api.routes import admin, data_health, edge_board, health, model_cards, observability, picks, playerboard, predictions, prop_detail, status, workflow
 from mlb_app.container import AppContainer, build_container
+from mlb_app.api.route_ownership import NATIVE_OWNED_ROUTES
 from mlb_app.http import ApiError, error_payload
 from mlb_app.security.mutation import MutationSecurityError
+from mlb_app.security.trusted_proxy import effective_client_ip_from_request
+
+logger = logging.getLogger(__name__)
 
 LegacyDispatch = Callable[..., tuple[int, list[tuple[str, str]], bytes]]
 StaticHandler = Callable[[str, str], tuple[int, list[tuple[str, str]], bytes]]
@@ -23,7 +27,8 @@ def create_app(
     container: AppContainer | None = None,
     legacy_dispatch: LegacyDispatch | None = None,
     static_handler: StaticHandler | None = None,
-    csp_report_only: bool = True,
+    csp_report_only: bool | None = None,
+    csp_allow_inline: bool | None = None,
 ) -> FastAPI:
     """Create the native FastAPI application for Sprint 4.
 
@@ -37,7 +42,13 @@ def create_app(
     app.state.legacy_dispatch = legacy_dispatch
     app.state.static_handler = static_handler
 
-    app.add_middleware(SecurityHeadersMiddleware, csp_report_only=csp_report_only)
+    active_settings = app.state.container.settings
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        csp_report_only=active_settings.csp_report_only if csp_report_only is None else csp_report_only,
+        csp_allow_inline=active_settings.csp_allow_inline if csp_allow_inline is None else csp_allow_inline,
+    )
+    app.add_middleware(ReadRateLimitMiddleware)
     app.add_middleware(RequestMetadataMiddleware)
 
     app.add_exception_handler(ApiError, _api_error_handler)
@@ -46,6 +57,9 @@ def create_app(
 
     app.include_router(health.router)
     app.include_router(status.router)
+    app.include_router(admin.router)
+    app.include_router(data_health.router)
+    app.include_router(workflow.router)
     app.include_router(edge_board.router)
     app.include_router(playerboard.router)
     app.include_router(prop_detail.router)
@@ -68,15 +82,31 @@ def _install_legacy_api_gateway(app: FastAPI, legacy_dispatch: LegacyDispatch) -
         headers = _headers_from_request(request)
         body_bytes = await request.body()
         request_id = str(getattr(request.state, "request_id", "") or headers.get("X-Request-Id") or "")
-        status, response_headers, response_body = await asyncio.to_thread(
+        method = request.method.upper()
+        if (method, path) in NATIVE_OWNED_ROUTES:
+            logger.error(
+                "native_owned_route_reached_legacy_gateway",
+                extra={"route": path, "method": method, "request_id": request_id},
+            )
+            return JSONResponse(
+                {"status": "error", "code": "route_owner_violation", "message": "Route is FastAPI-owned and cannot be served by legacy fallback.", "requestId": request_id},
+                status_code=int(HTTPStatus.INTERNAL_SERVER_ERROR),
+            )
+        logger.warning(
+            "legacy_api_gateway_used",
+            extra={"route": path, "method": method, "request_id": request_id},
+        )
+        limiter = app.state.container.blocking_work_limiter
+        status, response_headers, response_body = await limiter.run(
             legacy_dispatch,
-            method=request.method.upper(),
+            method=method,
             path=path,
             query_string=request.url.query,
             headers=headers,
             body_bytes=body_bytes,
             request_id=request_id,
             client_ip=_client_ip(request),
+            route_name="legacy_api_gateway",
         )
         response_header_dict = {key: value for key, value in response_headers if key.lower() != "content-length"}
         media_type = response_header_dict.pop("Content-Type", "application/json; charset=utf-8")
@@ -88,7 +118,13 @@ def _install_static_gateway(app: FastAPI, static_handler: StaticHandler) -> None
     async def static_gateway(static_path: str, request: Request) -> Response:
         path = "/" if not static_path else f"/{static_path}"
         request_id = str(getattr(request.state, "request_id", "") or request.headers.get("x-request-id") or "")
-        status, response_headers, response_body = await asyncio.to_thread(static_handler, path, request_id)
+        limiter = app.state.container.blocking_work_limiter
+        status, response_headers, response_body = await limiter.run(
+            static_handler,
+            path,
+            request_id,
+            route_name="static_gateway",
+        )
         response_header_dict = {key: value for key, value in response_headers if key.lower() != "content-length"}
         media_type = response_header_dict.pop("Content-Type", "application/octet-stream")
         return Response(
@@ -99,20 +135,33 @@ def _install_static_gateway(app: FastAPI, static_handler: StaticHandler) -> None
         )
 
 
-async def _api_error_handler(_: Request, error: ApiError) -> JSONResponse:
+async def _api_error_handler(request: Request, error: ApiError) -> JSONResponse:
     payload, status_code = error_payload(error)
+    _standardize_error_payload(payload, request)
     return JSONResponse(payload, status_code=status_code)
 
 
-async def _mutation_error_handler(_: Request, error: MutationSecurityError) -> JSONResponse:
+async def _mutation_error_handler(request: Request, error: MutationSecurityError) -> JSONResponse:
     payload, status_code = error_payload(error)
+    _standardize_error_payload(payload, request)
     headers = {"Retry-After": str(error.retry_after)} if error.retry_after is not None else None
     return JSONResponse(payload, status_code=status_code, headers=headers)
 
 
-async def _unexpected_error_handler(_: Request, error: Exception) -> JSONResponse:
+async def _unexpected_error_handler(request: Request, error: Exception) -> JSONResponse:
     payload, status_code = error_payload(error)
+    _standardize_error_payload(payload, request)
+    logger.exception(
+        "unhandled_native_api_error",
+        extra={"request_id": payload.get("requestId"), "path": request.url.path, "method": request.method},
+    )
     return JSONResponse(payload, status_code=status_code)
+
+
+def _standardize_error_payload(payload: dict[str, Any], request: Request) -> None:
+    payload.setdefault("message", str(payload.get("error") or "Request failed"))
+    payload.setdefault("requestId", str(getattr(request.state, "request_id", "") or request.headers.get("x-request-id") or ""))
+    payload.setdefault("meta", {})
 
 
 def _headers_from_request(request: Request) -> dict[str, str]:
@@ -120,12 +169,9 @@ def _headers_from_request(request: Request) -> dict[str, str]:
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",", 1)[0].strip() or "unknown"
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+    existing = getattr(request.state, "effective_client_ip", None)
+    if existing:
+        return str(existing)
+    container = getattr(request.app.state, "container", None)
+    trusted_proxy_cidrs = getattr(getattr(container, "settings", None), "trusted_proxy_cidrs", None)
+    return effective_client_ip_from_request(request, trusted_proxy_cidrs)

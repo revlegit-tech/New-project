@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_TARGETS = ("public/outlier-*.js", "public/trust-surface.js")
+DEFAULT_TARGETS = ("frontend/src/outlier/**/*.ts", "public/outlier-*.js", "public/trust-surface.js")
 
 PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("unsafe_markup_assignment", re.compile(r"\.innerHTML\s*[+]?="), "Do not assign markup strings in trust-critical UI; construct nodes and use textContent."),

@@ -1,4 +1,4 @@
-.PHONY: install-dev compile-locks verify-locks test test-contracts coverage lint format typecheck ci run serve serve-asgi run-modular refresh-slate validate-slate health smoke smoke-asgi smoke-live safe-export security test-ui browsers validate-contracts validate-retirement clean
+.PHONY: install-dev compile-locks verify-locks test test-contracts coverage lint format typecheck ci run serve serve-wsgi-legacy serve-asgi-local run-modular refresh-slate validate-slate health smoke smoke-asgi smoke-live safe-export security test-ui browsers validate-contracts validate-route-ownership validate-retirement validate-import-boundaries validate-backup-files validate-native-di clean
 
 PORT ?= 8765
 HOST ?= 127.0.0.1
@@ -41,18 +41,22 @@ format:
 typecheck:
 	mypy mlb_app --config-file pyproject.toml
 
-ci: verify-locks security lint typecheck test smoke validate-retirement
+ci: verify-locks security lint typecheck test smoke validate-route-ownership validate-retirement validate-import-boundaries validate-backup-files validate-native-di
 
 # Canonical local runtime: mlb_app only.
 run:
 	python -m mlb_app.server $(PORT) --host $(HOST)
 
-# Production-style bounded runtime: mlb_app via Gunicorn.
+# Canonical production runtime: FastAPI/ASGI via Gunicorn + Uvicorn workers.
 serve:
+	GUNICORN_WORKERS=$(GUNICORN_WORKERS) GUNICORN_BIND=$(GUNICORN_BIND) GUNICORN_TIMEOUT=$(GUNICORN_TIMEOUT) gunicorn --config config/gunicorn.asgi.conf.py -k uvicorn.workers.UvicornWorker mlb_app.asgi:app
+
+# Explicit compatibility runtime only. Do not use for production traffic.
+serve-wsgi-legacy:
 	gunicorn mlb_app.wsgi:application --workers $(GUNICORN_WORKERS) --bind $(GUNICORN_BIND) --timeout $(GUNICORN_TIMEOUT) --access-logfile -
 
-# Experimental ASGI runtime. WSGI/Gunicorn remains canonical until Phase 9 parity is proven.
-serve-asgi:
+# Local ASGI developer runtime.
+serve-asgi-local:
 	uvicorn mlb_app.asgi:app --host 0.0.0.0 --port $(PORT)
 
 
@@ -94,6 +98,18 @@ security:
 
 validate-contracts:
 	python tools/validate_data_contracts.py --root . --season $(SEASON)
+
+validate-route-ownership:
+	python tools/validate_route_ownership.py --root .
+
+validate-import-boundaries:
+	python tools/validate_import_boundaries.py --root .
+
+validate-backup-files:
+	python tools/validate_backup_files.py --root .
+
+validate-native-di:
+	python tools/validate_native_di.py --root .
 
 validate-retirement:
 	python tools/validate_app_py_retirement.py --root .

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 
-from mlb_app.api.dependencies import get_container
+from mlb_app.api.dependencies import get_blocking_work_limiter, get_container
 from mlb_app.api.models import HealthResponse
 from mlb_app.container import AppContainer
+from mlb_app.services.blocking_work import BlockingWorkLimiter
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -18,7 +18,10 @@ async def live() -> dict[str, Any]:
 
 
 @router.get("/ready", response_model=HealthResponse, name="native_health_ready")
-async def ready(container: Annotated[AppContainer, Depends(get_container)]) -> dict[str, Any]:
+async def ready(
+    container: Annotated[AppContainer, Depends(get_container)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+) -> dict[str, Any]:
     def _checks() -> dict[str, Any]:
         migrations = container.db.migration_versions()
         metrics = container.metrics.snapshot()
@@ -44,5 +47,5 @@ async def ready(container: Annotated[AppContainer, Depends(get_container)]) -> d
             },
         }
 
-    checks = await asyncio.to_thread(_checks)
+    checks = await limiter.run(_checks, route_name="/health/ready")
     return {"status": "ok", "ok": True, "checks": checks}

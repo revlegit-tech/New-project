@@ -18,7 +18,7 @@ from mlb_app.contracts.playerboard_schema import (
     validate_playerboard_header,
 )
 
-from team_game_markets import TEAM_GAME_MARKETS, TEAM_GAME_MARKET_LABELS, load_oddspapi_game_market_props
+from mlb_app.domain.team_game_markets import TEAM_GAME_MARKETS, TEAM_GAME_MARKET_LABELS, load_oddspapi_game_market_props
 
 ROOT = default_settings.root_dir
 PLAYERBOARD_DIR = default_settings.data_dir / "playerboard"
@@ -588,16 +588,58 @@ def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str
             "recentGames": json.dumps(card.get("recentGames") or [], ensure_ascii=False),
         })
 
+    snapshot_repository = None
+    activated_snapshot_id = ""
+    db_write_error = ""
+    source_mode = "canonical" if canonical_prop_files(date_label) else "legacy"
+    csv_path = playerboard_file(season)
+
+    try:
+        from mlb_app.repositories.board_snapshot_repository import BoardSnapshotRepository
+
+        snapshot_repository = BoardSnapshotRepository(default_settings)
+        activated = snapshot_repository.replace_active_snapshot(
+            season=season,
+            date_label=date_label,
+            rows=rows,
+            market=market,
+            snapshot_at=snapshot_at,
+            source="playerboard_builder",
+            source_mode=source_mode,
+            csv_path=csv_path,
+            metadata={
+                "replaceDate": bool(replace_date),
+                "market": market,
+                "csvExport": str(csv_path),
+            },
+        )
+        activated_snapshot_id = activated.id
+    except Exception as error:
+        # Keep the transition safe: if the indexed serving store is temporarily
+        # unavailable, the CSV artifact is still exported so cold-start fallback
+        # reads remain viable. The error is surfaced in the pipeline payload.
+        db_write_error = str(error)
+
     removedRows = prune_playerboard_snapshot(season, date_label, market=market) if replace_date else 0
-    append_csv(playerboard_file(season), PLAYERBOARD_FIELDS, rows)
+    append_csv(csv_path, PLAYERBOARD_FIELDS, rows)
 
     return {
         "snapshotAt": snapshot_at,
         "rowsSaved": len(rows),
         "removedRows": removedRows,
         "replaceDate": bool(replace_date),
-        "sourceMode": "canonical" if canonical_prop_files(date_label) else "legacy",
-        "file": str(playerboard_file(season)),
+        "sourceMode": source_mode,
+        "file": str(csv_path),
+        "servingStore": {
+            "sourceOfTruth": "sqlite" if activated_snapshot_id else "csv_fallback",
+            "snapshotId": activated_snapshot_id,
+            "atomic": bool(activated_snapshot_id),
+            "error": db_write_error,
+        },
+        "csvExport": {
+            "derivedArtifact": True,
+            "file": str(csv_path),
+        },
     }
 
 
@@ -625,6 +667,9 @@ def parse_json_field(value: Any, default: Any) -> Any:
 
 def saved_card_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
+        "season": int(to_float(row.get("season"), default_settings.current_season)),
+        "date": clean(row.get("date")),
+        "snapshotAt": clean(row.get("snapshotAt")),
         "player": clean(row.get("player")),
         "market": normalize_market(row.get("market")),
         "marketDisplay": clean(row.get("marketDisplay")) or market_display_label(row.get("market"), row.get("rawLabel")),
@@ -1137,7 +1182,7 @@ def infer_missing_context(prop: dict[str, Any], season: int) -> dict[str, Any]:
         return prop
 
     try:
-        from player_autofill import autofill_player
+        from mlb_app.domain.player_autofill import autofill_player
 
         role = "pitcher" if clean(prop.get("market")).startswith("pitcher") else "team" if clean(prop.get("market")).startswith("team") else "batter"
         filled = autofill_player(season, clean(prop.get("date"))[:10], clean(prop.get("player")), role)
@@ -1338,7 +1383,7 @@ def odds_only_player_card(prop: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_playerboard(season: int = default_settings.current_season, date_label: str = "", market: str = "", limit: int = 5000, save: bool = True, replace_date: bool = False, source_mode: str = "auto") -> dict[str, Any]:
-    from unified_prop_card import unified_prop_card
+    from mlb_app.domain.unified_prop_card import unified_prop_card
 
     markets = [market] if market else DEFAULT_MARKETS
     props = load_saved_props(date_label, markets=markets, limit=5000, source_mode=source_mode)
@@ -1348,7 +1393,7 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
 
     def attach_hit_profile(card: dict[str, Any], row_for_profile: dict[str, Any]) -> dict[str, Any]:
         try:
-            from player_hit_rates import hit_profile_for_row, parse_date
+            from mlb_app.domain.player_hit_rates import hit_profile_for_row, parse_date
             profile = hit_profile_for_row(row_for_profile, season, parse_date(clean(row_for_profile.get("date"))[:10] or date_label))
             card["hitRates"] = {
                 "L5": profile.get("L5"),

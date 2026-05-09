@@ -7,49 +7,19 @@ from pathlib import Path
 from .config import settings
 from .http import RequestContext, json_response
 from .middleware import AccessLogEvent, log_access, monotonic_ms
-from .routes.data_health import data_health, data_health_dashboard, grading_health
-from .routes.edge_board import edge_board
-from .routes.health import app_status, prop_ml_status
-from .routes.model_cards import model_card, model_cards
-from .routes.my_picks import (
-    bankroll_settings,
-    create_pick,
-    exposure_summary,
-    my_picks,
-    update_bankroll_settings,
-    update_pick,
-)
-from .routes.playerboard import (
-    playerboard as route_playerboard,
-    playerboard_health as route_playerboard_health,
-)
-from .routes.propline import sync_props as sync_propline_props
-from .routes.prop_detail import prop_detail
-from .routes.workflows import workflow_health
 from .routing import Router
 
 
 def build_router() -> Router:
+    """Build the explicit legacy compatibility router.
+
+    Sprint 2 removes FastAPI-owned product/admin endpoints from this router so
+    high-traffic betting workflows cannot be served by two implementations.
+    New API work must be added under ``mlb_app.api.routes`` and wired through
+    ``AppContainer`` instead.
+    """
+
     router = Router()
-    router.add("GET", "/api/app/status", app_status)
-    router.add("GET", "/api/playerboard/health", route_playerboard_health)
-    router.add("GET", "/api/playerboard", route_playerboard)
-    router.add("GET", "/api/edge-board", edge_board)
-    router.add("GET", "/api/prop-detail", prop_detail)
-    router.add("GET", "/api/data-health", data_health)
-    router.add("GET", "/api/data-health/dashboard", data_health_dashboard)
-    router.add("GET", "/api/grading/health", grading_health)
-    router.add("GET", "/api/workflows/health", workflow_health)
-    router.add("GET", "/api/prop-ml/status", prop_ml_status)
-    router.add("GET", "/api/model-cards", model_cards)
-    router.add("GET", "/api/model-card", model_card)
-    router.add("GET", "/api/my-picks", my_picks)
-    router.add("POST", "/api/my-picks", create_pick, mutation=True, mutation_owner="bettor_state", mutation_risk="medium", mutation_kind="pick_write")
-    router.add("POST", "/api/my-picks/update", update_pick, mutation=True, mutation_owner="bettor_state", mutation_risk="medium", mutation_kind="pick_write")
-    router.add("GET", "/api/bankroll/settings", bankroll_settings)
-    router.add("POST", "/api/bankroll/settings", update_bankroll_settings, mutation=True, mutation_owner="risk_controls", mutation_risk="high", mutation_kind="bankroll_write")
-    router.add("GET", "/api/exposure/summary", exposure_summary)
-    router.add("POST", "/api/admin/propline/props/sync", sync_propline_props, mutation=True, mutation_owner="data_ops", mutation_risk="high", mutation_kind="external_paid_api_sync")
     return router
 
 

@@ -1,15 +1,34 @@
 {
-  "frontend/index.html": {
-    "file": "assets/outlier-ccf7cdce25.js",
-    "css": [
-      "assets/outlier-3d25f72650.css"
-    ],
-    "isEntry": true,
-    "src": "frontend/index.html"
+  "_tokens-!~{003}~.js": {
+    "file": "assets/tokens-cthDkAsY.css",
+    "src": "_tokens-!~{003}~.js"
   },
-  "frontend/legacy.html": {
-    "file": "assets/legacy-671183d858.js",
+  "_tokens-C12HrDAF.js": {
+    "file": "assets/tokens-C12HrDAF.js",
+    "name": "tokens",
+    "css": [
+      "assets/tokens-cthDkAsY.css"
+    ]
+  },
+  "index.html": {
+    "file": "assets/outlier-efc3f453ef.js",
+    "name": "outlier",
+    "src": "index.html",
     "isEntry": true,
-    "src": "frontend/legacy.html"
+    "imports": [
+      "_tokens-C12HrDAF.js"
+    ],
+    "css": [
+      "assets/outlier-537d7c4368.css"
+    ]
+  },
+  "legacy.html": {
+    "file": "assets/legacy-BLAdKrDB.js",
+    "name": "legacy",
+    "src": "legacy.html",
+    "isEntry": true,
+    "imports": [
+      "_tokens-C12HrDAF.js"
+    ]
   }
 }

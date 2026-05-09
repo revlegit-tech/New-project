@@ -37,6 +37,15 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Build Vite production assets
+        run: npm run build
+
+      - name: Validate fingerprinted Vite assets
+        run: npm run validate:vite-assets
+
+      - name: Validate production CSP compatibility
+        run: npm run validate:csp
+
       - name: Run Playwright smoke tests
         run: npm run test:e2e
 
