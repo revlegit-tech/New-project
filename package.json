@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "MLB betting research app with Vite-built Outlier production UI",
   "scripts": {
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --workers=2",
     "test:e2e:ui": "playwright test --ui",
     "install:browsers": "playwright install --with-deps chromium",
     "dev": "vite --host 127.0.0.1",
