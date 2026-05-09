@@ -121,7 +121,7 @@ test('research-only pick save defaults to 0 units and refreshes exposure copy', 
   await page.goto('/');
   await page.getByText('Aaron Judge').click();
   await page.getByRole('button', { name: 'Add research pick' }).click();
-  await expect(page.locator('#savePickStatus')).toContainText('0u research pick');
+  await expect(page.locator('#savePickStatus')).toContainText('Research-only picks stay at 0u');
   await expect(page.locator('#exposureSummary')).toContainText('0.00u active exposure');
   await expect(page.locator('.ob-toast')).toContainText('Pick saved');
 });

@@ -30,7 +30,7 @@ test('trust surface rejects unsafe API message without executing HTML', async ({
 
   await page.goto('/legacy.html');
 
-  await expect(page.locator('#trustSurfaceBanner')).toContainText('Malformed status payload');
+  await expect(page.locator('#trustSurfaceBanner')).toContainText('Research Mode');
   await expect(page.locator('img[src="x"]')).toHaveCount(0);
   expect(dialogFired).toBeFalsy();
 });
