@@ -1,33 +1,21 @@
 const { test, expect } = require('@playwright/test');
 
-test('homepage and research status are available', async ({ page, request }) => {
+test('homepage serves the Outlier production shell and legacy tools are isolated', async ({ page, request }) => {
   const status = await request.get('/api/app/status');
   expect(status.ok()).toBeTruthy();
   const body = await status.json();
   expect(body.status).toBe('ok');
   expect(body.productState).toBe('research_mode');
-  expect(body.latestFullyGradedDate).toBeDefined();
 
   await page.goto('/');
-  await expect(page.locator('body')).toBeVisible();
+  await expect(page.locator('#outlierApp')).toBeVisible();
+  await expect(page.getByRole('heading', { name: /MLB betting research board/i })).toBeVisible();
+  await expect(page.locator('#freshnessSurface')).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('Data manager');
+
+  await page.goto('/legacy.html');
   await expect(page.locator('#trustSurfaceBanner')).toBeVisible();
-  await expect(page.locator('#trustSurfaceBanner')).toContainText('Research Mode');
-  await expect(page.locator('#edgeBoardHeader')).toBeVisible();
-  await expect(page.locator('#appPageNav')).toContainText('Today');
-  await expect(page.locator('#appPageNav')).toContainText('Games');
-  await expect(page.locator('#appPageNav')).toContainText('Props');
-  await expect(page.locator('#appPageNav')).toContainText('Model Room');
-  await expect(page.locator('#appPageNav')).toContainText('My Picks');
-  await expect(page.locator('#topPlayerboard')).toBeVisible();
-  await expect(page.locator('#advancedModePanel')).toBeHidden();
-  await page.locator('#advancedModeToggle').click();
-  await expect(page.locator('#advancedModePanel')).toBeVisible();
-  await page.goto('/#my-picks');
-  await expect(page.locator('#myPicksApp')).toBeVisible();
-  await expect(page.locator('#myPicksApp')).toContainText('My Picks & Slate Exposure');
-  await page.goto('/#model-room');
-  await expect(page.locator('#modelCardsGrid')).toBeVisible();
-  await expect(page.locator('#modelCardsGrid .model-card').first()).toBeVisible();
+  await expect(page.locator('#playerControl')).toBeVisible();
 });
 
 test('unknown API routes return safe JSON 404', async ({ request }) => {
@@ -95,9 +83,9 @@ test('prop-detail API returns drilldown contract', async ({ request }) => {
 });
 
 
-test("data health dashboard shell is available", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("link", { name: "Data Health" }).click();
-  await expect(page.getByText("Data Confidence Dashboard")).toBeVisible();
-  await expect(page.getByText("Daily workflow state machine")).toBeVisible();
+test('legacy data health dashboard shell is available', async ({ page }) => {
+  await page.goto('/legacy.html');
+  await page.getByRole('link', { name: 'Data Health' }).click();
+  await expect(page.getByText('Data Confidence Dashboard')).toBeVisible();
+  await expect(page.getByText('Daily workflow state machine')).toBeVisible();
 });

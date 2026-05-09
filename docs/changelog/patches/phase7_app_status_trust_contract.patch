@@ -1,0 +1,1065 @@
+--- before/mlb_app/schemas/app_status.py	1970-01-01 00:00:00.000000000 +0000
++++ base/mlb_app/schemas/app_status.py	2026-05-07 21:45:40.765268688 +0000
+@@ -0,0 +1,168 @@
++from __future__ import annotations
++from datetime import datetime, timezone
++from typing import Any
++
++APP_STATUS_SCHEMA_VERSION = "app-status-v1"
++APP_STATUS_ROUTE = "/api/app/status"
++VALID_DATA_CONFIDENCE = {"Good", "Partial", "Stale", "Missing", "Failed"}
++VALID_PRODUCT_STATES = {"research_mode", "experimental_model", "backtest_positive", "production_tracked"}
++VALID_GRADING_STATES = {"not_started", "waiting_for_finals", "boxscores_loaded", "grading_running", "graded", "partial", "failed"}
++REQUIRED_TOP_LEVEL_FIELDS = ("status", "ok", "season", "checkedAt", "generatedAt", "warnings", "productState", "productStateDetail", "researchMode", "latestBoardDate", "latestFullyGradedDate", "dataConfidence", "modelPolicy", "trainedMarkets", "productionEligibleMarkets", "playerboard", "grading", "workflows", "meta")
++
++def utc_now_iso() -> str:
++    return datetime.now(timezone.utc).isoformat()
++
++def build_app_status_payload(*, season: int, playerboard: dict[str, Any], grading: dict[str, Any], workflows: dict[str, Any], model_status: dict[str, Any], product_state: dict[str, Any], request_id: str = "", generated_at: str | None = None) -> dict[str, Any]:
++    """Build the canonical app-status-v1 response consumed by the trust surface."""
++    generated_at = generated_at or utc_now_iso()
++    board_date = _string(playerboard.get("latestAvailableDate") or playerboard.get("date"))
++    grading_state = normalize_grading_state(grading.get("state"))
++    grading_summary = grading.get("summary") if isinstance(grading.get("summary"), dict) else {}
++    workflow_summaries = workflows.get("summaries") if isinstance(workflows.get("summaries"), dict) else {}
++    production_markets = _string_list(model_status.get("productionEligibleMarkets"))
++    trained_markets = _string_list(model_status.get("trainedMarkets"))
++    confidence = normalize_data_confidence(playerboard.get("dataConfidence"))
++    warnings: list[str] = []
++    for source in (playerboard, grading, workflows, model_status):
++        warnings.extend(_string_list(source.get("warnings")))
++    if not _bool(playerboard.get("ok")):
++        warnings.append("Playerboard needs attention.")
++    if grading_state != "graded":
++        warnings.append("Latest board date is not fully graded yet.")
++    if not _bool(workflows.get("ok")):
++        warnings.append("Workflow summaries need attention.")
++    if not production_markets:
++        warnings.append("No market is currently eligible for confident production picks.")
++    product_detail = normalize_product_state(product_state)
++    return {
++        "status": "ok",
++        "ok": not _dedupe(warnings),
++        "season": int(season),
++        "checkedAt": generated_at,
++        "generatedAt": generated_at,
++        "warnings": _dedupe(warnings),
++        "productState": product_detail["state"],
++        "productStateDetail": product_detail,
++        "researchMode": bool(product_detail.get("researchMode", True)),
++        "latestBoardDate": board_date,
++        "latestFullyGradedDate": _string(grading.get("latestFullyGradedDate")),
++        "dataConfidence": confidence,
++        "modelPolicy": model_status.get("policy") if isinstance(model_status.get("policy"), dict) else {},
++        "trainedMarkets": trained_markets,
++        "productionEligibleMarkets": production_markets,
++        "playerboard": {
++            "ok": _bool(playerboard.get("ok")),
++            "date": _string(playerboard.get("date") or playerboard.get("latestAvailableDate")),
++            "latestAvailableDate": _string(playerboard.get("latestAvailableDate")),
++            "rowsLoaded": _int(playerboard.get("rowsLoaded")),
++            "totalRowsInFile": _int(playerboard.get("totalRowsInFile")),
++            "badShiftedRows": _int(playerboard.get("badShiftedRows")),
++            "missingMarketDisplayRows": _int(playerboard.get("missingMarketDisplayRows")),
++            "latestSnapshotAt": _string(playerboard.get("latestSnapshotAt")),
++            "dataConfidence": confidence,
++        },
++        "grading": {
++            "ok": _bool(grading.get("ok")),
++            "state": grading_state,
++            "date": _string(grading.get("date")),
++            "latestFullyGradedDate": _string(grading.get("latestFullyGradedDate")),
++            "backtestRowsForDate": _int(grading_summary.get("backtestRowsForDate")),
++            "gradedBacktestRowsForDate": _int(grading_summary.get("gradedBacktestRowsForDate")),
++            "mlRowsForDate": _int(grading_summary.get("mlRowsForDate")),
++            "gradedMlRowsForDate": _int(grading_summary.get("gradedMlRowsForDate")),
++        },
++        "workflows": {
++            "ok": _bool(workflows.get("ok")),
++            "dailyHealth": _trim_workflow_summary(_dict(workflow_summaries.get("dailyHealth"))),
++            "dailyGrading": _trim_workflow_summary(_dict(workflow_summaries.get("dailyGrading"))),
++            "weeklyRepair": _trim_workflow_summary(_dict(workflow_summaries.get("weeklyRepair"))),
++        },
++        "meta": {"schema": APP_STATUS_SCHEMA_VERSION, "route": APP_STATUS_ROUTE, "requestId": _string(request_id), "generatedAt": generated_at},
++    }
++
++def normalize_product_state(product_state: dict[str, Any] | None) -> dict[str, Any]:
++    raw = product_state or {}
++    state = _string(raw.get("state") or raw.get("productState"), "research_mode")
++    if state not in VALID_PRODUCT_STATES:
++        state = "research_mode"
++    return {"state": state, "productState": state, "label": _string(raw.get("label"), "Research Mode"), "severity": _string(raw.get("severity"), "warning"), "message": _string(raw.get("message"), "Model outputs are experimental. Use this board for research, not blind tailing or automated betting."), "researchMode": _bool(raw.get("researchMode"), default=True), "allowedDecisionLabels": _string_list(raw.get("allowedDecisionLabels")) or ["No bet", "Watchlist", "Model lean"], "generatedAt": _string(raw.get("generatedAt")) or utc_now_iso()}
++
++def normalize_data_confidence(value: Any) -> str:
++    text = _string(value, "Missing")
++    title = text[:1].upper() + text[1:] if text else "Missing"
++    return title if title in VALID_DATA_CONFIDENCE else "Missing"
++
++def normalize_grading_state(value: Any) -> str:
++    text = _string(value, "not_started").lower()
++    return text if text in VALID_GRADING_STATES else "failed"
++
++def validate_app_status_payload(payload: Any) -> list[str]:
++    errors: list[str] = []
++    if not isinstance(payload, dict):
++        return ["payload must be an object"]
++    for field in REQUIRED_TOP_LEVEL_FIELDS:
++        if field not in payload:
++            errors.append(f"missing top-level field: {field}")
++    if payload.get("status") != "ok": errors.append("status must be 'ok'")
++    if not isinstance(payload.get("ok"), bool): errors.append("ok must be a boolean")
++    if not isinstance(payload.get("season"), int): errors.append("season must be an integer")
++    if not isinstance(payload.get("warnings"), list): errors.append("warnings must be an array")
++    if not isinstance(payload.get("productState"), str): errors.append("productState must be a string")
++    elif payload["productState"] not in VALID_PRODUCT_STATES: errors.append("productState must be a known state")
++    if not isinstance(payload.get("productStateDetail"), dict): errors.append("productStateDetail must be an object")
++    if not isinstance(payload.get("researchMode"), bool): errors.append("researchMode must be a boolean")
++    if not isinstance(payload.get("latestBoardDate"), str): errors.append("latestBoardDate must be a string")
++    if not isinstance(payload.get("latestFullyGradedDate"), str): errors.append("latestFullyGradedDate must be a string")
++    if payload.get("dataConfidence") not in VALID_DATA_CONFIDENCE: errors.append("dataConfidence must be Good, Partial, Stale, Missing, or Failed")
++    if not isinstance(payload.get("modelPolicy"), dict): errors.append("modelPolicy must be an object")
++    if not isinstance(payload.get("trainedMarkets"), list): errors.append("trainedMarkets must be an array")
++    if not isinstance(payload.get("productionEligibleMarkets"), list): errors.append("productionEligibleMarkets must be an array")
++    playerboard = payload.get("playerboard")
++    if not isinstance(playerboard, dict): errors.append("playerboard must be an object")
++    else:
++        for key in ("ok", "date", "latestAvailableDate", "rowsLoaded", "totalRowsInFile", "dataConfidence"):
++            if key not in playerboard: errors.append(f"playerboard.{key} is required")
++        if not isinstance(playerboard.get("ok"), bool): errors.append("playerboard.ok must be a boolean")
++        if playerboard.get("dataConfidence") not in VALID_DATA_CONFIDENCE: errors.append("playerboard.dataConfidence must be a known confidence value")
++    grading = payload.get("grading")
++    if not isinstance(grading, dict): errors.append("grading must be an object")
++    else:
++        for key in ("ok", "state", "date", "latestFullyGradedDate"):
++            if key not in grading: errors.append(f"grading.{key} is required")
++        if grading.get("state") not in VALID_GRADING_STATES: errors.append("grading.state must be a known grading state")
++    workflows = payload.get("workflows")
++    if not isinstance(workflows, dict): errors.append("workflows must be an object")
++    else:
++        for key in ("ok", "dailyHealth", "dailyGrading", "weeklyRepair"):
++            if key not in workflows: errors.append(f"workflows.{key} is required")
++    meta = payload.get("meta")
++    if not isinstance(meta, dict): errors.append("meta must be an object")
++    else:
++        if meta.get("schema") != APP_STATUS_SCHEMA_VERSION: errors.append(f"meta.schema must be {APP_STATUS_SCHEMA_VERSION}")
++        if meta.get("route") != APP_STATUS_ROUTE: errors.append(f"meta.route must be {APP_STATUS_ROUTE}")
++        if not isinstance(meta.get("requestId"), str): errors.append("meta.requestId must be a string")
++        if not isinstance(meta.get("generatedAt"), str): errors.append("meta.generatedAt must be a string")
++    return errors
++
++def _trim_workflow_summary(summary: dict[str, Any]) -> dict[str, Any]:
++    return {"ok": _bool(summary.get("ok")), "date": _string(summary.get("date")), "checkedAt": _string(summary.get("checkedAt")), "exists": _bool(summary.get("exists"))}
++
++def _dict(value: Any) -> dict[str, Any]: return value if isinstance(value, dict) else {}
++def _string(value: Any, default: str = "") -> str: return default if value is None else str(value)
++def _string_list(value: Any) -> list[str]: return [str(item) for item in value if str(item).strip()] if isinstance(value, (list, tuple, set)) else []
++def _bool(value: Any, default: bool = False) -> bool:
++    if value is None: return default
++    if isinstance(value, bool): return value
++    return str(value).strip().lower() not in {"0", "false", "no", "off", "", "none"}
++def _int(value: Any, default: int = 0) -> int:
++    try:
++        if value in {None, ""}: return default
++        return int(float(value))
++    except (TypeError, ValueError): return default
++def _dedupe(items: list[str]) -> list[str]:
++    seen: set[str] = set(); out: list[str] = []
++    for item in items:
++        text = str(item).strip()
++        if text and text not in seen:
++            out.append(text); seen.add(text)
++    return out
+--- before/mlb_app/services/app_status_service.py	2026-05-07 08:35:05.000000000 +0000
++++ base/mlb_app/services/app_status_service.py	2026-05-07 21:45:42.550482493 +0000
+@@ -1,6 +1,5 @@
+ from __future__ import annotations
+ 
+-from datetime import datetime, timezone
+ from typing import Any
+ 
+ from mlb_app.services.grading_state_service import GradingStateService
+@@ -8,6 +7,7 @@
+ from mlb_app.services.playerboard_service import PlayerboardService
+ from mlb_app.services.product_state_service import ProductStateService
+ from mlb_app.services.workflow_health_service import WorkflowHealthService
++from mlb_app.schemas.app_status import build_app_status_payload, validate_app_status_payload
+ 
+ 
+ class AppStatusService:
+@@ -29,7 +29,7 @@
+             product_state_service=self.product_state_service,
+         )
+ 
+-    def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
++    def payload(self, query: dict[str, list[str]] | None = None, *, request_id: str = "") -> dict[str, Any]:
+         query = query or {}
+         season = int((query.get("season") or ["2026"])[0])
+         playerboard = self.playerboard_service.health_payload({"season": [str(season)]})
+@@ -42,78 +42,18 @@
+             grading_ok=bool(grading.get("ok")),
+         )
+ 
+-        warnings: list[str] = []
+-        if not playerboard.get("ok"):
+-            warnings.append("Playerboard needs attention.")
+-        if grading.get("state") != "graded":
+-            warnings.append("Latest board date is not fully graded yet.")
+-        if not workflows.get("ok"):
+-            warnings.append("Workflow summaries need attention.")
+-        if not model_status.get("productionEligibleMarkets"):
+-            warnings.append("No market is currently eligible for confident production picks.")
+-
+-        workflow_summaries = workflows.get("summaries") or {}
+-        daily_health = workflow_summaries.get("dailyHealth") or {}
+-        daily_grading = workflow_summaries.get("dailyGrading") or {}
+-        weekly_repair = workflow_summaries.get("weeklyRepair") or {}
+-        grading_summary = grading.get("summary") or {}
+-
+-        return {
+-            "status": "ok",
+-            "ok": not warnings,
+-            "season": season,
+-            "checkedAt": datetime.now(timezone.utc).isoformat(),
+-            "generatedAt": datetime.now(timezone.utc).isoformat(),
+-            "warnings": warnings,
+-            "productState": product_state.get("state", "research_mode"),
+-            "productStateDetail": product_state,
+-            "researchMode": bool(product_state.get("researchMode", True)),
+-            "latestBoardDate": board_date,
+-            "latestFullyGradedDate": grading.get("latestFullyGradedDate", ""),
+-            "dataConfidence": playerboard.get("dataConfidence", "Missing"),
+-            "modelPolicy": model_status.get("policy", {}),
+-            "trainedMarkets": model_status.get("trainedMarkets", []),
+-            "productionEligibleMarkets": model_status.get("productionEligibleMarkets", []),
+-            "playerboard": {
+-                "ok": bool(playerboard.get("ok")),
+-                "date": playerboard.get("date") or playerboard.get("latestAvailableDate") or "",
+-                "latestAvailableDate": playerboard.get("latestAvailableDate") or "",
+-                "rowsLoaded": playerboard.get("rowsLoaded", 0),
+-                "totalRowsInFile": playerboard.get("totalRowsInFile", 0),
+-                "badShiftedRows": playerboard.get("badShiftedRows", 0),
+-                "missingMarketDisplayRows": playerboard.get("missingMarketDisplayRows", 0),
+-                "latestSnapshotAt": playerboard.get("latestSnapshotAt", ""),
+-                "dataConfidence": playerboard.get("dataConfidence", "Missing"),
+-            },
+-            "grading": {
+-                "ok": bool(grading.get("ok")),
+-                "state": grading.get("state", "not_started"),
+-                "date": grading.get("date", ""),
+-                "latestFullyGradedDate": grading.get("latestFullyGradedDate", ""),
+-                "backtestRowsForDate": grading_summary.get("backtestRowsForDate", 0),
+-                "gradedBacktestRowsForDate": grading_summary.get("gradedBacktestRowsForDate", 0),
+-                "mlRowsForDate": grading_summary.get("mlRowsForDate", 0),
+-                "gradedMlRowsForDate": grading_summary.get("gradedMlRowsForDate", 0),
+-            },
+-            "workflows": {
+-                "ok": bool(workflows.get("ok")),
+-                "dailyHealth": {
+-                    "ok": bool(daily_health.get("ok")),
+-                    "date": daily_health.get("date", ""),
+-                    "checkedAt": daily_health.get("checkedAt", ""),
+-                    "exists": bool(daily_health.get("exists")),
+-                },
+-                "dailyGrading": {
+-                    "ok": bool(daily_grading.get("ok")),
+-                    "date": daily_grading.get("date", ""),
+-                    "checkedAt": daily_grading.get("checkedAt", ""),
+-                    "exists": bool(daily_grading.get("exists")),
+-                },
+-                "weeklyRepair": {
+-                    "ok": bool(weekly_repair.get("ok")),
+-                    "date": weekly_repair.get("date", ""),
+-                    "checkedAt": weekly_repair.get("checkedAt", ""),
+-                    "exists": bool(weekly_repair.get("exists")),
+-                },
+-            },
+-        }
++        payload = build_app_status_payload(
++            season=season,
++            playerboard=playerboard,
++            grading=grading,
++            workflows=workflows,
++            model_status=model_status,
++            product_state=product_state,
++            request_id=request_id,
++        )
++        contract_errors = validate_app_status_payload(payload)
++        if contract_errors:
++            payload["ok"] = False
++            payload.setdefault("warnings", []).append("App-status contract validation failed.")
++            payload["contractErrors"] = contract_errors
++        return payload
+--- before/mlb_app/routes/health.py	2026-05-07 08:35:05.000000000 +0000
++++ base/mlb_app/routes/health.py	2026-05-07 21:45:42.551033550 +0000
+@@ -8,7 +8,7 @@
+ 
+ 
+ def app_status(context: RequestContext) -> dict[str, Any]:
+-    return AppStatusService().payload(context.query)
++    return AppStatusService().payload(context.query, request_id=context.request_id)
+ 
+ 
+ def prop_ml_status(context: RequestContext) -> dict[str, Any]:
+--- before/public/trust-surface.js	2026-05-07 21:36:22.000000000 +0000
++++ base/public/trust-surface.js	2026-05-07 21:45:55.222880715 +0000
+@@ -1,129 +1,53 @@
+ (function () {
++  const APP_STATUS_SCHEMA = "app-status-v1";
+   const $ = (selector) => document.querySelector(selector);
+-
+-  function display(value, fallback = "--") {
+-    const text = String(value || "").trim();
+-    return text || fallback;
+-  }
+-
+-  function confidenceClass(value) {
+-    const text = String(value || "").toLowerCase();
+-    if (text === "good") return "is-good";
+-    if (text === "missing" || text === "failed") return "is-bad";
+-    return "is-partial";
+-  }
+-
+-  function appendText(parent, tagName, text, className) {
+-    const element = document.createElement(tagName);
+-    if (className) element.className = className;
+-    element.textContent = text;
+-    parent.appendChild(element);
+-    return element;
+-  }
+-
+-  function metric(label, value, fallback) {
+-    const wrapper = document.createElement("div");
+-    appendText(wrapper, "dt", label);
+-    appendText(wrapper, "dd", display(value, fallback));
+-    return wrapper;
+-  }
+-
+-  function stateLabel(detail, state) {
+-    const raw = detail && typeof detail.label === "string"
+-      ? detail.label
+-      : String(state || "research_mode").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+-    return display(raw, "Research Mode");
+-  }
+-
+-  function requestIdFrom(response, payload) {
+-    return response?.headers?.get("X-Request-Id") || payload?.meta?.requestId || payload?.requestId || "";
+-  }
+-
++  function display(value, fallback = "--") { const text = String(value || "").trim(); return text || fallback; }
++  function confidenceClass(value) { const text = String(value || "").toLowerCase(); if (text === "good") return "is-good"; if (text === "missing" || text === "failed") return "is-bad"; return "is-partial"; }
++  function appendText(parent, tagName, text, className) { const element = document.createElement(tagName); if (className) element.className = className; element.textContent = text; parent.appendChild(element); return element; }
++  function metric(label, value, fallback) { const wrapper = document.createElement("div"); appendText(wrapper, "dt", label); appendText(wrapper, "dd", display(value, fallback)); return wrapper; }
++  function isObject(value) { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
++  function stringList(value) { if (!Array.isArray(value)) return []; return value.map((item) => String(item)).filter((item) => item.trim()); }
++  function stateLabel(detail, state) { const raw = detail && typeof detail.label === "string" ? detail.label : String(state || "research_mode").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()); return display(raw, "Research Mode"); }
++  function requestIdFrom(response, payload) { return response?.headers?.get("X-Request-Id") || payload?.meta?.requestId || payload?.requestId || ""; }
+   function validatePayload(payload) {
+     const errors = [];
+-    if (!payload || typeof payload !== "object") {
+-      return ["status payload must be an object"];
+-    }
++    if (!isObject(payload)) return ["status payload must be an object"];
++    if (payload.status !== "ok") errors.push("status must be ok");
+     if (typeof payload.productState !== "string") errors.push("productState must be a string");
+-    if (!payload.grading || typeof payload.grading.state !== "string") errors.push("grading.state must be a string");
++    if (!isObject(payload.productStateDetail)) errors.push("productStateDetail must be an object");
++    if (!isObject(payload.grading) || typeof payload.grading.state !== "string") errors.push("grading.state must be a string");
+     if (typeof payload.dataConfidence !== "string") errors.push("dataConfidence must be a string");
+     if (!Array.isArray(payload.productionEligibleMarkets)) errors.push("productionEligibleMarkets must be an array");
+-    const hasBoardDate = typeof payload.latestBoardDate === "string"
+-      || typeof payload.playerboard?.latestAvailableDate === "string"
+-      || typeof payload.playerboard?.date === "string";
++    if (!isObject(payload.meta)) errors.push("meta must be an object");
++    if (isObject(payload.meta) && payload.meta.schema !== APP_STATUS_SCHEMA) errors.push(`meta.schema must be ${APP_STATUS_SCHEMA}`);
++    if (isObject(payload.meta) && typeof payload.meta.requestId !== "string") errors.push("meta.requestId must be a string");
++    const hasBoardDate = typeof payload.latestBoardDate === "string" || typeof payload.playerboard?.latestAvailableDate === "string" || typeof payload.playerboard?.date === "string";
+     if (!hasBoardDate) errors.push("latestBoardDate or playerboard date must be present");
++    if (isObject(payload.playerboard)) {
++      if (typeof payload.playerboard.dataConfidence !== "string") errors.push("playerboard.dataConfidence must be a string");
++      if (typeof payload.playerboard.rowsLoaded !== "number") errors.push("playerboard.rowsLoaded must be a number");
++    } else { errors.push("playerboard must be an object"); }
+     return errors;
+   }
+-
+   function normalizeStatus(payload, requestId) {
+-    const detail = payload.productStateDetail && typeof payload.productStateDetail === "object" ? payload.productStateDetail : {};
++    const detail = isObject(payload.productStateDetail) ? payload.productStateDetail : {};
+     const state = typeof payload.productState === "string" ? payload.productState : detail.state;
+-    return {
+-      state: state || detail.state || "research_mode",
+-      label: stateLabel(detail, state),
+-      message: detail.message || "Research-first mode is enabled until markets pass grading and model-readiness gates.",
+-      boardDate: payload.latestBoardDate || payload.playerboard?.latestAvailableDate || payload.playerboard?.date || "",
+-      oddsTimestamp: payload.playerboard?.latestSnapshotAt || payload.slateStatus?.latestOddsTimestamp || "",
+-      gradedDate: payload.latestFullyGradedDate || payload.grading?.latestFullyGradedDate || "",
+-      gradingState: payload.grading?.state || "not_started",
+-      dataConfidence: payload.dataConfidence || payload.playerboard?.dataConfidence || "Missing",
+-      productionMarkets: Array.isArray(payload.productionEligibleMarkets) ? payload.productionEligibleMarkets : [],
+-      warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
+-      requestId: requestId || "",
+-    };
++    const productionMarkets = Array.isArray(payload.productionEligibleMarkets) ? payload.productionEligibleMarkets : [];
++    const warnings = stringList(payload.warnings);
++    const explicitMissing = payload.dataConfidence === "Missing" || payload.grading?.state === "failed" || payload.grading?.state === "not_started";
++    return { state: state || detail.state || "research_mode", label: explicitMissing && productionMarkets.length === 0 ? "Research Only" : stateLabel(detail, state), message: detail.message || "Research-first mode is enabled until markets pass grading and model-readiness gates.", boardDate: payload.latestBoardDate || payload.playerboard?.latestAvailableDate || payload.playerboard?.date || "", oddsTimestamp: payload.playerboard?.latestSnapshotAt || payload.slateStatus?.latestOddsTimestamp || "", gradedDate: payload.latestFullyGradedDate || payload.grading?.latestFullyGradedDate || "", gradingState: payload.grading?.state || "not_started", dataConfidence: payload.dataConfidence || payload.playerboard?.dataConfidence || "Missing", productionMarkets, warnings, requestId: requestId || payload.meta?.requestId || "", schema: payload.meta?.schema || "" };
+   }
+-
+   function render(status) {
+-    const banner = $("#trustSurfaceBanner");
+-    if (!banner) return;
+-    banner.classList.remove("is-good", "is-partial", "is-bad");
+-    banner.classList.add(confidenceClass(status.dataConfidence));
+-    banner.replaceChildren();
+-
+-    const main = document.createElement("div");
+-    main.className = "trust-surface-main";
+-    appendText(main, "span", display(status.label), "trust-mode-pill");
+-
+-    const copy = document.createElement("div");
+-    appendText(copy, "strong", "Today’s board is research-first.");
+-    appendText(copy, "p", display(status.message));
+-    main.appendChild(copy);
+-    banner.appendChild(main);
+-
+-    const metrics = document.createElement("dl");
+-    metrics.className = "trust-surface-metrics";
+-    metrics.setAttribute("aria-label", "Board trust status");
+-    metrics.appendChild(metric("Board date", status.boardDate));
+-    metrics.appendChild(metric("Latest odds", status.oddsTimestamp));
+-    metrics.appendChild(metric("Fully graded slate", status.gradedDate, "Not yet"));
+-    metrics.appendChild(metric("Grading", status.gradingState));
+-    metrics.appendChild(metric("Data confidence", status.dataConfidence));
+-    metrics.appendChild(metric("Production markets", status.productionMarkets.length));
+-    if (status.requestId) metrics.appendChild(metric("Request ID", status.requestId));
+-    banner.appendChild(metrics);
+-
+-    const warning = $("#trustSurfaceWarning");
+-    if (warning) {
+-      const text = status.warnings?.[0] || "No confident picks are shown unless a market has exact model artifacts, grading history, and readiness gates.";
+-      warning.textContent = text;
+-    }
+-  }
+-
+-  function renderSafeFailure(message, requestId) {
+-    render({
+-      label: "Research Only",
+-      message: display(message, "Status is unavailable. Treat all model output as research-only until health checks recover."),
+-      dataConfidence: "Missing",
+-      gradingState: "failed",
+-      productionMarkets: [],
+-      warnings: [display(message, "Malformed or unavailable trust-surface status payload.")],
+-      requestId: requestId || "",
+-    });
++    const banner = $("#trustSurfaceBanner"); if (!banner) return;
++    banner.classList.remove("is-good", "is-partial", "is-bad"); banner.classList.add(confidenceClass(status.dataConfidence)); banner.replaceChildren();
++    const main = document.createElement("div"); main.className = "trust-surface-main"; appendText(main, "span", display(status.label), "trust-mode-pill");
++    const copy = document.createElement("div"); appendText(copy, "strong", "Today’s board is research-first."); appendText(copy, "p", display(status.message)); main.appendChild(copy); banner.appendChild(main);
++    const metrics = document.createElement("dl"); metrics.className = "trust-surface-metrics"; metrics.setAttribute("aria-label", "Board trust status"); metrics.appendChild(metric("Board date", status.boardDate)); metrics.appendChild(metric("Latest odds", status.oddsTimestamp)); metrics.appendChild(metric("Fully graded slate", status.gradedDate, "Not yet")); metrics.appendChild(metric("Grading", status.gradingState)); metrics.appendChild(metric("Data confidence", status.dataConfidence)); metrics.appendChild(metric("Production markets", status.productionMarkets.length)); if (status.requestId) metrics.appendChild(metric("Request ID", status.requestId)); banner.appendChild(metrics);
++    const warning = $("#trustSurfaceWarning"); if (warning) { const text = status.warnings?.[0] || "No confident picks are shown unless a market has exact model artifacts, grading history, and readiness gates."; warning.textContent = text; }
+   }
+-
++  function renderSafeFailure(message, requestId) { render({ label: "Research Only", message: display(message, "Status is unavailable. Treat all model output as research-only until health checks recover."), dataConfidence: "Missing", gradingState: "failed", productionMarkets: [], warnings: [display(message, "Malformed or unavailable trust-surface status payload.")], requestId: requestId || "", schema: APP_STATUS_SCHEMA }); }
+   async function loadTrustSurface() {
+-    const banner = $("#trustSurfaceBanner");
+-    if (!banner) return;
++    const banner = $("#trustSurfaceBanner"); if (!banner) return;
+     try {
+       const response = await fetch("/api/app/status", { cache: "no-store" });
+       const requestId = requestIdFrom(response, null);
+@@ -131,18 +55,10 @@
+       const payload = await response.json();
+       const finalRequestId = requestIdFrom(response, payload);
+       const validationErrors = validatePayload(payload);
+-      if (validationErrors.length) {
+-        console.warn("Trust surface contract violation", { errors: validationErrors, requestId: finalRequestId });
+-        renderSafeFailure("Malformed status payload. Treat this slate as research-only until contract validation passes.", finalRequestId);
+-        return;
+-      }
++      if (validationErrors.length) { console.warn("Trust surface contract violation", { errors: validationErrors, requestId: finalRequestId }); renderSafeFailure("Malformed status payload. Treat this slate as research-only until contract validation passes.", finalRequestId); return; }
+       render(normalizeStatus(payload, finalRequestId));
+-    } catch (error) {
+-      const message = String(error && error.message ? error.message : error);
+-      console.warn("Trust surface status load failed", { error: message });
+-      renderSafeFailure(message, "");
+-    }
++    } catch (error) { const message = String(error && error.message ? error.message : error); console.warn("Trust surface status load failed", { error: message }); renderSafeFailure(message, ""); }
+   }
+-
++  window.__MLBTrustSurfaceTestHooks = { APP_STATUS_SCHEMA, validatePayload, normalizeStatus, renderSafeFailure };
+   document.addEventListener("DOMContentLoaded", loadTrustSurface);
+ })();
+--- before/tests/test_app_status_phase7_contract.py	1970-01-01 00:00:00.000000000 +0000
++++ base/tests/test_app_status_phase7_contract.py	2026-05-07 21:46:16.474657099 +0000
+@@ -0,0 +1,32 @@
++from __future__ import annotations
++import json
++from pathlib import Path
++from mlb_app.schemas.app_status import APP_STATUS_SCHEMA_VERSION, validate_app_status_payload
++from mlb_app.services.app_status_service import AppStatusService
++FIXTURE_DIR = Path(__file__).parent / "fixtures" / "app_status"
++class FakePlayerboardService:
++    def health_payload(self, query: dict[str, list[str]]) -> dict[str, object]: return {"ok": True, "date": "2026-05-07", "latestAvailableDate": "2026-05-07", "rowsLoaded": 25, "totalRowsInFile": 25, "badShiftedRows": 0, "missingMarketDisplayRows": 0, "latestSnapshotAt": "2026-05-07T16:00:00Z", "dataConfidence": "Good"}
++class FakeGradingService:
++    def payload(self, query: dict[str, list[str]]) -> dict[str, object]: return {"ok": True, "state": "graded", "date": "2026-05-07", "latestFullyGradedDate": "2026-05-07", "summary": {"backtestRowsForDate": 4, "gradedBacktestRowsForDate": 4, "mlRowsForDate": 3, "gradedMlRowsForDate": 3}}
++class FakeWorkflowService:
++    def payload(self) -> dict[str, object]: return {"ok": True, "summaries": {"dailyHealth": {"ok": True, "date": "2026-05-07", "checkedAt": "2026-05-07T16:10:00Z", "exists": True}, "dailyGrading": {"ok": True, "date": "2026-05-07", "checkedAt": "2026-05-07T16:20:00Z", "exists": True}, "weeklyRepair": {"ok": True, "date": "2026-05-04", "checkedAt": "2026-05-04T09:00:00Z", "exists": True}}}
++class FakeModelRegistryService:
++    def status_payload(self) -> dict[str, object]: return {"policy": {"requiresExactMarketArtifact": True, "genericFallbackAllowed": False, "minimumTrainingRows": 200}, "trainedMarkets": ["batter_hits"], "productionEligibleMarkets": ["batter_hits"]}
++def load_fixture(name: str) -> dict[str, object]: return json.loads((FIXTURE_DIR / name).read_text())
++def test_app_status_service_emits_v1_contract_with_request_id() -> None:
++    payload = AppStatusService(playerboard_service=FakePlayerboardService(), grading_service=FakeGradingService(), workflow_service=FakeWorkflowService(), model_registry_service=FakeModelRegistryService()).payload({"season":["2026"]}, request_id="req-phase7")  # type: ignore[arg-type]
++    assert payload["meta"]["schema"] == APP_STATUS_SCHEMA_VERSION
++    assert payload["meta"]["requestId"] == "req-phase7"
++    assert payload["meta"]["route"] == "/api/app/status"
++    assert payload["productState"] == "research_mode"
++    assert payload["grading"]["state"] == "graded"
++    assert payload["playerboard"]["dataConfidence"] == "Good"
++    assert validate_app_status_payload(payload) == []
++def test_valid_contract_fixtures_pass_backend_validator() -> None:
++    for name in ["ready.json", "research_only.json", "missing_model.json", "stale_board.json", "grading_delayed.json"]: assert validate_app_status_payload(load_fixture(name)) == [], name
++def test_malformed_contract_fixture_fails_backend_validator() -> None:
++    errors = validate_app_status_payload(load_fixture("malformed.json"))
++    assert errors
++    assert "productState must be a string" in errors
++    assert "productionEligibleMarkets must be an array" in errors
++    assert "meta.schema must be app-status-v1" in errors
+--- before/tests/test_trust_surface_phase7_static_contract.py	1970-01-01 00:00:00.000000000 +0000
++++ base/tests/test_trust_surface_phase7_static_contract.py	2026-05-07 21:46:16.487047204 +0000
+@@ -0,0 +1,17 @@
++from __future__ import annotations
++from pathlib import Path
++SOURCE = Path("public/trust-surface.js").read_text(encoding="utf-8")
++def test_trust_surface_declares_and_validates_app_status_schema() -> None:
++    assert 'APP_STATUS_SCHEMA = "app-status-v1"' in SOURCE
++    assert "meta.schema must be" in SOURCE
++    assert "Trust surface contract violation" in SOURCE
++    assert "renderSafeFailure" in SOURCE
++def test_trust_surface_keeps_research_only_safe_failure_copy() -> None:
++    assert 'label: "Research Only"' in SOURCE
++    assert "Treat this slate as research-only" in SOURCE
++    assert "Malformed status payload" in SOURCE
++def test_trust_surface_exports_test_hooks_without_unsafe_html() -> None:
++    assert "window.__MLBTrustSurfaceTestHooks" in SOURCE
++    assert ".textContent" in SOURCE
++    assert ".innerHTML" not in SOURCE
++    assert "insertAdjacentHTML" not in SOURCE
+--- before/docs/trust-surface/APP_STATUS_CONTRACT.md	1970-01-01 00:00:00.000000000 +0000
++++ base/docs/trust-surface/APP_STATUS_CONTRACT.md	2026-05-07 21:46:16.504189533 +0000
+@@ -0,0 +1,13 @@
++# `/api/app/status` Contract — app-status-v1
++
++Phase 7 makes the trust surface contract-driven. The endpoint keeps the legacy top-level fields used by the Outlier UI, but now emits an explicit schema marker and request metadata so frontend validation can fail closed.
++
++Required fields include `productState`, `productStateDetail`, `grading.state`, `dataConfidence`, `productionEligibleMarkets`, `latestBoardDate`, `playerboard`, `grading`, `workflows`, and `meta.schema`.
++
++`public/trust-surface.js` validates the response before rendering. If required fields are missing or malformed, it logs a contract warning and renders a conservative **Research Only** state. API-sourced strings continue to render only through `textContent` and DOM construction.
++
++The UI must not infer readiness from missing values. Missing models, stale board data, delayed grading, and malformed payloads are all explicit trust states.
++
++The backend validator is `mlb_app.schemas.app_status.validate_app_status_payload()`.
++
++Contract fixtures live in `tests/fixtures/app_status/` and cover ready, research-only, missing-model, stale-board, grading-delayed, and malformed payloads.
+--- before/PHASE7_README.md	1970-01-01 00:00:00.000000000 +0000
++++ base/PHASE7_README.md	2026-05-07 21:46:16.520444899 +0000
+@@ -0,0 +1,35 @@
++# Phase 7 — API Contract and Trust Surface Reliability
++
++This cumulative overlay adds the Phase 7 trust-surface contract layer on top of Phases 0–6.
++
++## Included
++
++- `mlb_app/schemas/app_status.py`: canonical `app-status-v1` response builder and validator.
++- `mlb_app/services/app_status_service.py`: delegates `/api/app/status` shaping to the canonical builder.
++- `mlb_app/routes/health.py`: passes request ID into the app-status payload.
++- `public/trust-surface.js`: validates `app-status-v1`, fails closed to `Research Only`, and keeps API strings on `textContent`.
++- `tests/fixtures/app_status/*.json`: ready, research-only, missing-model, stale-board, grading-delayed, malformed.
++- `tests/test_app_status_phase7_contract.py` and `tests/test_trust_surface_phase7_static_contract.py`.
++- `docs/trust-surface/APP_STATUS_CONTRACT.md`.
++
++## Validation
++
++```bash
++PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest \
++  tests/test_app_status_phase7_contract.py \
++  tests/test_trust_surface_phase7_static_contract.py \
++  tests/test_mutation_security.py \
++  tests/test_request_observability.py \
++  tests/test_wsgi_smoke.py \
++  tests/test_cache_store.py \
++  tests/test_csv_store.py \
++  tests/test_board_cache.py \
++  tests/test_model_card_service.py \
++  tests/test_prop_detail_service.py \
++  tests/test_static_file_guard.py \
++  tests/test_security_export.py \
++  tests/test_trust_surface_static_safety.py \
++  -q
++```
++
++Expected result: `56 passed`.
+--- before/tests/fixtures/app_status/grading_delayed.json	1970-01-01 00:00:00.000000000 +0000
++++ base/tests/fixtures/app_status/grading_delayed.json	2026-05-07 21:46:16.307856825 +0000
+@@ -0,0 +1,90 @@
++{
++  "checkedAt": "2026-05-07T16:45:00Z",
++  "dataConfidence": "Good",
++  "generatedAt": "2026-05-07T16:45:00Z",
++  "grading": {
++    "backtestRowsForDate": 0,
++    "date": "2026-05-07",
++    "gradedBacktestRowsForDate": 0,
++    "gradedMlRowsForDate": 0,
++    "latestFullyGradedDate": "2026-05-06",
++    "mlRowsForDate": 0,
++    "ok": true,
++    "state": "waiting_for_finals"
++  },
++  "latestBoardDate": "2026-05-07",
++  "latestFullyGradedDate": "2026-05-06",
++  "meta": {
++    "generatedAt": "2026-05-07T16:45:00Z",
++    "requestId": "fixture-request",
++    "route": "/api/app/status",
++    "schema": "app-status-v1"
++  },
++  "modelPolicy": {
++    "genericFallbackAllowed": false,
++    "minimumTrainingRows": 200,
++    "requiresExactMarketArtifact": true
++  },
++  "ok": false,
++  "playerboard": {
++    "badShiftedRows": 0,
++    "dataConfidence": "Good",
++    "date": "2026-05-07",
++    "latestAvailableDate": "2026-05-07",
++    "latestSnapshotAt": "2026-05-07T16:30:00Z",
++    "missingMarketDisplayRows": 0,
++    "ok": true,
++    "rowsLoaded": 128,
++    "totalRowsInFile": 128
++  },
++  "productState": "research_mode",
++  "productStateDetail": {
++    "allowedDecisionLabels": [
++      "No bet",
++      "Watchlist",
++      "Model lean"
++    ],
++    "generatedAt": "2026-05-07T21:46:16.306701+00:00",
++    "label": "Research Mode",
++    "message": "Grading is delayed until finals arrive.",
++    "productState": "research_mode",
++    "researchMode": true,
++    "severity": "warning",
++    "state": "research_mode"
++  },
++  "productionEligibleMarkets": [
++    "batter_hits"
++  ],
++  "researchMode": true,
++  "season": 2026,
++  "status": "ok",
++  "trainedMarkets": [
++    "batter_hits",
++    "pitcher_strikeouts"
++  ],
++  "warnings": [
++    "Waiting for final boxscores.",
++    "Latest board date is not fully graded yet."
++  ],
++  "workflows": {
++    "dailyGrading": {
++      "checkedAt": "2026-05-07T16:40:00Z",
++      "date": "2026-05-07",
++      "exists": true,
++      "ok": true
++    },
++    "dailyHealth": {
++      "checkedAt": "2026-05-07T16:35:00Z",
++      "date": "2026-05-07",
++      "exists": true,
++      "ok": true
++    },
++    "ok": true,
++    "weeklyRepair": {
++      "checkedAt": "2026-05-04T09:00:00Z",
++      "date": "2026-05-04",
++      "exists": true,
++      "ok": true
++    }
++  }
++}
+--- before/tests/fixtures/app_status/malformed.json	1970-01-01 00:00:00.000000000 +0000
++++ base/tests/fixtures/app_status/malformed.json	2026-05-07 21:46:16.307969386 +0000
+@@ -0,0 +1,11 @@
++{
++  "grading": {
++    "state": null
++  },
++  "meta": {
++    "schema": "wrong-schema"
++  },
++  "productState": 123,
++  "productionEligibleMarkets": "batter_hits",
++  "status": "ok"
++}
+--- before/tests/fixtures/app_status/missing_model.json	1970-01-01 00:00:00.000000000 +0000
++++ base/tests/fixtures/app_status/missing_model.json	2026-05-07 21:46:16.307577219 +0000
+@@ -0,0 +1,84 @@
++{
++  "checkedAt": "2026-05-07T16:45:00Z",
++  "dataConfidence": "Good",
++  "generatedAt": "2026-05-07T16:45:00Z",
++  "grading": {
++    "backtestRowsForDate": 12,
++    "date": "2026-05-07",
++    "gradedBacktestRowsForDate": 12,
++    "gradedMlRowsForDate": 8,
++    "latestFullyGradedDate": "2026-05-07",
++    "mlRowsForDate": 8,
++    "ok": true,
++    "state": "graded"
++  },
++  "latestBoardDate": "2026-05-07",
++  "latestFullyGradedDate": "2026-05-07",
++  "meta": {
++    "generatedAt": "2026-05-07T16:45:00Z",
++    "requestId": "fixture-request",
++    "route": "/api/app/status",
++    "schema": "app-status-v1"
++  },
++  "modelPolicy": {
++    "genericFallbackAllowed": false,
++    "minimumTrainingRows": 200,
++    "requiresExactMarketArtifact": true
++  },
++  "ok": false,
++  "playerboard": {
++    "badShiftedRows": 0,
++    "dataConfidence": "Good",
++    "date": "2026-05-07",
++    "latestAvailableDate": "2026-05-07",
++    "latestSnapshotAt": "2026-05-07T16:30:00Z",
++    "missingMarketDisplayRows": 0,
++    "ok": true,
++    "rowsLoaded": 128,
++    "totalRowsInFile": 128
++  },
++  "productState": "research_mode",
++  "productStateDetail": {
++    "allowedDecisionLabels": [
++      "No bet",
++      "Watchlist",
++      "Model lean"
++    ],
++    "generatedAt": "2026-05-07T21:46:16.306637+00:00",
++    "label": "Research Mode",
++    "message": "No market is production-ready.",
++    "productState": "research_mode",
++    "researchMode": true,
++    "severity": "warning",
++    "state": "research_mode"
++  },
++  "productionEligibleMarkets": [],
++  "researchMode": true,
++  "season": 2026,
++  "status": "ok",
++  "trainedMarkets": [],
++  "warnings": [
++    "No market is currently eligible for confident production picks."
++  ],
++  "workflows": {
++    "dailyGrading": {
++      "checkedAt": "2026-05-07T16:40:00Z",
++      "date": "2026-05-07",
++      "exists": true,
++      "ok": true
++    },
++    "dailyHealth": {
++      "checkedAt": "2026-05-07T16:35:00Z",
++      "date": "2026-05-07",
++      "exists": true,
++      "ok": true
++    },
++    "ok": true,
++    "weeklyRepair": {
++      "checkedAt": "2026-05-04T09:00:00Z",
++      "date": "2026-05-04",
++      "exists": true,
++      "ok": true
++    }
++  }
++}
+--- before/tests/fixtures/app_status/ready.json	1970-01-01 00:00:00.000000000 +0000
++++ base/tests/fixtures/app_status/ready.json	2026-05-07 21:46:16.307053086 +0000
+@@ -0,0 +1,87 @@
++{
++  "checkedAt": "2026-05-07T16:45:00Z",
++  "dataConfidence": "Good",
++  "generatedAt": "2026-05-07T16:45:00Z",
++  "grading": {
++    "backtestRowsForDate": 12,
++    "date": "2026-05-07",
++    "gradedBacktestRowsForDate": 12,
++    "gradedMlRowsForDate": 8,
++    "latestFullyGradedDate": "2026-05-07",
++    "mlRowsForDate": 8,
++    "ok": true,
++    "state": "graded"
++  },
++  "latestBoardDate": "2026-05-07",
++  "latestFullyGradedDate": "2026-05-07",
++  "meta": {
++    "generatedAt": "2026-05-07T16:45:00Z",
++    "requestId": "fixture-request",
++    "route": "/api/app/status",
++    "schema": "app-status-v1"
++  },
++  "modelPolicy": {
++    "genericFallbackAllowed": false,
++    "minimumTrainingRows": 200,
++    "requiresExactMarketArtifact": true
++  },
++  "ok": true,
++  "playerboard": {
++    "badShiftedRows": 0,
++    "dataConfidence": "Good",
++    "date": "2026-05-07",
++    "latestAvailableDate": "2026-05-07",
++    "latestSnapshotAt": "2026-05-07T16:30:00Z",
++    "missingMarketDisplayRows": 0,
++    "ok": true,
++    "rowsLoaded": 128,
++    "totalRowsInFile": 128
++  },
++  "productState": "production_tracked",
++  "productStateDetail": {
++    "allowedDecisionLabels": [
++      "No bet",
++      "Watchlist",
++      "Potential edge"
++    ],
++    "generatedAt": "2026-05-07T16:40:00Z",
++    "label": "Production Tracked",
++    "message": "Production markets have model cards, grading history, and calibration gates enabled.",
++    "productState": "production_tracked",
++    "researchMode": false,
++    "severity": "success",
++    "state": "production_tracked"
++  },
++  "productionEligibleMarkets": [
++    "batter_hits"
++  ],
++  "researchMode": false,
++  "season": 2026,
++  "status": "ok",
++  "trainedMarkets": [
++    "batter_hits",
++    "pitcher_strikeouts"
++  ],
++  "warnings": [],
++  "workflows": {
++    "dailyGrading": {
++      "checkedAt": "2026-05-07T16:40:00Z",
++      "date": "2026-05-07",
++      "exists": true,
++      "ok": true
++    },
++    "dailyHealth": {
++      "checkedAt": "2026-05-07T16:35:00Z",
++      "date": "2026-05-07",
++      "exists": true,
++      "ok": true
++    },
++    "ok": true,
++    "weeklyRepair": {
++      "checkedAt": "2026-05-04T09:00:00Z",
++      "date": "2026-05-04",
++      "exists": true,
++      "ok": true
++    }
++  }
++}
+--- before/tests/fixtures/app_status/research_only.json	1970-01-01 00:00:00.000000000 +0000
++++ base/tests/fixtures/app_status/research_only.json	2026-05-07 21:46:16.307416298 +0000
+@@ -0,0 +1,86 @@
++{
++  "checkedAt": "2026-05-07T16:45:00Z",
++  "dataConfidence": "Good",
++  "generatedAt": "2026-05-07T16:45:00Z",
++  "grading": {
++    "backtestRowsForDate": 12,
++    "date": "2026-05-07",
++    "gradedBacktestRowsForDate": 12,
++    "gradedMlRowsForDate": 8,
++    "latestFullyGradedDate": "2026-05-07",
++    "mlRowsForDate": 8,
++    "ok": true,
++    "state": "graded"
++  },
++  "latestBoardDate": "2026-05-07",
++  "latestFullyGradedDate": "2026-05-07",
++  "meta": {
++    "generatedAt": "2026-05-07T16:45:00Z",
++    "requestId": "fixture-request",
++    "route": "/api/app/status",
++    "schema": "app-status-v1"
++  },
++  "modelPolicy": {
++    "genericFallbackAllowed": false,
++    "minimumTrainingRows": 200,
++    "requiresExactMarketArtifact": true
++  },
++  "ok": false,
++  "playerboard": {
++    "badShiftedRows": 0,
++    "dataConfidence": "Good",
++    "date": "2026-05-07",
++    "latestAvailableDate": "2026-05-07",
++    "latestSnapshotAt": "2026-05-07T16:30:00Z",
++    "missingMarketDisplayRows": 0,
++    "ok": true,
++    "rowsLoaded": 128,
++    "totalRowsInFile": 128
++  },
++  "productState": "research_mode",
++  "productStateDetail": {
++    "allowedDecisionLabels": [
++      "No bet",
++      "Watchlist",
++      "Model lean"
++    ],
++    "generatedAt": "2026-05-07T21:46:16.306584+00:00",
++    "label": "Research Mode",
++    "message": "Model outputs are experimental. Use this board for research, not blind tailing or automated betting.",
++    "productState": "research_mode",
++    "researchMode": true,
++    "severity": "warning",
++    "state": "research_mode"
++  },
++  "productionEligibleMarkets": [],
++  "researchMode": true,
++  "season": 2026,
++  "status": "ok",
++  "trainedMarkets": [
++    "batter_hits"
++  ],
++  "warnings": [
++    "No market is currently eligible for confident production picks."
++  ],
++  "workflows": {
++    "dailyGrading": {
++      "checkedAt": "2026-05-07T16:40:00Z",
++      "date": "2026-05-07",
++      "exists": true,
++      "ok": true
++    },
++    "dailyHealth": {
++      "checkedAt": "2026-05-07T16:35:00Z",
++      "date": "2026-05-07",
++      "exists": true,
++      "ok": true
++    },
++    "ok": true,
++    "weeklyRepair": {
++      "checkedAt": "2026-05-04T09:00:00Z",
++      "date": "2026-05-04",
++      "exists": true,
++      "ok": true
++    }
++  }
++}
+--- before/tests/fixtures/app_status/stale_board.json	1970-01-01 00:00:00.000000000 +0000
++++ base/tests/fixtures/app_status/stale_board.json	2026-05-07 21:46:16.307716461 +0000
+@@ -0,0 +1,90 @@
++{
++  "checkedAt": "2026-05-07T16:45:00Z",
++  "dataConfidence": "Stale",
++  "generatedAt": "2026-05-07T16:45:00Z",
++  "grading": {
++    "backtestRowsForDate": 12,
++    "date": "2026-05-06",
++    "gradedBacktestRowsForDate": 12,
++    "gradedMlRowsForDate": 8,
++    "latestFullyGradedDate": "2026-05-06",
++    "mlRowsForDate": 8,
++    "ok": true,
++    "state": "graded"
++  },
++  "latestBoardDate": "2026-05-06",
++  "latestFullyGradedDate": "2026-05-06",
++  "meta": {
++    "generatedAt": "2026-05-07T16:45:00Z",
++    "requestId": "fixture-request",
++    "route": "/api/app/status",
++    "schema": "app-status-v1"
++  },
++  "modelPolicy": {
++    "genericFallbackAllowed": false,
++    "minimumTrainingRows": 200,
++    "requiresExactMarketArtifact": true
++  },
++  "ok": false,
++  "playerboard": {
++    "badShiftedRows": 0,
++    "dataConfidence": "Stale",
++    "date": "2026-05-06",
++    "latestAvailableDate": "2026-05-06",
++    "latestSnapshotAt": "2026-05-06T23:59:00Z",
++    "missingMarketDisplayRows": 0,
++    "ok": false,
++    "rowsLoaded": 128,
++    "totalRowsInFile": 128
++  },
++  "productState": "research_mode",
++  "productStateDetail": {
++    "allowedDecisionLabels": [
++      "No bet",
++      "Watchlist",
++      "Model lean"
++    ],
++    "generatedAt": "2026-05-07T21:46:16.306677+00:00",
++    "label": "Research Mode",
++    "message": "Board freshness is stale.",
++    "productState": "research_mode",
++    "researchMode": true,
++    "severity": "warning",
++    "state": "research_mode"
++  },
++  "productionEligibleMarkets": [
++    "batter_hits"
++  ],
++  "researchMode": true,
++  "season": 2026,
++  "status": "ok",
++  "trainedMarkets": [
++    "batter_hits",
++    "pitcher_strikeouts"
++  ],
++  "warnings": [
++    "Board file is older than expected.",
++    "Playerboard needs attention."
++  ],
++  "workflows": {
++    "dailyGrading": {
++      "checkedAt": "2026-05-07T16:40:00Z",
++      "date": "2026-05-07",
++      "exists": true,
++      "ok": true
++    },
++    "dailyHealth": {
++      "checkedAt": "2026-05-07T16:35:00Z",
++      "date": "2026-05-07",
++      "exists": true,
++      "ok": true
++    },
++    "ok": true,
++    "weeklyRepair": {
++      "checkedAt": "2026-05-04T09:00:00Z",
++      "date": "2026-05-04",
++      "exists": true,
++      "ok": true
++    }
++  }
++}

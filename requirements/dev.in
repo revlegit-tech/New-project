@@ -1,0 +1,8 @@
+# Developer and CI tooling.
+-r ml.in
+pytest
+pytest-cov
+mypy
+ruff
+playwright
+detect-secrets

@@ -180,3 +180,26 @@ node_modules/
 playwright-report/
 test-results/
 reports/
+
+# Generated backup/header-mismatch artifacts must not be committed.
+data/playerboard/*.header_mismatch_*.csv
+data/**/*.backup*
+data/**/*.tmp
+public/*.backup*
+public/**/*.backup*
+mlb_app/**/*.backup*
+mlb_app/**/*.phase*_backup*
+*.pyc
+__pycache__/
+data/playerboard/*.phase*_backup*
+
+# Sprint 3 SQLite transactional state is runtime data, not source code.
+data/**/*.sqlite
+data/**/*.sqlite3
+data/**/*.db
+data/**/*.db-wal
+data/**/*.db-shm
+data/**/*.sqlite-wal
+data/**/*.sqlite-shm
+data/**/*.sqlite3-wal
+data/**/*.sqlite3-shm

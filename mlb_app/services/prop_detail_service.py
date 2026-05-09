@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mlb_app.config import settings as default_settings
 from mlb_app.services.edge_board_service import EdgeBoardService
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.picks_service import PicksService
@@ -31,7 +32,7 @@ class PropDetailService:
     def payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
         lookup = _lookup(query)
         board_query = {
-            "season": [lookup.get("season") or "2026"],
+            "season": [lookup.get("season") or str(default_settings.current_season)],
             "date": [lookup.get("date")],
             "market": [lookup.get("market")],
             "limit": [lookup.get("limit") or "500"],
@@ -403,7 +404,7 @@ def _trend_profile(row: dict[str, Any], lookup: dict[str, str], board: dict[str,
     if not profile or not recent_games:
         try:
             from player_hit_rates import hit_profile_for_row, parse_date
-            season = int(_clean(row.get("season") or lookup.get("season") or board.get("season") or "2026"))
+            season = int(_clean(row.get("season") or lookup.get("season") or board.get("season") or str(default_settings.current_season)))
             target_date = parse_date(row.get("date") or lookup.get("date") or board.get("date"))
             computed = hit_profile_for_row(row, season, target_date)
             if not profile:

@@ -205,51 +205,6 @@ if FastAPI is None:
         await send({"type": "http.response.start", "status": 503, "headers": [(b"content-type", b"application/json; charset=utf-8"), (b"content-length", str(len(body)).encode("ascii"))]})
         await send({"type": "http.response.body", "body": body})
 else:
-    app = FastAPI(title="MLB App ASGI Migration Runtime", version="0.9.0")
+    from .api.app import create_app
 
-    @app.api_route("/api/{api_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
-    async def api_gateway(api_path: str, request: Request) -> Response:
-        path = f"/api/{api_path}"
-        query_string = request.url.query
-        headers = _headers_from_request(request)
-        body_bytes = await request.body()
-        status, response_headers, response_body = await anyio.to_thread.run_sync(
-            partial(
-                _dispatch_api_sync,
-                method=request.method.upper(),
-                path=path,
-                query_string=query_string,
-                headers=headers,
-                body_bytes=body_bytes,
-                request_id=headers.get("X-Request-Id"),
-                client_ip=_direct_client_ip_from_request(request),
-            )
-        )
-        response_header_dict = {key: value for key, value in response_headers if key.lower() != "content-length"}
-        media_type = response_header_dict.pop("Content-Type", "application/json; charset=utf-8")
-        return Response(content=response_body, status_code=status, media_type=media_type, headers=response_header_dict)
-
-    @app.api_route("/{static_path:path}", methods=["GET", "HEAD"])
-    async def static_gateway(static_path: str, request: Request) -> Response:
-        path = "/" if not static_path else f"/{static_path}"
-        headers = _headers_from_request(request)
-        request_id, client_ip, started_at = attach_request_metadata(
-            object(),
-            request_id=headers.get("X-Request-Id"),
-            client_ip=_direct_client_ip_from_request(request),
-        )
-        status, response_headers, response_body = await anyio.to_thread.run_sync(_serve_static, path, request_id)
-        log_access(
-            AccessLogEvent(
-                request_id=request_id,
-                method=request.method.upper(),
-                path=path,
-                status=status,
-                elapsed_ms=monotonic_ms(started_at),
-                client_ip=client_ip,
-                route="static",
-            )
-        )
-        response_header_dict = {key: value for key, value in response_headers if key.lower() != "content-length"}
-        media_type = response_header_dict.pop("Content-Type", "application/octet-stream")
-        return Response(content=b"" if request.method.upper() == "HEAD" else response_body, status_code=status, media_type=media_type, headers=response_header_dict)
+    app = create_app(legacy_dispatch=_dispatch_api_sync, static_handler=_serve_static)

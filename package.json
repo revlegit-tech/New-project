@@ -2,13 +2,18 @@
   "name": "mlb-betting-research-app",
   "private": true,
   "version": "0.1.0",
-  "description": "Local MLB betting research app developer tooling",
+  "description": "MLB betting research app with Vite-built Outlier production UI",
   "scripts": {
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "install:browsers": "playwright install --with-deps chromium"
+    "install:browsers": "playwright install --with-deps chromium",
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1"
   },
   "devDependencies": {
-    "@playwright/test": "^1.44.0"
+    "@playwright/test": "^1.44.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
   }
 }

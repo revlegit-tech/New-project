@@ -313,9 +313,12 @@ class ModelCardService:
         warnings = self.warnings_for(status, gate, backtest, calibration)
         production_status = gate["readiness"]
 
+        production_ready = bool(gate.get("canShowConfidentPick")) and bool(status.get("hashVerified", True))
         return {
             "market": key,
             "marketName": _title(key),
+            "version": status.get("version") or entry.get("version") or "",
+            "status": status.get("status") or "not_ready",
             "modelStatus": status.get("status") or "not_ready",
             "productionStatus": production_status,
             "readinessLabel": gate["label"],
@@ -330,12 +333,37 @@ class ModelCardService:
             "artifactExists": bool(status.get("artifactExists")),
             "metadataExists": bool(status.get("metadataExists")),
             "artifact": status.get("artifact") or "",
+            "artifactSha256": status.get("artifactSha256") or "",
+            "artifactHashPrefix": status.get("artifactHashPrefix") or "",
+            "featuresSha256": status.get("featuresSha256") or "",
+            "metricsSha256": status.get("metricsSha256") or "",
+            "hashVerified": bool(status.get("hashVerified", False)),
+            "artifactVerification": status.get("artifactVerification") or {},
+            "featureSchema": self.feature_schema_payload(key, status),
             "calibrated": bool(status.get("calibrated")),
             "calibration": calibration,
             "backtest": backtest,
+            "metrics": status.get("registryMetrics") or backtest,
+            "trainingWindow": status.get("trainingWindow") or {},
+            "lastPromotedAt": status.get("lastPromotedAt") or "",
+            "knownLimitations": status.get("knownLimitations") or [],
+            "researchOnly": not production_ready,
+            "productionReady": production_ready,
             "trustWarnings": warnings,
             "decisionPolicy": self.decision_policy(gate, backtest, warnings),
         }
+
+    def feature_schema_payload(self, market: str, status: dict[str, Any]) -> dict[str, Any]:
+        try:
+            schema = self.registry_service.artifact_repository.load_feature_schema(market)
+        except Exception as error:
+            return {"version": "unavailable", "featureCount": 0, "featureNames": [], "error": str(error)}
+        payload = schema.as_dict()
+        verification = (status.get("artifactVerification") or {}).get("features") or {}
+        if verification:
+            payload["verified"] = bool(verification.get("verified"))
+            payload["verification"] = verification
+        return payload
 
     def backtest_metrics(self, market: str, *, snapshot: ModelSnapshot | None = None) -> BacktestMetrics:
         if snapshot is None:
@@ -457,53 +485,7 @@ class ModelCardService:
         if cached is not None:
             return copy.deepcopy(cached)
 
-        entry = _registry_entry_from_snapshot(snapshot, key)
-        stats = self.registry_service.training_stats(key)
-        artifact_path = self.registry_service.artifact_path(key, entry)
-        metadata_path = self.registry_service.model_store.metadata_path_for_model(artifact_path)
-        artifact_exists = artifact_path.exists()
-        metadata_exists = metadata_path.exists()
-        registry_status = str(entry.get("status") or "research").strip().lower()
-        calibrated = bool(entry.get("calibrated", False))
-
-        if not artifact_exists:
-            readiness = "not_ready"
-            reason = "Missing market-specific model artifact"
-        elif not metadata_exists:
-            readiness = "not_ready"
-            reason = "Missing model feature metadata"
-        elif not stats.has_two_classes:
-            readiness = "research_only"
-            reason = "Training data has one class only"
-        elif stats.total_rows < 25:
-            readiness = "research_only"
-            reason = "Fewer than 25 training rows"
-        elif registry_status in {"disabled", "blocked"}:
-            readiness = "disabled"
-            reason = "Market disabled in model registry"
-        else:
-            readiness = registry_status if registry_status else "experimental"
-            reason = "Market-specific model artifact available"
-
-        status = {
-            "market": key,
-            "trainingRows": stats.total_rows,
-            "classCounts": stats.class_counts,
-            "positiveRows": stats.positive_rows,
-            "negativeRows": stats.negative_rows,
-            "canTrain": stats.can_train,
-            "modelTrained": artifact_exists and metadata_exists,
-            "artifactExists": artifact_exists,
-            "metadataExists": metadata_exists,
-            "artifact": str(artifact_path),
-            "modelPath": str(artifact_path),
-            "metadataPath": str(metadata_path),
-            "status": readiness,
-            "reason": reason,
-            "trainedAt": str(entry.get("trained_at") or ""),
-            "calibrated": calibrated,
-            "productionEligible": readiness in {"production_candidate", "production"} and calibrated,
-        }
+        status = self.registry_service.market_status(key)
         snapshot.market_statuses[key] = copy.deepcopy(status)
         return status
 

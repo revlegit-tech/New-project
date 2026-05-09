@@ -5,6 +5,7 @@ import csv
 from pathlib import Path
 from typing import Any, Hashable
 
+from mlb_app.config import settings as default_settings
 from mlb_app.services.board_cache import BoardCache, BoardCacheBuildResult
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.playerboard_service import PlayerboardService
@@ -327,7 +328,7 @@ def _context_team(row: dict[str, Any], key: str) -> str:
 
 
 def _board_cache_key(query: dict[str, list[str]]) -> Hashable:
-    season = _int_query(query, "season", 2026)
+    season = _int_query(query, "season", default_settings.current_season)
     date_label = _query_value(query, "date")
     market = _query_value(query, "market").lower()
     limit = _int_query(query, "limit", 50)
@@ -335,12 +336,8 @@ def _board_cache_key(query: dict[str, list[str]]) -> Hashable:
 
 
 def _playerboard_dependency_paths(query: dict[str, list[str]]) -> tuple[Path, ...]:
-    season = _int_query(query, "season", 2026)
-    try:
-        from playerboard import playerboard_file
-    except Exception:
-        return ()
-    return (Path(playerboard_file(season)),)
+    season = _int_query(query, "season", default_settings.current_season)
+    return (default_settings.data_dir / "playerboard" / f"playerboard_{season}.csv",)
 
 
 def _bypass_board_cache(query: dict[str, list[str]]) -> bool:

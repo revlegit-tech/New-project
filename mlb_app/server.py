@@ -19,7 +19,10 @@ from .routes.my_picks import (
     update_bankroll_settings,
     update_pick,
 )
-from .routes.playerboard import playerboard, playerboard_health
+from .routes.playerboard import (
+    playerboard as route_playerboard,
+    playerboard_health as route_playerboard_health,
+)
 from .routes.propline import sync_props as sync_propline_props
 from .routes.prop_detail import prop_detail
 from .routes.workflows import workflow_health
@@ -29,8 +32,8 @@ from .routing import Router
 def build_router() -> Router:
     router = Router()
     router.add("GET", "/api/app/status", app_status)
-    router.add("GET", "/api/playerboard/health", playerboard_health)
-    router.add("GET", "/api/playerboard", playerboard)
+    router.add("GET", "/api/playerboard/health", route_playerboard_health)
+    router.add("GET", "/api/playerboard", route_playerboard)
     router.add("GET", "/api/edge-board", edge_board)
     router.add("GET", "/api/prop-detail", prop_detail)
     router.add("GET", "/api/data-health", data_health)

@@ -1,0 +1,734 @@
+--- a/mlb_app/security/__init__.py
++++ b/mlb_app/security/__init__.py
+@@ -0,0 +1 @@
++"""Security boundary helpers for mlb_app."""
+--- a/mlb_app/security/mutation.py
++++ b/mlb_app/security/mutation.py
+@@ -0,0 +1,225 @@
++from __future__ import annotations
++
++import ipaddress
++import os
++import threading
++import time
++from dataclasses import dataclass
++from http import HTTPStatus
++from typing import Any, Mapping
++
++ACTION_HEADER = "X-Baseball-Prop-Action"
++TOKEN_HEADERS = ("X-MLB-App-Token", "X-API-Token", "Authorization")
++CSRF_HEADER = "X-CSRF-Token"
++DEFAULT_MUTATION_LIMIT = 10
++DEFAULT_MUTATION_WINDOW_SECONDS = 60.0
++
++
++class MutationSecurityError(Exception):
++    """Safe mutation-boundary error rendered by Router.dispatch()."""
++
++    def __init__(self, status: int | HTTPStatus, message: str, *, code: str, retry_after: int | None = None) -> None:
++        super().__init__(message)
++        self.status = int(status)
++        self.message = message
++        self.code = code
++        self.retry_after = retry_after
++
++
++@dataclass(frozen=True)
++class MutationEndpointSpec:
++    """Security metadata for a state-changing endpoint."""
++
++    owner: str
++    risk: str
++    kind: str = "product_mutation"
++    enabled: bool = True
++
++
++@dataclass(frozen=True)
++class MutationSecurityConfig:
++    runtime_mode: str
++    action_header: str = ACTION_HEADER
++    token_headers: tuple[str, ...] = TOKEN_HEADERS
++    csrf_header: str = CSRF_HEADER
++    max_requests: int = DEFAULT_MUTATION_LIMIT
++    window_seconds: float = DEFAULT_MUTATION_WINDOW_SECONDS
++    require_csrf: bool = False
++    configured_tokens: frozenset[str] = frozenset()
++    configured_csrf_token: str = ""
++
++    @property
++    def token_required(self) -> bool:
++        return self.runtime_mode in {"shared", "staging", "production"}
++
++    @property
++    def localhost_required(self) -> bool:
++        return self.runtime_mode in {"local", "development", "test"}
++
++
++def _truthy(value: str | None) -> bool:
++    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _runtime_mode_from_env(environ: Mapping[str, str] | None = None) -> str:
++    source = environ or os.environ
++    raw = (source.get("MLB_ENV") or source.get("MLB_APP_ENV") or source.get("APP_ENV") or "").strip().lower()
++    if _truthy(source.get("MLB_DEV_MODE")):
++        return "local"
++    if raw in {"local", "development", "dev", "test"}:
++        return "local"
++    if raw in {"shared", "staging", "stage", "preview"}:
++        return "staging"
++    if raw in {"production", "prod"}:
++        return "production"
++    # Safe for developer machines: action header + loopback are still required.
++    return "local"
++
++
++def _split_tokens(value: str | None) -> set[str]:
++    if not value:
++        return set()
++    return {part.strip() for part in value.replace("\n", ",").split(",") if part.strip()}
++
++
++def mutation_security_config(environ: Mapping[str, str] | None = None) -> MutationSecurityConfig:
++    source = environ or os.environ
++    tokens: set[str] = set()
++    for key in ("MLB_MUTATION_TOKEN", "MLB_API_TOKEN", "MLB_ADMIN_TOKEN"):
++        tokens.update(_split_tokens(source.get(key)))
++    try:
++        max_requests = max(1, int(source.get("MLB_MUTATION_RATE_LIMIT", str(DEFAULT_MUTATION_LIMIT))))
++    except ValueError:
++        max_requests = DEFAULT_MUTATION_LIMIT
++    try:
++        window_seconds = max(1.0, float(source.get("MLB_MUTATION_RATE_WINDOW_SECONDS", str(DEFAULT_MUTATION_WINDOW_SECONDS))))
++    except ValueError:
++        window_seconds = DEFAULT_MUTATION_WINDOW_SECONDS
++    csrf_token = (source.get("MLB_CSRF_TOKEN") or "").strip()
++    return MutationSecurityConfig(
++        runtime_mode=_runtime_mode_from_env(source),
++        max_requests=max_requests,
++        window_seconds=window_seconds,
++        require_csrf=_truthy(source.get("MLB_REQUIRE_CSRF")) or bool(csrf_token),
++        configured_tokens=frozenset(tokens),
++        configured_csrf_token=csrf_token,
++    )
++
++
++class TokenBucketRateLimiter:
++    """Process-local token bucket for mutation endpoints."""
++
++    def __init__(self, *, capacity: int = DEFAULT_MUTATION_LIMIT, window_seconds: float = DEFAULT_MUTATION_WINDOW_SECONDS) -> None:
++        self.capacity = max(1, int(capacity))
++        self.window_seconds = max(1.0, float(window_seconds))
++        self.refill_rate = self.capacity / self.window_seconds
++        self._lock = threading.RLock()
++        self._buckets: dict[str, tuple[float, float]] = {}
++
++    def allow(self, key: str, *, now: float | None = None) -> tuple[bool, int]:
++        current = time.monotonic() if now is None else now
++        with self._lock:
++            tokens, updated_at = self._buckets.get(key, (float(self.capacity), current))
++            elapsed = max(0.0, current - updated_at)
++            tokens = min(float(self.capacity), tokens + elapsed * self.refill_rate)
++            if tokens >= 1.0:
++                self._buckets[key] = (tokens - 1.0, current)
++                return True, 0
++            retry_after = max(1, int((1.0 - tokens) / self.refill_rate))
++            self._buckets[key] = (tokens, current)
++            return False, retry_after
++
++    def reset(self) -> None:
++        with self._lock:
++            self._buckets.clear()
++
++    def status(self) -> dict[str, Any]:
++        with self._lock:
++            return {"capacity": self.capacity, "windowSeconds": self.window_seconds, "bucketCount": len(self._buckets)}
++
++
++mutation_rate_limiter = TokenBucketRateLimiter()
++
++
++def header_value(headers: Any, name: str) -> str | None:
++    if headers is None:
++        return None
++    getter = getattr(headers, "get", None)
++    if callable(getter):
++        value = getter(name)
++        if value is not None:
++            return str(value)
++        items = getattr(headers, "items", None)
++        if callable(items):
++            for key, candidate in items():
++                if str(key).lower() == name.lower():
++                    return str(candidate)
++    return None
++
++
++def _extract_token(headers: Any, config: MutationSecurityConfig) -> str:
++    for name in config.token_headers:
++        value = header_value(headers, name)
++        if not value:
++            continue
++        value = value.strip()
++        if name.lower() == "authorization" and value.lower().startswith("bearer "):
++            return value[7:].strip()
++        if name.lower() != "authorization":
++            return value
++    return ""
++
++
++def _is_loopback_client(client_ip: str) -> bool:
++    candidate = (client_ip or "").strip()
++    if candidate in {"localhost", "::1", "127.0.0.1"}:
++        return True
++    try:
++        return ipaddress.ip_address(candidate).is_loopback
++    except ValueError:
++        return False
++
++
++def enforce_mutation_security(
++    *,
++    context: Any,
++    spec: MutationEndpointSpec | None,
++    config: MutationSecurityConfig | None = None,
++    limiter: TokenBucketRateLimiter | None = None,
++) -> None:
++    if spec is None:
++        return
++    if not spec.enabled:
++        raise MutationSecurityError(HTTPStatus.NOT_FOUND, "Workflow is not exposed by this runtime", code="workflow_quarantined")
++
++    cfg = config or mutation_security_config()
++    headers = getattr(getattr(context, "handler", None), "headers", None)
++    if header_value(headers, cfg.action_header) != "1":
++        raise MutationSecurityError(HTTPStatus.FORBIDDEN, f"Mutating actions require {cfg.action_header}: 1", code="action_header_required")
++
++    if cfg.localhost_required and not _is_loopback_client(getattr(context, "client_ip", "unknown")):
++        raise MutationSecurityError(HTTPStatus.FORBIDDEN, "Local mutation mode only accepts loopback clients", code="localhost_required")
++
++    if cfg.token_required:
++        if not cfg.configured_tokens:
++            raise MutationSecurityError(HTTPStatus.SERVICE_UNAVAILABLE, "Mutation token is not configured for this runtime", code="mutation_token_not_configured")
++        if _extract_token(headers, cfg) not in cfg.configured_tokens:
++            raise MutationSecurityError(HTTPStatus.UNAUTHORIZED, "Valid mutation token required", code="mutation_token_required")
++
++    if cfg.runtime_mode == "production" and cfg.require_csrf:
++        csrf_value = header_value(headers, cfg.csrf_header) or ""
++        if cfg.configured_csrf_token and csrf_value != cfg.configured_csrf_token:
++            raise MutationSecurityError(HTTPStatus.FORBIDDEN, "Valid CSRF token required", code="csrf_token_required")
++        if not cfg.configured_csrf_token and not csrf_value:
++            raise MutationSecurityError(HTTPStatus.FORBIDDEN, "CSRF token required", code="csrf_token_required")
++
++    global mutation_rate_limiter
++    active_limiter = limiter or mutation_rate_limiter
++    if limiter is None and (active_limiter.capacity != cfg.max_requests or active_limiter.window_seconds != cfg.window_seconds):
++        active_limiter = TokenBucketRateLimiter(capacity=cfg.max_requests, window_seconds=cfg.window_seconds)
++        mutation_rate_limiter = active_limiter
++    route_name = getattr(context, "route_name", "mutation") or "mutation"
++    key = f"{getattr(context, 'client_ip', 'unknown')}:{route_name}"
++    allowed, retry_after = active_limiter.allow(key)
++    if not allowed:
++        raise MutationSecurityError(HTTPStatus.TOO_MANY_REQUESTS, "Mutation rate limit exceeded", code="rate_limited", retry_after=retry_after)
+--- a/mlb_app/middleware.py
++++ b/mlb_app/middleware.py
+@@ -87,6 +87,9 @@
+     client_ip: str
+     route: str
+     cache_hit: bool | None = None
++    mutation: bool = False
++    rate_limited: bool = False
++    auth_mode: str | None = None
+ 
+     def as_json(self) -> str:
+         payload: dict[str, Any] = {
+@@ -101,6 +104,12 @@
+         }
+         if self.cache_hit is not None:
+             payload["cache_hit"] = self.cache_hit
++        if self.mutation:
++            payload["mutation"] = True
++        if self.rate_limited:
++            payload["rate_limited"] = True
++        if self.auth_mode:
++            payload["auth_mode"] = self.auth_mode
+         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+ 
+ 
+--- a/mlb_app/http.py
++++ b/mlb_app/http.py
+@@ -8,6 +8,7 @@
+ from urllib.parse import parse_qs, urlparse
+ 
+ from .middleware import attach_request_metadata, direct_client_ip_from_handler
++from .security.mutation import MutationSecurityError
+ 
+ 
+ class ApiError(Exception):
+@@ -53,7 +54,13 @@
+         )
+ 
+ 
+-def json_response(handler: BaseHTTPRequestHandler, payload: Any, status: int | HTTPStatus = 200) -> None:
++def json_response(
++    handler: BaseHTTPRequestHandler,
++    payload: Any,
++    status: int | HTTPStatus = 200,
++    *,
++    extra_headers: dict[str, str] | None = None,
++) -> None:
+     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+     handler.send_response(int(status))
+     handler.send_header("Content-Type", "application/json; charset=utf-8")
+@@ -61,6 +68,10 @@
+     request_id = getattr(handler, "request_id", None)
+     if request_id:
+         handler.send_header("X-Request-Id", str(request_id))
++    if extra_headers:
++        for key, value in extra_headers.items():
++            if value is not None:
++                handler.send_header(str(key), str(value))
+     handler.send_header("Content-Length", str(len(body)))
+     handler.end_headers()
+     try:
+@@ -89,6 +100,8 @@
+ def error_payload(error: Exception) -> tuple[dict[str, Any], int]:
+     if isinstance(error, ApiError):
+         return {"status": "error", "code": error.code, "error": error.message}, error.status
++    if isinstance(error, MutationSecurityError):
++        return {"status": "error", "code": error.code, "error": error.message}, error.status
+     return {
+         "status": "error",
+         "code": "internal_server_error",
+--- a/mlb_app/routing.py
++++ b/mlb_app/routing.py
+@@ -6,6 +6,7 @@
+ 
+ from .http import ApiError, RequestContext, error_payload, json_response
+ from .middleware import AccessLogEvent, log_access, monotonic_ms
++from .security.mutation import MutationEndpointSpec, MutationSecurityError, enforce_mutation_security
+ 
+ Handler = Callable[[RequestContext], Any]
+ 
+@@ -16,30 +17,40 @@
+     path: str
+     handler: Handler
+     name: str = ""
++    mutation: MutationEndpointSpec | None = None
+ 
+ 
+ class Router:
+-    """Explicit route table with one observability/security boundary.
+-
+-    Route handlers remain thin HTTP adapters. Cross-cutting concerns such as
+-    request-id logging and future auth/rate limiting live here or in middleware,
+-    not duplicated inside individual endpoint modules.
+-    """
++    """Explicit route table with one observability/security boundary."""
+ 
+     def __init__(self) -> None:
+         self._routes: dict[tuple[str, str], Route] = {}
+ 
+-    def add(self, method: str, path: str, handler: Handler, *, name: str = "") -> None:
++    def add(
++        self,
++        method: str,
++        path: str,
++        handler: Handler,
++        *,
++        name: str = "",
++        mutation: bool = False,
++        mutation_owner: str = "",
++        mutation_risk: str = "medium",
++        mutation_kind: str = "product_mutation",
++        mutation_enabled: bool = True,
++    ) -> None:
+         key = (method.upper(), path)
+         if key in self._routes:
+             raise ValueError(f"Duplicate route registered for {method.upper()} {path}")
+-        self._routes[key] = Route(method.upper(), path, handler, name or f"{method.upper()} {path}")
++        spec = None
++        if mutation:
++            spec = MutationEndpointSpec(owner=mutation_owner or "unassigned", risk=mutation_risk, kind=mutation_kind, enabled=mutation_enabled)
++        self._routes[key] = Route(method.upper(), path, handler, name or f"{method.upper()} {path}", spec)
+ 
+-    def route(self, method: str, path: str) -> Callable[[Handler], Handler]:
++    def route(self, method: str, path: str, **metadata: Any) -> Callable[[Handler], Handler]:
+         def decorator(handler: Handler) -> Handler:
+-            self.add(method, path, handler)
++            self.add(method, path, handler, **metadata)
+             return handler
+-
+         return decorator
+ 
+     def dispatch(self, context: RequestContext) -> bool:
+@@ -49,10 +60,21 @@
+ 
+         request_context = replace(context, route_name=route.name)
+         status_int = int(HTTPStatus.OK)
++        rate_limited = False
+         try:
++            enforce_mutation_security(context=request_context, spec=route.mutation)
+             payload = route.handler(request_context)
+             status_int = int(payload.pop("_status", HTTPStatus.OK)) if isinstance(payload, dict) else int(HTTPStatus.OK)
+             json_response(request_context.handler, payload, status_int)
++        except MutationSecurityError as error:
++            status_int = error.status
++            rate_limited = error.code == "rate_limited"
++            json_response(
++                request_context.handler,
++                {"status": "error", "code": error.code, "error": error.message},
++                status_int,
++                extra_headers={"Retry-After": str(error.retry_after)} if error.retry_after is not None else None,
++            )
+         except Exception as error:  # noqa: BLE001 - central safe API boundary
+             payload, status_int = error_payload(error)
+             json_response(request_context.handler, payload, status_int)
+@@ -66,6 +88,9 @@
+                     elapsed_ms=monotonic_ms(request_context.started_at or getattr(request_context.handler, "request_started_at", 0.0)),
+                     client_ip=request_context.client_ip,
+                     route=route.name,
++                    mutation=route.mutation is not None,
++                    rate_limited=rate_limited,
++                    auth_mode=route.mutation.kind if route.mutation is not None else None,
+                 )
+             )
+         return True
+@@ -79,3 +104,7 @@
+     @property
+     def routes(self) -> tuple[Route, ...]:
+         return tuple(self._routes.values())
++
++    @property
++    def mutation_routes(self) -> tuple[Route, ...]:
++        return tuple(route for route in self._routes.values() if route.mutation is not None)
+--- a/mlb_app/server.py
++++ b/mlb_app/server.py
+@@ -40,10 +40,10 @@
+     router.add("GET", "/api/model-cards", model_cards)
+     router.add("GET", "/api/model-card", model_card)
+     router.add("GET", "/api/my-picks", my_picks)
+-    router.add("POST", "/api/my-picks", create_pick)
+-    router.add("POST", "/api/my-picks/update", update_pick)
++    router.add("POST", "/api/my-picks", create_pick, mutation=True, mutation_owner="bettor_state", mutation_risk="medium", mutation_kind="pick_write")
++    router.add("POST", "/api/my-picks/update", update_pick, mutation=True, mutation_owner="bettor_state", mutation_risk="medium", mutation_kind="pick_write")
+     router.add("GET", "/api/bankroll/settings", bankroll_settings)
+-    router.add("POST", "/api/bankroll/settings", update_bankroll_settings)
++    router.add("POST", "/api/bankroll/settings", update_bankroll_settings, mutation=True, mutation_owner="risk_controls", mutation_risk="high", mutation_kind="bankroll_write")
+     router.add("GET", "/api/exposure/summary", exposure_summary)
+     return router
+ 
+--- a/mlb_app/routes/my_picks.py
++++ b/mlb_app/routes/my_picks.py
+@@ -0,0 +1,32 @@
++from __future__ import annotations
++
++from typing import Any
++
++from mlb_app.http import RequestContext
++from mlb_app.services.bankroll_service import BankrollService
++from mlb_app.services.picks_service import PicksService
++
++
++def my_picks(context: RequestContext) -> dict[str, Any]:
++    return PicksService().payload(context.query)
++
++
++def create_pick(context: RequestContext) -> dict[str, Any]:
++    return PicksService().create(context.body)
++
++
++def update_pick(context: RequestContext) -> dict[str, Any]:
++    return PicksService().update(context.body)
++
++
++def bankroll_settings(context: RequestContext) -> dict[str, Any]:
++    return BankrollService().payload()
++
++
++def update_bankroll_settings(context: RequestContext) -> dict[str, Any]:
++    return BankrollService().update(context.body)
++
++
++def exposure_summary(context: RequestContext) -> dict[str, Any]:
++    service = PicksService()
++    return {"status": "ok", "settings": service.bankroll_service.get_settings().to_api(), "exposure": service.exposure()}
+--- a/tools/generate_mutation_inventory.py
++++ b/tools/generate_mutation_inventory.py
+@@ -0,0 +1,56 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import csv
++from pathlib import Path
++
++MUTATION_KEYWORDS = ("sync", "train", "refresh", "backfill", "catchup", "grade", "upload", "settings", "my-picks", "bankroll", "repair", "import", "collect", "update", "write", "pipeline", "cache")
++ADMIN_KEYWORDS = ("sync", "train", "refresh", "backfill", "catchup", "grade", "repair", "pipeline", "upload", "import", "cache")
++
++
++def classify(row: dict[str, str]) -> tuple[bool, str, str, str]:
++    endpoint = row.get("endpoint", "")
++    method = row.get("method", "GET").upper()
++    text = " ".join(str(row.get(key, "")) for key in row).lower()
++    endpoint_lower = endpoint.lower()
++    is_mutation = method not in {"GET", "HEAD", "OPTIONS"} or any(word in text for word in MUTATION_KEYWORDS)
++    if not is_mutation:
++        return False, "", "", ""
++    if endpoint in {"/api/my-picks", "/api/my-picks/update"}:
++        return True, "product_mutation", "bettor_state", "MEDIUM"
++    if endpoint == "/api/bankroll/settings":
++        return True, "product_mutation", "risk_controls", "HIGH"
++    if any(word in endpoint_lower for word in ADMIN_KEYWORDS) or row.get("classification") == "QUARANTINE":
++        return True, "admin_workflow", "ops_data", "HIGH"
++    return True, "review_required", row.get("owner") or "TBD", row.get("risk") or "MEDIUM"
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description="Generate Phase 6 mutation endpoint inventory from endpoint triage CSV.")
++    parser.add_argument("--triage", default="docs/endpoint-triage/endpoint_triage_inventory.csv")
++    parser.add_argument("--out", default="docs/security/mutation_endpoint_inventory.csv")
++    args = parser.parse_args()
++    rows = list(csv.DictReader(Path(args.triage).open(newline="", encoding="utf-8")))
++    fieldnames = ["endpoint", "method", "classification", "mutation_kind", "owner", "risk", "required_boundary", "current_status", "next_action", "notes"]
++    out = Path(args.out)
++    out.parent.mkdir(parents=True, exist_ok=True)
++    count = 0
++    with out.open("w", newline="", encoding="utf-8") as handle:
++        writer = csv.DictWriter(handle, fieldnames=fieldnames)
++        writer.writeheader()
++        for row in rows:
++            is_mutation, kind, owner, risk = classify(row)
++            if not is_mutation:
++                continue
++            count += 1
++            boundary = "router mutation middleware + rate limit"
++            if kind == "admin_workflow" or row.get("classification") == "QUARANTINE":
++                boundary = "quarantine behind CLI/scheduler/admin-only route"
++            writer.writerow({"endpoint": row.get("endpoint", ""), "method": row.get("method", ""), "classification": row.get("classification", ""), "mutation_kind": kind, "owner": owner, "risk": risk, "required_boundary": boundary, "current_status": row.get("status", ""), "next_action": row.get("next_action", ""), "notes": row.get("notes", "")})
++    print(f"wrote {count} mutation/workflow rows to {out}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- a/docs/security/MUTATION_ENDPOINT_SECURITY.md
++++ b/docs/security/MUTATION_ENDPOINT_SECURITY.md
+@@ -0,0 +1,33 @@
++# Phase 6 — Mutation Endpoint Security
++
++State-changing endpoints are protected at the `mlb_app` routing boundary, not inside individual route handlers. The legacy `X-Baseball-Prop-Action: 1` header remains as an operator/user intent signal, but it is no longer treated as authentication for shared or production runtimes.
++
++## Protected endpoints currently registered in `mlb_app`
++
++| Endpoint | Method | Owner | Risk | Middleware kind |
++|---|---|---:|---:|---|
++| `/api/my-picks` | POST | bettor_state | MEDIUM | `pick_write` |
++| `/api/my-picks/update` | POST | bettor_state | MEDIUM | `pick_write` |
++| `/api/bankroll/settings` | POST | risk_controls | HIGH | `bankroll_write` |
++
++All future sync, training, backfill, grading, refresh, repair, upload, or paid external API endpoints must be registered with `mutation=True` or kept out of the product router entirely.
++
++## Runtime policy
++
++| Runtime | Required controls |
++|---|---|
++| local / development | `X-Baseball-Prop-Action: 1` + loopback client IP. Unconfigured developer machines default to this mode to preserve local workflows while still rejecting remote mutation calls. |
++| staging / shared | `X-Baseball-Prop-Action: 1` + configured mutation token + token-bucket rate limit. |
++| production | `X-Baseball-Prop-Action: 1` + configured mutation token + optional/required CSRF token + token-bucket rate limit. |
++
++Environment variables: `MLB_ENV`, `MLB_DEV_MODE`, `MLB_MUTATION_TOKEN`, `MLB_API_TOKEN`, `MLB_ADMIN_TOKEN`, `MLB_CSRF_TOKEN`, `MLB_REQUIRE_CSRF`, `MLB_MUTATION_RATE_LIMIT`, `MLB_MUTATION_RATE_WINDOW_SECONDS`.
++
++Accepted token headers: `X-MLB-App-Token`, `X-API-Token`, or `Authorization: Bearer <token>`.
++
++A process-local token bucket enforces the default mutation policy: **10 mutation requests per minute per client IP per route**. On denial, the API returns `429` with `Retry-After`. Mutation access logs include `mutation`, `rate_limited`, and `auth_mode` fields.
++
++## Quarantine rule
++
++Do not port legacy admin/workflow endpoints directly into the product API. Anything that writes cache files, trains models, grades predictions, triggers sync/backfill/catchup, imports data, repairs data, or calls paid external APIs must move to a CLI command, scheduled workflow, admin-only route, or internal worker command.
++
++See `docs/security/mutation_endpoint_inventory.csv` for the current triage-generated list.
+--- a/docs/security/mutation_endpoint_inventory.csv
++++ b/docs/security/mutation_endpoint_inventory.csv
+@@ -0,0 +1,38 @@
++endpoint,method,classification,mutation_kind,owner,risk,required_boundary,current_status,next_action,notes
++/api/season-cache/lookup,GET,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,
++/api/season-cache/status,GET,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,
++/api/all-data-prop/build-bvp,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/all-data-prop/save-prediction,POST,REPLACE,review_required,TBD,HIGH,router mutation middleware + rate limit,NOT_PORTED,Define schema and service contract before exposing through mlb_app.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/bankroll/settings,POST,PORT,product_mutation,risk_controls,HIGH,router mutation middleware + rate limit,PORTED_IN_MLB_APP,"Contract-test against app.py, then retire legacy branch after parity sign-off.",Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/daily-workflow/after,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/daily-workflow/before,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/import-url,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy file/import mutation path; Mutation/workflow-sensitive
++/api/incremental-features/build,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/incremental-features/cross-reference,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/incremental-stats/catchup,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/ml/predict,POST,REPLACE,review_required,TBD,HIGH,router mutation middleware + rate limit,NOT_PORTED,Define schema and service contract before exposing through mlb_app.,Mutation/workflow-sensitive
++/api/model-data/refresh,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/my-picks,POST,PORT,product_mutation,bettor_state,MEDIUM,router mutation middleware + rate limit,PORTED_IN_MLB_APP,"Contract-test against app.py, then retire legacy branch after parity sign-off.",Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/my-picks/update,POST,PORT,product_mutation,bettor_state,MEDIUM,router mutation middleware + rate limit,PORTED_IN_MLB_APP,"Contract-test against app.py, then retire legacy branch after parity sign-off.",Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/ocr/parse,POST,RETIRE,review_required,TBD,LOW,router mutation middleware + rate limit,NEEDS_USAGE_CONFIRMATION,Confirm no primary Outlier UI or CI dependency; remove from production path.,Mutation/workflow-sensitive
++/api/odds-movement/sync,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/pipeline/autofill-game-odds,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/pipeline/create-template,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/pipeline/grade,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/pipeline/merge-game-odds,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/pipeline/prepare-strikeouts,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/pipeline/run-after-game,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/pipeline/train-strikeouts,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/platoon-splits/sync,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/predictions/grade,POST,REPLACE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Define schema and service contract before exposing through mlb_app.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/predictions/save,POST,REPLACE,review_required,TBD,HIGH,router mutation middleware + rate limit,NOT_PORTED,Define schema and service contract before exposing through mlb_app.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/prop-board/analyze,POST,REPLACE,review_required,TBD,HIGH,router mutation middleware + rate limit,NOT_PORTED,Define schema and service contract before exposing through mlb_app.,Mutation/workflow-sensitive
++/api/propline/props,POST,REPLACE,review_required,TBD,MEDIUM,router mutation middleware + rate limit,NOT_PORTED,"Wrap external API access with timeout, token handling, and explicit data-health state.",Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/refresh-sources,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Mutation/workflow-sensitive
++/api/savant/sync,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/season-cache/backfill,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/umpire/sync,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/unified-prop-card/predict,POST,REPLACE,review_required,TBD,HIGH,router mutation middleware + rate limit,NOT_PORTED,Define schema and service contract before exposing through mlb_app.,Mutation/workflow-sensitive
++/api/upload,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy file/import mutation path; Mutation/workflow-sensitive
++/api/weather/build,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
++/api/weather/sync,POST,QUARANTINE,admin_workflow,ops_data,HIGH,quarantine behind CLI/scheduler/admin-only route,NOT_PORTED,Move behind auth/rate-limit/request-id boundary or replace with operator CLI/job.,Legacy action-header gated mutation; POST-only endpoint set; Mutation/workflow-sensitive
+--- a/tests/test_mutation_security.py
++++ b/tests/test_mutation_security.py
+@@ -0,0 +1,103 @@
++from __future__ import annotations
++
++import json
++from io import BytesIO
++from typing import Any
++
++import pytest
++
++import mlb_app.security.mutation as mutation
++from mlb_app.security.mutation import TokenBucketRateLimiter, mutation_security_config
++from mlb_app.wsgi import application
++
++
++def call_wsgi(path: str, *, method: str = "POST", payload: dict[str, Any] | None = None, remote_addr: str = "127.0.0.1", headers: dict[str, str] | None = None) -> tuple[str, list[tuple[str, str]], dict[str, Any]]:
++    captured: dict[str, Any] = {}
++    def start_response(status: str, response_headers: list[tuple[str, str]]) -> None:
++        captured["status"] = status
++        captured["headers"] = response_headers
++    body = json.dumps(payload or {}).encode("utf-8")
++    environ: dict[str, Any] = {"REQUEST_METHOD": method, "PATH_INFO": path, "QUERY_STRING": "", "REMOTE_ADDR": remote_addr, "wsgi.input": BytesIO(body), "CONTENT_LENGTH": str(len(body)), "CONTENT_TYPE": "application/json"}
++    for key, value in (headers or {}).items():
++        environ["HTTP_" + key.upper().replace("-", "_")] = value
++    chunks = list(application(environ, start_response))
++    return captured["status"], captured["headers"], json.loads(b"".join(chunks).decode("utf-8"))
++
++
++def header_value(headers: list[tuple[str, str]], name: str) -> str | None:
++    for key, value in headers:
++        if key.lower() == name.lower():
++            return value
++    return None
++
++
++@pytest.fixture(autouse=True)
++def reset_mutation_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
++    mutation.mutation_rate_limiter = TokenBucketRateLimiter()
++    for key in ["MLB_ENV", "MLB_APP_ENV", "APP_ENV", "MLB_DEV_MODE", "MLB_MUTATION_TOKEN", "MLB_API_TOKEN", "MLB_ADMIN_TOKEN", "MLB_CSRF_TOKEN", "MLB_REQUIRE_CSRF", "MLB_MUTATION_RATE_LIMIT", "MLB_MUTATION_RATE_WINDOW_SECONDS"]:
++        monkeypatch.delenv(key, raising=False)
++
++
++def test_mutating_route_rejects_missing_action_header() -> None:
++    status, _headers, payload = call_wsgi("/api/bankroll/settings", payload={"bankroll": 1200})
++    assert status.startswith("403 ")
++    assert payload["code"] == "action_header_required"
++
++
++def test_local_mutation_requires_loopback_client() -> None:
++    status, _headers, payload = call_wsgi("/api/bankroll/settings", payload={"bankroll": 1200}, remote_addr="203.0.113.9", headers={"X-Baseball-Prop-Action": "1"})
++    assert status.startswith("403 ")
++    assert payload["code"] == "localhost_required"
++
++
++def test_local_loopback_action_header_allows_mutation() -> None:
++    status, headers, payload = call_wsgi("/api/bankroll/settings", payload={"bankroll": 1500, "defaultUnitSize": 15, "maxUnitsPerBet": 0.25}, headers={"X-Baseball-Prop-Action": "1"})
++    assert status.startswith("200 ")
++    assert payload["status"] == "ok"
++    assert payload["settings"]["bankroll"] == 1500
++    assert header_value(headers, "X-Request-Id")
++
++
++def test_staging_mutation_requires_configured_token(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setenv("MLB_ENV", "staging")
++    status, _headers, payload = call_wsgi("/api/bankroll/settings", payload={"bankroll": 1200}, headers={"X-Baseball-Prop-Action": "1"})
++    assert status.startswith("503 ")
++    assert payload["code"] == "mutation_token_not_configured"
++
++
++def test_staging_mutation_accepts_valid_token(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setenv("MLB_ENV", "staging")
++    monkeypatch.setenv("MLB_MUTATION_TOKEN", "test-token")
++    status, _headers, payload = call_wsgi("/api/bankroll/settings", payload={"bankroll": 1750}, headers={"X-Baseball-Prop-Action": "1", "X-MLB-App-Token": "test-token"})
++    assert status.startswith("200 ")
++    assert payload["settings"]["bankroll"] == 1750
++
++
++def test_production_csrf_can_be_required(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setenv("MLB_ENV", "production")
++    monkeypatch.setenv("MLB_MUTATION_TOKEN", "test-token")
++    monkeypatch.setenv("MLB_CSRF_TOKEN", "csrf-token")
++    status, _headers, payload = call_wsgi("/api/bankroll/settings", payload={"bankroll": 1200}, headers={"X-Baseball-Prop-Action": "1", "Authorization": "Bearer test-token"})
++    assert status.startswith("403 ")
++    assert payload["code"] == "csrf_token_required"
++    status, _headers, payload = call_wsgi("/api/bankroll/settings", payload={"bankroll": 1200}, headers={"X-Baseball-Prop-Action": "1", "Authorization": "Bearer test-token", "X-CSRF-Token": "csrf-token"})
++    assert status.startswith("200 ")
++
++
++def test_mutation_rate_limit_returns_429_with_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setenv("MLB_MUTATION_RATE_LIMIT", "2")
++    monkeypatch.setenv("MLB_MUTATION_RATE_WINDOW_SECONDS", "60")
++    headers = {"X-Baseball-Prop-Action": "1"}
++    assert call_wsgi("/api/bankroll/settings", payload={"bankroll": 1001}, headers=headers)[0].startswith("200 ")
++    assert call_wsgi("/api/bankroll/settings", payload={"bankroll": 1002}, headers=headers)[0].startswith("200 ")
++    status, headers_out, payload = call_wsgi("/api/bankroll/settings", payload={"bankroll": 1003}, headers=headers)
++    assert status.startswith("429 ")
++    assert payload["code"] == "rate_limited"
++    assert header_value(headers_out, "Retry-After") is not None
++
++
++def test_config_defaults_to_local_safety_when_unconfigured() -> None:
++    config = mutation_security_config({})
++    assert config.runtime_mode == "local"
++    assert config.localhost_required is True
++    assert config.token_required is False
+--- a/PHASE6_README.md
++++ b/PHASE6_README.md
+@@ -0,0 +1,34 @@
++# Phase 6 — Mutation Endpoint Security
++
++This cumulative overlay adds the Phase 6 mutation boundary for `mlb_app`.
++
++## What changed
++
++- Route metadata can now mark endpoints as `mutation=True`.
++- Product mutations are enforced centrally in `Router.dispatch()`.
++- `X-Baseball-Prop-Action: 1` remains a required intent signal.
++- Local mode also requires loopback client IP.
++- Staging/production require a configured mutation token.
++- Production can require CSRF via `MLB_CSRF_TOKEN` or `MLB_REQUIRE_CSRF=1`.
++- A process-local token bucket returns `429` with `Retry-After` after rapid mutation calls.
++- Mutation denials are logged with request ID and mutation metadata.
++- Legacy mutation/workflow endpoint inventory is generated under `docs/security/`.
++
++## Validation
++
++```bash
++PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest \
++  tests/test_mutation_security.py \
++  tests/test_api_contracts.py \
++  tests/test_request_observability.py \
++  tests/test_wsgi_smoke.py \
++  tests/test_cache_store.py \
++  tests/test_csv_store.py \
++  -q
++```
++
++## Current protected product mutations
++
++- `POST /api/my-picks`
++- `POST /api/my-picks/update`
++- `POST /api/bankroll/settings`

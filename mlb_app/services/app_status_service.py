@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from mlb_app.config import Settings, settings as default_settings
+from mlb_app.services.alert_service import AlertService
 from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.model_registry_service import ModelRegistryService
 from mlb_app.services.playerboard_service import PlayerboardService
@@ -19,19 +21,24 @@ class AppStatusService:
         model_registry_service: ModelRegistryService | None = None,
         workflow_service: WorkflowHealthService | None = None,
         product_state_service: ProductStateService | None = None,
+        alert_service: AlertService | None = None,
+        settings: Settings = default_settings,
     ) -> None:
-        self.grading_service = grading_service or GradingStateService()
-        self.product_state_service = product_state_service or ProductStateService()
-        self.model_registry_service = model_registry_service or ModelRegistryService()
-        self.workflow_service = workflow_service or WorkflowHealthService()
+        self.settings = settings
+        self.grading_service = grading_service or GradingStateService(settings=self.settings)
+        self.product_state_service = product_state_service or ProductStateService(settings=self.settings)
+        self.model_registry_service = model_registry_service or ModelRegistryService(settings=self.settings)
+        self.workflow_service = workflow_service or WorkflowHealthService(settings=self.settings)
+        self.alert_service = alert_service or AlertService()
         self.playerboard_service = playerboard_service or PlayerboardService(
             grading_service=self.grading_service,
             product_state_service=self.product_state_service,
+            settings=self.settings,
         )
 
     def payload(self, query: dict[str, list[str]] | None = None, *, request_id: str = "") -> dict[str, Any]:
         query = query or {}
-        season = int((query.get("season") or ["2026"])[0])
+        season = self.settings.season_from_query(query)
         playerboard = self.playerboard_service.health_payload({"season": [str(season)]})
         board_date = str(playerboard.get("latestAvailableDate") or playerboard.get("date") or "")
         grading = self.grading_service.payload({"date": [board_date]} if board_date else {})
@@ -56,4 +63,8 @@ class AppStatusService:
             payload["ok"] = False
             payload.setdefault("warnings", []).append("App-status contract validation failed.")
             payload["contractErrors"] = contract_errors
+        alert_payload = self.alert_service.payload(app_status=payload, model_status=model_status)
+        payload["alerts"] = alert_payload.get("alerts", [])
+        payload["alertCount"] = alert_payload.get("alertCount", 0)
+        payload["observability"] = {"alerts": alert_payload}
         return payload

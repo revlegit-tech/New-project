@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from mlb_app.config import Settings, settings as default_settings
 from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.product_state_service import ProductStateService
 
@@ -13,9 +14,11 @@ class DataHealthService:
         *,
         grading_service: GradingStateService | None = None,
         product_state_service: ProductStateService | None = None,
+        settings: Settings = default_settings,
     ) -> None:
-        self.grading_service = grading_service or GradingStateService()
-        self.product_state_service = product_state_service or ProductStateService()
+        self.settings = settings
+        self.grading_service = grading_service or GradingStateService(settings=self.settings)
+        self.product_state_service = product_state_service or ProductStateService(settings=self.settings)
 
     def payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
         from data_health import data_health_payload

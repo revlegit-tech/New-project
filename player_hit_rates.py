@@ -347,7 +347,7 @@ def playerboard_rows(query: dict[str, list[str]], season: int, limit: int) -> tu
     if direct:
         return ("single_query", [direct])
 
-    from playerboard import load_saved_playerboard
+    from mlb_app.services.playerboard_builder import load_saved_playerboard
 
     payload = load_saved_playerboard(
         season=season,

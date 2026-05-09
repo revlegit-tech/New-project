@@ -1,5 +1,7 @@
 # Baseball Prop Predictor
 
+> Architecture note: `mlb_app/` is the canonical production boundary. See [ARCHITECTURE.md](ARCHITECTURE.md) for runtime modes, dependency direction, and source-tree policy.
+
 A lightweight local app for predicting baseball props using aggregate batting, pitching, batting-against, and team context CSVs.
 
 ## Run the production app
@@ -383,3 +385,8 @@ make test-ui
 ```
 
 See `docs/DEVELOPER_GUIDE.md`, `docs/API_CONTRACTS.md`, `docs/DATA_SCHEMAS.md`, and `docs/RELEASE_CHECKLIST.md` for the production workflow.
+
+
+## Frontend build
+
+Sprint 5 adds the Vite-built Outlier production UI. See `docs/SPRINT5_OUTLIER_UI_PRODUCTIONIZATION.md` for the entrypoints, build commands, and legacy UI split.

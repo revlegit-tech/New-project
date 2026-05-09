@@ -28,7 +28,7 @@ test('trust surface renders API message as text, not executable HTML', async ({ 
     });
   });
 
-  await page.goto('/');
+  await page.goto('/legacy.html');
   await expect(page.locator('#trustSurfaceBanner')).toContainText('<script>alert(1)</script>');
   await expect(page.locator('#trustSurfaceWarning')).toContainText('<img src=x onerror=alert(1)>');
   expect(dialogFired).toBeFalsy();

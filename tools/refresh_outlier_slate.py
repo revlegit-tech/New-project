@@ -15,7 +15,7 @@ from mlb_app.services.propline_props_service import PROPLINE_MARKETS, PropLineSy
 
 
 def run_playerboard(date_label: str, season: int, limit: int, market: str, source_mode: str) -> dict:
-    from playerboard import build_playerboard
+    from mlb_app.services.playerboard_builder import build_playerboard
 
     return build_playerboard(
         season=season,
