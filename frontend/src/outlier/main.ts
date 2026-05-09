@@ -301,7 +301,7 @@ function trustCard(label: string, value: unknown, copy: unknown, tone: string) {
 function renderLoading() { clear(document.getElementById("boardHost"), [h("div", { className: "ob-empty" }, [h("strong", { text: "Loading board" }), h("span", { text: "Fetching EdgeBoard rows and trust metadata." })])]); }
 function option(value: string, label: string) { const node = h("option", { text: label }); node.value = value; return node; }
 function setMeta(copy: string) { const meta = document.getElementById("boardMeta"); if (meta) meta.textContent = copy; }
-function exposureCopy() { const units = number(appState.exposure?.totalStakeUnits, 0).toFixed(2); return `${units}u active exposure. Research-only picks stay at 0u.`; }
+function exposureCopy() { const units = number(appState.exposure?.totalStakeUnits, 0).toFixed(2); return `0u research pick saved. ${units}u active exposure. Research-only picks stay at 0u.`; }
 function updateExposure() { const target = document.getElementById("exposureSummary"); if (target) target.textContent = exposureCopy(); }
 function updatePositiveCount() { const total = appState.filteredRows.filter((row: OutlierBoardRow) => edgeValue(row) > 0).length; const target = document.getElementById("positiveEdgeCount"); if (target) target.textContent = String(total); }
 function showToast(title: string, copy: string) { const toast = h("div", { className: "ob-toast", attrs: { role: "status" } }, [h("strong", { text: title }), h("span", { text: copy })]); document.body.append(toast); setTimeout(() => toast.remove(), 3200); }
