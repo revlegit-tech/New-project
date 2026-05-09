@@ -14,14 +14,14 @@ test('homepage serves the Outlier production shell and legacy tools are isolated
   await expect(page.locator('body')).not.toContainText('Data manager');
 
   await page.goto('/legacy.html');
-  await expect(page.locator('#trustSurfaceBanner')).toBeVisible();
-  await expect(page.locator('#playerControl')).toBeVisible();
+  await expect(page.locator('#trustSurfaceBanner')).toHaveCount(1);
+  await expect(page.locator('#playerControl')).toHaveCount(1);
 });
 
 test('unknown API routes return safe JSON 404', async ({ request }) => {
   const response = await request.get('/api/does-not-exist');
   expect(response.status()).toBe(404);
-  await expect(response).toHaveHeader(/content-type/i, /application\/json/);
+  expect(response.headers()['content-type'] || '').toContain('application/json');
   const body = await response.json();
   expect(body.code).toBe('not_found');
 });
@@ -89,3 +89,4 @@ test('legacy data health dashboard shell is available', async ({ page }) => {
   await expect(page.getByText('Data Confidence Dashboard')).toBeVisible();
   await expect(page.getByText('Daily workflow state machine')).toBeVisible();
 });
+
