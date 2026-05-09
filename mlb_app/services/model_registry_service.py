@@ -7,6 +7,7 @@ from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
 from mlb_app.repositories.csv_store import CsvStore
+from mlb_app.repositories.model_artifact_repository import ModelArtifactRepository
 from mlb_app.repositories.model_store import ModelStore, normalize_market_key
 
 DEFAULT_MARKETS: tuple[str, ...] = (
@@ -107,10 +108,12 @@ class ModelRegistryService:
         *,
         csv_store: CsvStore | None = None,
         model_store: ModelStore | None = None,
+        artifact_repository: ModelArtifactRepository | None = None,
     ) -> None:
         self.settings = settings
         self.csv_store = csv_store or CsvStore()
         self.model_store = model_store or ModelStore(settings.model_dir)
+        self.artifact_repository = artifact_repository or ModelArtifactRepository(settings)
 
     def training_stats(self, market: str, *, registry_entry: dict[str, Any] | None = None) -> MarketTrainingStats:
         key = normalize_market_key(market)
@@ -151,23 +154,13 @@ class ModelRegistryService:
         )
 
     def registry_entry(self, market: str) -> dict[str, Any]:
-        registry = self.model_store.load_registry(self.settings.model_registry_path)
-        raw = registry.get(normalize_market_key(market), {})
-        return raw if isinstance(raw, dict) else {}
+        return self.artifact_repository.registry_entry(market)
 
     def artifact_path(self, market: str, entry: dict[str, Any]) -> Path:
-        artifact = str(entry.get("artifact") or "").strip()
-        if artifact:
-            path = Path(artifact)
-            return path if path.is_absolute() else (self.settings.root_dir / path).resolve()
-        return self.model_store.model_path_for_market(market).resolve()
+        return self.artifact_repository.resolve_entry(market, entry=entry).artifact_path or self.model_store.model_path_for_market(market).resolve()
 
     def metadata_path(self, market: str, artifact_path: Path, entry: dict[str, Any]) -> Path:
-        features = str(entry.get("features") or entry.get("metadata") or "").strip()
-        if features:
-            path = Path(features)
-            return path if path.is_absolute() else (self.settings.root_dir / path).resolve()
-        return self.model_store.metadata_path_for_model(artifact_path).resolve()
+        return self.artifact_repository.resolve_entry(market, entry=entry).features_path or self.model_store.metadata_path_for_model(artifact_path).resolve()
 
     def backtest_gate(self, entry: dict[str, Any]) -> BacktestGate:
         backtest = entry.get("backtest") if isinstance(entry.get("backtest"), dict) else {}
@@ -189,10 +182,13 @@ class ModelRegistryService:
         key = normalize_market_key(market)
         entry = self.registry_entry(key)
         stats = self.training_stats(key, registry_entry=entry)
-        artifact_path = self.artifact_path(key, entry)
-        metadata_path = self.metadata_path(key, artifact_path, entry)
+        resolved_entry = self.artifact_repository.resolve_entry(key, entry=entry)
+        artifact_path = resolved_entry.artifact_path or self.artifact_path(key, entry)
+        metadata_path = resolved_entry.features_path or self.metadata_path(key, artifact_path, entry)
+        verification = self.artifact_repository.verify_entry(key, entry=entry)
         artifact_exists = artifact_path.exists()
         metadata_exists = metadata_path.exists()
+        hash_verified = bool(verification.get("ok"))
         registry_status = str(entry.get("status") or "research_only").strip().lower()
         calibrated = bool(entry.get("calibrated", False))
         backtest = self.backtest_gate(entry)
@@ -201,7 +197,10 @@ class ModelRegistryService:
         reason = "Market-specific model artifact available"
         warnings: list[str] = []
 
-        if registry_status in DISABLED_STATUSES:
+        if not hash_verified and resolved_entry.artifact_sha256:
+            readiness = "not_ready"
+            reason = "Model artifact hash verification failed"
+        elif registry_status in DISABLED_STATUSES:
             readiness = "disabled"
             reason = "Market disabled in model registry"
         elif not artifact_exists:
@@ -229,6 +228,8 @@ class ModelRegistryService:
             readiness = registry_status if registry_status in {"research_only", "experimental"} else "experimental"
             reason = "Artifact available but not promoted to production"
 
+        for error in verification.get("errors") or []:
+            warnings.append(str(error))
         if stats.source != "csv":
             warnings.append(f"training counts came from {stats.source}; raw training CSV not available")
         if artifact_exists and not calibrated:
@@ -263,10 +264,22 @@ class ModelRegistryService:
             "status": readiness,
             "reason": reason,
             "warnings": warnings,
-            "trainedAt": str(entry.get("trained_at") or entry.get("trainedAt") or ""),
+            "version": resolved_entry.version,
+            "trainedAt": resolved_entry.trained_at or str(entry.get("trained_at") or entry.get("trainedAt") or ""),
+            "trainingWindow": resolved_entry.training_window,
+            "lastPromotedAt": resolved_entry.last_promoted_at,
             "calibrated": calibrated,
             "backtest": backtest.as_dict(),
-            "productionEligible": production_eligible,
+            "productionEligible": production_eligible and hash_verified,
+            "artifactSha256": resolved_entry.artifact_sha256,
+            "featuresSha256": resolved_entry.features_sha256,
+            "metricsSha256": resolved_entry.metrics_sha256,
+            "trainingDataSha256": resolved_entry.training_data_sha256,
+            "artifactHashPrefix": resolved_entry.artifact_hash_prefix,
+            "hashVerified": hash_verified,
+            "artifactVerification": verification,
+            "knownLimitations": list(resolved_entry.known_limitations),
+            "registryMetrics": resolved_entry.metrics,
         }
 
     def status_payload(self, markets: tuple[str, ...] = DEFAULT_MARKETS) -> dict[str, Any]:
@@ -280,6 +293,7 @@ class ModelRegistryService:
             "trainedMarkets": [row["market"] for row in rows if row["modelTrained"]],
             "productionEligibleMarkets": [row["market"] for row in rows if row["productionEligible"]],
             "warnings": _dedupe([warning for row in rows for warning in row.get("warnings", [])]),
+            "marketsWithHashIssues": [row["market"] for row in rows if row.get("artifactSha256") and not row.get("hashVerified")],
             "policy": {
                 "requiresExactMarketArtifact": True,
                 "genericFallbackAllowed": self.settings.allow_generic_prop_model_fallback,

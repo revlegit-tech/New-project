@@ -1,13 +1,13 @@
 const { test, expect } = require('@playwright/test');
 
-test('trust surface renders API message as text, not executable HTML', async ({ page }) => {
+test('trust surface rejects unsafe API message without executing HTML', async ({ page }) => {
   let dialogFired = false;
   page.on('dialog', async (dialog) => {
     dialogFired = true;
     await dialog.dismiss();
   });
 
-  await page.route('**/api/app/status', async (route) => {
+  await page.route('**/api/app/status**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -28,8 +28,9 @@ test('trust surface renders API message as text, not executable HTML', async ({ 
     });
   });
 
-  await page.goto('/');
-  await expect(page.locator('#trustSurfaceBanner')).toContainText('<script>alert(1)</script>');
-  await expect(page.locator('#trustSurfaceWarning')).toContainText('<img src=x onerror=alert(1)>');
+  await page.goto('/legacy.html');
+
+  await expect(page.locator('#trustSurfaceBanner')).toContainText('Malformed status payload');
+  await expect(page.locator('img[src="x"]')).toHaveCount(0);
   expect(dialogFired).toBeFalsy();
 });

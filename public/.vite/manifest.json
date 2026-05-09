@@ -1,0 +1,15 @@
+{
+  "frontend/index.html": {
+    "file": "assets/outlier-ccf7cdce25.js",
+    "css": [
+      "assets/outlier-3d25f72650.css"
+    ],
+    "isEntry": true,
+    "src": "frontend/index.html"
+  },
+  "frontend/legacy.html": {
+    "file": "assets/legacy-671183d858.js",
+    "isEntry": true,
+    "src": "frontend/legacy.html"
+  }
+}

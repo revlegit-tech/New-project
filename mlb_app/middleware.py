@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-import sys
+import logging
 import time
 import uuid
 from dataclasses import dataclass
@@ -114,10 +114,9 @@ class AccessLogEvent:
 
 
 def log_access(event: AccessLogEvent) -> None:
-    """Write one structured access line.
+    """Write one structured access line through stdlib logging."""
 
-    Gunicorn can capture stdout/stderr; emitting JSON here gives us request-id
-    correlation before a fuller logging stack is introduced.
-    """
+    from mlb_app.observability.logging import configure_json_logging
 
-    print(event.as_json(), file=sys.stdout, flush=True)
+    configure_json_logging()
+    logging.getLogger("mlb_app.access").info(event.as_json())

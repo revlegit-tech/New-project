@@ -1,23 +1,2 @@
-# MLB StatsAPI wrappers used by the live-data and batch analysis integrations.
-python-mlb-statsapi==0.7.2
-MLB-StatsAPI
-
-# Optional screenshot OCR support for image_data_importer.py.
-pillow
-pytesseract
-
-# Free machine-learning model support.
-pandas
-numpy
-scikit-learn
-joblib
-propline
-
-pybaseball
-requests
-
-# Production WSGI serving for mlb_app.
-gunicorn>=22.0,<24.0
-fastapi>=0.110,<1.0
-uvicorn[standard]>=0.27,<1.0
-anyio>=4.0,<5.0
+# Compatibility entrypoint. Production installs must use the deterministic lockfile.
+-r requirements/ml.lock.txt

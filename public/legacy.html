@@ -1,0 +1,1537 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Baseball Edge — Legacy Operations</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+</head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace">
+
+        <section id="trustSurfaceBanner" class="trust-surface is-partial" aria-live="polite">
+          <div class="trust-surface-main">
+            <span class="trust-mode-pill">Research Mode</span>
+            <div>
+              <strong>Today’s board is research-first.</strong>
+              <p>Loading model readiness, grading state, and data confidence…</p>
+            </div>
+          </div>
+          <p id="trustSurfaceWarning" class="trust-surface-warning">No confident picks are shown until markets pass model readiness and grading gates.</p>
+        </section>
+        <div class="panel controls">
+          <div>
+            <p class="eyebrow">Batter matchup model</p>
+            <h1>Prop Predictor</h1>
+          </div>
+
+          <details class="data-manager">
+            <summary>Data manager</summary>
+            <div class="data-manager-body">
+          <label class="upload-zone" for="csvFile">
+            <span>Upload CSV</span>
+            <strong id="uploadLabel">Choose a CSV type, then add one or more files</strong>
+            <input id="csvFile" type="file" accept=".csv,text/csv" multiple />
+          </label>
+
+          <label>
+            CSV type
+            <select id="csvType">
+              <option value="batting">Batting</option>
+              <option value="opponents">Opponents</option>
+              <option value="gameLogs">Game logs</option>
+              <option value="pitchingGameLogs">Pitching game logs</option>
+              <option value="teamGameLogs">Team game logs</option>
+              <option value="teamBatting">Team batting</option>
+              <option value="baserunning">Base running</option>
+              <option value="pitching">Pitching</option>
+              <option value="battingAgainst">Batting against</option>
+              <option value="teamBattingAgainst">Team BAA</option>
+              <option value="teamAdvancedPitching">Team adv. pitching</option>
+              <option value="playerAdvancedPitching">Player adv. pitching</option>
+              <option value="teamStandardPitching">Team pitching</option>
+              <option value="batterPitcherAdvanced">Batter vs pitcher</option>
+              <option value="ballparkContext">Ballpark weather</option>
+            </select>
+          </label>
+          <div class="dataset-helper" id="datasetHelper">
+            <div>
+              <strong id="csvHintTitle">Batting</strong>
+              <span id="csvHintDescription">Player hitting stats for batter props.</span>
+            </div>
+            <p id="csvHintColumns">Player, Team, G, PA, AB, H, BB, SO, BA, OBP, SLG, OPS</p>
+          </div>
+          <details class="dataset-guide">
+            <summary>Dataset guide</summary>
+            <div class="dataset-guide-list" id="datasetGuide"></div>
+          </details>
+
+          <div class="url-import">
+            <label>
+              Dataset URL
+              <input id="datasetUrl" type="url" placeholder="https://example.com/daily-stats.csv" />
+            </label>
+            <button id="urlImportButton" type="button">Load URL</button>
+          </div>
+          <details class="bulk-url-panel">
+            <summary>Bulk links</summary>
+            <label>
+              One URL per line
+              <textarea id="datasetUrls" rows="5" placeholder="Paste 30 team game-log links here"></textarea>
+            </label>
+            <button id="bulkUrlImportButton" type="button">Load URLs</button>
+          </details>
+
+          <div class="source-actions">
+            <button id="refreshSourcesButton" type="button">Refresh URLs</button>
+          </div>
+          <div class="source-list" id="sourceList"></div>
+
+          <div class="dataset-list" id="datasetList"></div>
+            </div>
+          </details>
+
+          <label id="playerControl">
+            Batter search
+            <input id="playerSearch" type="search" placeholder="Search batter name or team" autocomplete="off" />
+            <div class="search-results" id="playerSearchResults"></div>
+            <select id="playerSelect" class="hidden"></select>
+          </label>
+
+          <label>
+            Prediction
+            <select id="targetSelect">
+              <option value="hits">Batter hits</option>
+              <option value="totalBases">Batter total bases</option>
+              <option value="homeRuns">Batter home runs</option>
+              <option value="strikeouts">Batter strikeouts</option>
+              <option value="pitcherStrikeouts">Pitcher strikeouts</option>
+              <option value="pitcherWalks">Pitcher walks</option>
+              <option value="pitcherRunsAllowed">Pitcher runs allowed</option>
+              <option value="pitcherHitsAllowed">Pitcher hits allowed</option>
+            </select>
+          </label>
+
+          <label id="lineControl">
+            Sportsbook line
+            <input id="propLine" type="number" min="0.5" max="14.5" step="0.5" value="0.5" />
+          </label>
+
+          <label>
+            American odds
+            <input id="americanOdds" type="number" min="-10000" max="10000" step="1" value="-110" />
+          </label>
+
+          <label>
+            Opponent team search
+            <input id="teamSearch" type="search" placeholder="Type any team name or abbreviation" autocomplete="off" />
+            <div class="search-results" id="teamSearchResults"></div>
+            <select id="opponentSelect" class="hidden"></select>
+          </label>
+
+          <label id="pitcherControl">
+            <span id="pitcherControlLabel">Pitcher search</span>
+            <input id="pitcherSearch" type="search" placeholder="Type a pitcher name; team is optional" autocomplete="off" />
+            <div class="search-results" id="pitcherSearchResults"></div>
+            <select id="pitcherSelect" class="hidden"></select>
+          </label>
+
+          <label>
+            Matchup adjustment
+            <input id="adjustment" type="range" min="-20" max="20" value="0" />
+            <span class="range-readout"><span id="adjustmentValue">0</span>% pitcher/team difficulty</span>
+          </label>
+
+          <button id="predictButton" type="button">Predict</button>
+
+          <details class="model-refresh-panel">
+            <summary>Model data refresh</summary>
+            <div class="model-refresh-body">
+              <label>
+                Season
+                <input id="modelRefreshSeason" type="number" min="1876" max="2100" step="1" value="2026" />
+              </label>
+              <label>
+                Game date
+                <input id="modelRefreshDate" type="date" />
+              </label>
+              <label class="inline-check">
+                <input id="modelRefreshReset" type="checkbox" />
+                Reset selected saved model data first
+              </label>
+              <label class="inline-check">
+                <input id="modelRefreshTeamLogs" type="checkbox" checked />
+                Refresh saved team game-log URLs
+              </label>
+              <button id="modelRefreshButton" type="button">Update Model Data</button>
+              <p class="model-note" id="modelRefreshStatus">Pull MLB/Savant/ESPN/BallparkPal data for the selected batter, pitcher, teams, weather, and game logs.</p>
+              <div class="refresh-results" id="modelRefreshResults"></div>
+            </div>
+          </details>
+
+          
+          
+          <details class="model-refresh-panel" open>
+            <summary>1. Daily ML Workflow ? Start Here</summary>
+            <div class="model-refresh-body">
+              <label>
+                Workflow date
+                <input id="dailyWorkflowDate" type="date" />
+              </label>
+
+              <div class="source-actions">
+                <button id="dailyBeforeButton" type="button">Before Game Setup</button>
+                <button id="dailyAfterButton" type="button">After Game Update</button>
+                <button id="dailyStatusButton" type="button">Check ML Status</button>
+              </div>
+
+              <p class="model-note" id="dailyWorkflowStatus">
+                Use Before Game Setup before the slate starts. Fill the game odds template. Use After Game Update when games are final.
+              </p>
+              <pre id="dailyWorkflowOutput" class="json-output">Ready.</pre>
+            </div>
+          </details>
+
+
+          
+          
+          
+          
+          
+          
+          
+          <details class="model-refresh-panel" open>
+            <summary>Prediction Performance Dashboard</summary>
+            <div class="model-refresh-body">
+              <div class="mlb-command-grid">
+                <label>
+                  Season
+                  <select id="predictionDashboardSeason">
+                    <option value="2026" selected>2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                  </select>
+                </label>
+                <label>
+                  Date optional
+                  <input id="predictionDashboardDate" type="date" />
+                </label>
+                <label>
+                  Market
+                  <select id="predictionDashboardMarket">
+                    <option value="">All markets</option>
+                    <option value="batter_hits">Batter hits</option>
+                    <option value="batter_total_bases">Batter total bases</option>
+                    <option value="batter_home_runs">Batter home runs</option>
+                    <option value="pitcher_strikeouts">Pitcher strikeouts</option>
+                    <option value="pitcher_hits_allowed">Pitcher hits allowed</option>
+                    <option value="pitcher_earned_runs">Pitcher earned runs</option>
+                  
+                    <option value="moneyline">Moneyline</option>
+                    <option value="moneyline_first_five">Moneyline First Five</option>
+                    <option value="run_line">Run Line</option>
+                    <option value="run_line_first_five">Run Line First Five</option>
+                    <option value="run_line_first_inning">Run Line First Inning</option>
+                    <option value="game_total_runs">Game Total Runs</option>
+                    <option value="first_five_total_runs">First Five Total Runs</option>
+                    <option value="first_inning_total_runs">First Inning Total Runs</option>
+                    <option value="team_total_runs">Team Total Runs</option>
+                    <option value="team_first_to_score">Team First To Score</option>
+
+                  </select>
+                </label>
+                <label>
+                  Confidence
+                  <select id="predictionDashboardConfidence">
+                    <option value="">All confidence</option>
+                    <option value="Low">Low</option>
+                    <option value="Low-Medium">Low-Medium</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Medium-High">Medium-High</option>
+                    <option value="High">High</option>
+                  </select>
+                </label>
+                <label>
+                  Recommendation
+                  <select id="predictionDashboardRecommendation">
+                    <option value="">All recommendations</option>
+                    <option value="No clear edge">No clear edge</option>
+                    <option value="Positive edge">Positive edge</option>
+                    <option value="Strong positive edge">Strong positive edge</option>
+                    <option value="Avoid">Avoid</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="source-actions">
+                <button id="predictionDashboardLoadButton" type="button">Load Performance Dashboard</button>
+                <button id="predictionDashboardGradeButton" type="button">Grade + Refresh</button>
+              </div>
+
+              <div id="predictionDashboardCards" class="prediction-dashboard-cards"></div>
+
+              <div class="prediction-dashboard-section">
+                <h3>Recent Predictions</h3>
+                <div id="predictionDashboardRecent" class="prediction-dashboard-table"></div>
+              </div>
+
+              <div class="prediction-dashboard-section">
+                <h3>Breakdowns</h3>
+                <div id="predictionDashboardBreakdowns" class="prediction-dashboard-breakdowns"></div>
+              </div>
+
+              <p class="model-note" id="predictionDashboardStatus">
+                Review saved picks, grading results, win rate, units, ROI, and market-level performance.
+              </p>
+              <pre id="predictionDashboardOutput" class="json-output">Prediction Performance Dashboard is ready.</pre>
+            </div>
+          </details>
+
+
+<details class="model-refresh-panel">
+            <summary>Prediction History & Grading</summary>
+            <div class="model-refresh-body">
+              <div class="mlb-command-grid">
+                <label>
+                  Season
+                  <select id="predictionSeason">
+                    <option value="2026" selected>2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                  </select>
+                </label>
+                <label>
+                  Date
+                  <input id="predictionDate" type="date" />
+                </label>
+                <label>
+                  Market
+                  <select id="predictionMarket">
+                    <option value="batter_hits">Batter hits</option>
+                    <option value="batter_total_bases" selected>Batter total bases</option>
+                    <option value="batter_home_runs">Batter home runs</option>
+                    <option value="pitcher_strikeouts">Pitcher strikeouts</option>
+                    <option value="pitcher_hits_allowed">Pitcher hits allowed</option>
+                    <option value="pitcher_earned_runs">Pitcher earned runs</option>
+                  
+                    <option value="moneyline">Moneyline</option>
+                    <option value="moneyline_first_five">Moneyline First Five</option>
+                    <option value="run_line">Run Line</option>
+                    <option value="run_line_first_five">Run Line First Five</option>
+                    <option value="run_line_first_inning">Run Line First Inning</option>
+                    <option value="game_total_runs">Game Total Runs</option>
+                    <option value="first_five_total_runs">First Five Total Runs</option>
+                    <option value="first_inning_total_runs">First Inning Total Runs</option>
+                    <option value="team_total_runs">Team Total Runs</option>
+                    <option value="team_first_to_score">Team First To Score</option>
+
+                  </select>
+                </label>
+                <label>
+                  Player
+                  <input id="predictionPlayer" type="text" placeholder="Aaron Judge" />
+                </label>
+                <label>
+                  Team
+                  <input id="predictionTeam" type="text" placeholder="NYY" />
+                </label>
+                <label>
+                  Opponent
+                  <input id="predictionOpponent" type="text" placeholder="BAL" />
+                </label>
+                <label>
+                  Pitcher optional
+                  <input id="predictionPitcher" type="text" placeholder="Auto-infer if blank" />
+                </label>
+                <label>
+                  Line
+                  <input id="predictionLine" type="number" step="0.5" value="1.5" />
+                </label>
+                <label>
+                  American odds
+                  <input id="predictionOdds" type="number" value="-110" />
+                </label>
+              </div>
+
+              <div class="source-actions">
+                <button id="predictionSaveButton" type="button">Save Prediction</button>
+                <button id="predictionGradeButton" type="button">Grade Predictions</button>
+                <button id="predictionStatusButton" type="button">Prediction Status</button>
+              </div>
+
+              <p class="model-note" id="predictionStatus">
+                Saves Unified Prop Card picks and grades them against cached game logs after games finish.
+              </p>
+              <pre id="predictionOutput" class="json-output">Prediction History is ready.</pre>
+            </div>
+          </details>
+
+
+<details class="model-refresh-panel">
+            <summary>Baseball Savant Quality Metrics</summary>
+            <div class="model-refresh-body">
+              <div class="mlb-command-grid">
+                <label>
+                  Season
+                  <select id="savantSeason">
+                    <option value="2026" selected>2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                  </select>
+                </label>
+                <label>
+                  Start date
+                  <input id="savantStartDate" type="date" value="2026-03-25" />
+                </label>
+                <label>
+                  End date
+                  <input id="savantEndDate" type="date" />
+                </label>
+              </div>
+
+              <div class="source-actions">
+                <button id="savantSyncButton" type="button">Sync Savant + Build Features</button>
+                <button id="savantStatusButton" type="button">Savant Status</button>
+              </div>
+
+              <p class="model-note" id="savantStatus">
+                Optional pybaseball layer. Adds barrels, EV, hard-hit rate, xBA, xSLG, xwOBA, whiff rate, and CSW.
+              </p>
+              <pre id="savantOutput" class="json-output">Baseball Savant metrics are ready.</pre>
+            </div>
+          </details>
+
+
+<details class="model-refresh-panel">
+            <summary>Odds Movement Snapshots</summary>
+            <div class="model-refresh-body">
+              <div class="mlb-command-grid">
+                <label>
+                  Season
+                  <select id="oddsMovementSeason">
+                    <option value="2026" selected>2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                  </select>
+                </label>
+                <label>
+                  Date
+                  <input id="oddsMovementDate" type="date" />
+                </label>
+                <label>
+                  Market
+                  <select id="oddsMovementMarket">
+                    <option value="">All markets</option>
+                    <option value="batter_hits">Batter hits</option>
+                    <option value="batter_total_bases">Batter total bases</option>
+                    <option value="batter_home_runs">Batter home runs</option>
+                    <option value="pitcher_strikeouts">Pitcher strikeouts</option>
+                    <option value="pitcher_hits_allowed">Pitcher hits allowed</option>
+                    <option value="pitcher_earned_runs">Pitcher earned runs</option>
+                  
+                    <option value="moneyline">Moneyline</option>
+                    <option value="moneyline_first_five">Moneyline First Five</option>
+                    <option value="run_line">Run Line</option>
+                    <option value="run_line_first_five">Run Line First Five</option>
+                    <option value="run_line_first_inning">Run Line First Inning</option>
+                    <option value="game_total_runs">Game Total Runs</option>
+                    <option value="first_five_total_runs">First Five Total Runs</option>
+                    <option value="first_inning_total_runs">First Inning Total Runs</option>
+                    <option value="team_total_runs">Team Total Runs</option>
+                    <option value="team_first_to_score">Team First To Score</option>
+
+                  </select>
+                </label>
+              </div>
+
+              <div class="source-actions">
+                <button id="oddsMovementSyncButton" type="button">Save Odds Snapshot + Build Movement</button>
+                <button id="oddsMovementStatusButton" type="button">Odds Movement Status</button>
+              </div>
+
+              <p class="model-note" id="oddsMovementStatus">
+                Stores every PropLine pull as a local timestamped snapshot and compares first vs latest odds.
+              </p>
+              <pre id="oddsMovementOutput" class="json-output">Odds Movement Snapshots are ready.</pre>
+            </div>
+          </details>
+
+
+<details class="model-refresh-panel">
+            <summary>Weather Features</summary>
+            <div class="model-refresh-body">
+              <div class="mlb-command-grid">
+                <label>
+                  Season
+                  <select id="weatherSeason">
+                    <option value="2026" selected>2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                  </select>
+                </label>
+                <label>
+                  Games
+                  <select id="weatherPhase">
+                    <option value="regular" selected>Regular season only</option>
+                    <option value="practice">Practice / spring only</option>
+                    <option value="all">All games</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="source-actions">
+                <button id="weatherSyncButton" type="button">Sync Weather + Build Features</button>
+                <button id="weatherBuildButton" type="button">Rebuild Weather Features</button>
+              </div>
+
+              <p class="model-note" id="weatherStatus">
+                Pulls Open-Meteo weather by stadium/date and builds capped weather adjustments for the Unified Prop Card.
+              </p>
+              <pre id="weatherOutput" class="json-output">Weather Features are ready.</pre>
+            </div>
+          </details>
+
+
+
+
+<details class="model-refresh-panel" open>
+  <summary>Game Intelligence</summary>
+  <div class="model-refresh-body">
+    <div class="mlb-command-grid">
+      <label>Date <input id="gameContextDate" type="date" /></label>
+      <label>Team filter <input id="gameContextTeam" type="text" placeholder="NYY, LAD, NYM…" /></label>
+    </div>
+    <div class="source-actions">
+      <button id="gameContextLoadButton" type="button">Load Game Context</button>
+    </div>
+    <p class="model-note" id="gameContextStatus">
+      One streamlined readout for lineup readiness, weather, umpire context, totals, 1st-inning markets, and favorite/underdog signals from the cached odds files.
+    </p>
+    <pre id="gameContextOutput" class="json-output">Choose a cached date and click Load Game Context.</pre>
+
+    <hr class="panel-divider" />
+
+    <div class="mlb-command-grid">
+      <label>Market
+        <select id="oddsSignalsMarket">
+          <option value="">All markets</option>
+          <option value="moneyline">Moneyline</option>
+          <option value="run_line">Run line</option>
+          <option value="run_line_first_inning">Run line first inning</option>
+          <option value="game_total_runs">Game total runs</option>
+          <option value="first_inning_total_runs">1st inning total runs</option>
+          <option value="team_total_runs">Team total runs</option>
+          <option value="moneyline_first_five">Moneyline first five</option>
+          <option value="first_five_total_runs">First five total runs</option>
+        </select>
+      </label>
+      <label>Book
+        <select id="oddsSignalsBook">
+          <option value="">All books</option>
+          <option value="draftkings">DraftKings</option>
+          <option value="fanduel">FanDuel</option>
+          <option value="betmgm">BetMGM</option>
+        </select>
+      </label>
+      <input id="oddsSignalsDate" type="hidden" />
+      <input id="oddsSignalsTeam" type="hidden" />
+    </div>
+    <div class="source-actions">
+      <button id="oddsSignalsLoadButton" type="button">Load Market Signals</button>
+    </div>
+    <p class="model-note" id="oddsSignalsStatus">
+      Pulls latest pregame rows for moneylines, run lines, game totals, 1st-inning totals, first-five markets, and team totals.
+    </p>
+    <pre id="oddsSignalsOutput" class="json-output">Market signals ready.</pre>
+  </div>
+</details>
+
+<details class="model-refresh-panel">
+            <summary>Incremental Stats Warehouse</summary>
+            <div class="model-refresh-body">
+              <div class="mlb-command-grid">
+                <label>
+                  Season
+                  <select id="incrementalStatsSeason">
+                    <option value="2026" selected>2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                  </select>
+                </label>
+                <label>
+                  End date
+                  <input id="incrementalStatsEndDate" type="date" />
+                </label>
+                <label>
+                  Games to collect
+                  <select id="incrementalStatsPhase">
+                    <option value="regular" selected>Regular season only</option>
+                    <option value="practice">Practice / spring only</option>
+                    <option value="all">All games</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="source-actions">
+                <button id="incrementalStatsCatchupButton" type="button">Catch Up Season Stats</button>
+                <button id="incrementalStatsStatusButton" type="button">Stats Warehouse Status</button>
+                <button id="incrementalFeaturesBuildButton" type="button">Build Aggregate Features</button>
+              </div>
+
+              <div class="mlb-command-grid">
+                <label>
+                  Cross-check player
+                  <input id="incrementalCrossPlayer" type="text" placeholder="Player name" />
+                </label>
+                <label>
+                  Player type
+                  <select id="incrementalCrossKind">
+                    <option value="batter" selected>Batter</option>
+                    <option value="pitcher">Pitcher</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="source-actions">
+                <button id="incrementalCrossButton" type="button">Cross-Reference With MLB API</button>
+              </div>
+
+              <p class="model-note" id="incrementalStatsStatus">
+                First run catches up the season. After that, daily midnight automation updates only missing/new final games.
+              </p>
+              <pre id="incrementalStatsOutput" class="json-output">Incremental Stats Warehouse is ready.</pre>
+            </div>
+          </details>
+
+
+
+
+          <details class="model-refresh-panel model-room-panel" open>
+            <summary>Model Room: Market Readiness</summary>
+            <div class="model-refresh-body">
+              <p class="model-note" id="modelCardsSummary">Loading model cards...</p>
+              <div id="modelCardsGrid" class="model-cards-grid" aria-live="polite"></div>
+            </div>
+          </details>
+
+
+<details class="model-refresh-panel" open>
+            <summary>Unified Prop Card</summary>
+            <div class="model-refresh-body">
+              <div class="unified-card-grid">
+                <label>
+                  Season
+                  <select id="unifiedSeason">
+                    <option value="2026" selected>2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                  </select>
+                </label>
+                <label>
+                  Date
+                  <input id="unifiedDate" type="date" />
+                </label>
+                <label>
+                  Market
+                  <select id="unifiedMarket">
+                    <option value="batter_hits">Batter hits</option>
+                    <option value="batter_total_bases">Batter total bases</option>
+                    <option value="batter_home_runs">Batter home runs</option>
+                    <option value="pitcher_strikeouts">Pitcher strikeouts</option>
+                    <option value="pitcher_hits_allowed">Pitcher hits allowed</option>
+                    <option value="pitcher_earned_runs">Pitcher earned runs</option>
+                  
+                    <option value="moneyline">Moneyline</option>
+                    <option value="moneyline_first_five">Moneyline First Five</option>
+                    <option value="run_line">Run Line</option>
+                    <option value="run_line_first_five">Run Line First Five</option>
+                    <option value="run_line_first_inning">Run Line First Inning</option>
+                    <option value="game_total_runs">Game Total Runs</option>
+                    <option value="first_five_total_runs">First Five Total Runs</option>
+                    <option value="first_inning_total_runs">First Inning Total Runs</option>
+                    <option value="team_total_runs">Team Total Runs</option>
+                    <option value="team_first_to_score">Team First To Score</option>
+
+                  </select>
+                </label>
+                <label>
+                  Player
+                  <input id="unifiedPlayer" type="text" placeholder="Type first letter..." autocomplete="off" />
+                </label>
+                <label>
+                  Team
+                  <input id="unifiedTeam" type="text" placeholder="NYY" autocomplete="off" />
+                </label>
+                <label>
+                  Opponent
+                  <input id="unifiedOpponent" type="text" placeholder="BOS" autocomplete="off" />
+                </label>
+                <label>
+                  Opposing pitcher / pitcher
+                  <input id="unifiedPitcher" type="text" placeholder="Type first letter..." autocomplete="off" />
+                </label>
+                <label>
+                  Line
+                  <input id="unifiedLine" type="number" step="0.5" value="0.5" />
+                </label>
+                <label>
+                  American odds
+                  <input id="unifiedOdds" type="number" step="1" value="-110" />
+                </label>
+              </div>
+
+              <div class="source-actions">
+                <button id="unifiedBackfillButton" type="button">Backfill 2026 Played Games</button>
+                <button id="unifiedStatusButton" type="button">Cache Status</button>
+                <button id="unifiedPredictButton" type="button">Run Unified Prop Card</button>
+              </div>
+
+              <div class="stat-grid matchup-grid">
+                <div><span>Final probability</span><strong id="unifiedFinalProbability">--</strong></div>
+                <div><span>Sportsbook implied</span><strong id="unifiedImplied">--</strong></div>
+                <div><span>Final edge</span><strong id="unifiedEdge">--</strong></div>
+                <div><span>Confidence</span><strong id="unifiedConfidence">--</strong></div>
+              </div>
+
+              <p class="model-note" id="unifiedStatus">
+                Combines All Data prediction, cached 2026 player/team logs, odds, weather, Savant context, and matchup data.
+              </p>
+              <pre id="unifiedOutput" class="json-output">Unified Prop Card is ready.</pre>
+            </div>
+          </details>
+
+
+<details class="model-refresh-panel" open>
+            <summary>All Data Prop Predictor</summary>
+            <div class="model-refresh-body">
+              <div class="source-actions">
+                <button id="allDataLoadGamesButton" type="button">Load Games For Date</button>
+                <button id="allDataLoadPropsButton" type="button">Load Props For Matchup</button>
+              </div>
+
+              <label>
+                Matchup
+                <select id="allDataGameSelect">
+                  <option value="">Choose date, then load games...</option>
+                </select>
+              </label>
+
+              <label>
+                Saved PropLine prop / player
+                <select id="allDataSavedProp">
+                  <option value="">Choose matchup, then load props...</option>
+                </select>
+              </label>
+
+              <div class="mlb-command-grid">
+                <label>
+                  Date
+                  <input id="allDataDate" type="date" />
+                </label>
+                <label>
+                  Market
+                  <select id="allDataMarket">
+                    <option value="batter_hits">Batter hits</option>
+                    <option value="batter_total_bases">Batter total bases</option>
+                    <option value="batter_home_runs">Batter home runs</option>
+                    <option value="pitcher_strikeouts">Pitcher strikeouts</option>
+                    <option value="pitcher_hits_allowed">Pitcher hits allowed</option>
+                    <option value="pitcher_earned_runs">Pitcher earned runs</option>
+                  
+                    <option value="moneyline">Moneyline</option>
+                    <option value="moneyline_first_five">Moneyline First Five</option>
+                    <option value="run_line">Run Line</option>
+                    <option value="run_line_first_five">Run Line First Five</option>
+                    <option value="run_line_first_inning">Run Line First Inning</option>
+                    <option value="game_total_runs">Game Total Runs</option>
+                    <option value="first_five_total_runs">First Five Total Runs</option>
+                    <option value="first_inning_total_runs">First Inning Total Runs</option>
+                    <option value="team_total_runs">Team Total Runs</option>
+                    <option value="team_first_to_score">Team First To Score</option>
+
+                  </select>
+                </label>
+                <label>
+                  Player
+                  <input id="allDataPlayer" type="text" placeholder="Aaron Judge or Gerrit Cole" />
+                </label>
+                <label>
+                  Team
+                  <input id="allDataTeam" type="text" placeholder="NYY" />
+                </label>
+                <label>
+                  Opponent
+                  <input id="allDataOpponent" type="text" placeholder="BOS" />
+                </label>
+                <label>
+                  Pitcher
+                  <input id="allDataPitcher" type="text" placeholder="Needed for batter props" />
+                </label>
+                <label>
+                  Line
+                  <input id="allDataLine" type="number" step="0.5" value="0.5" />
+                </label>
+                <label>
+                  American odds
+                  <input id="allDataOdds" type="number" step="1" value="-110" />
+                </label>
+              </div>
+
+              <div class="source-actions">
+                <button id="allDataPredictButton" type="button">Predict With All Data</button>
+                <button id="allDataSavePredictionButton" type="button">Save Prediction</button>
+                <button id="allDataBuildBvpButton" type="button">Build Batter-vs-Pitcher Samples</button>
+              </div>
+
+              <div class="stat-grid matchup-grid">
+                <div><span>Probability</span><strong id="allDataProbability">--</strong></div>
+                <div><span>Sportsbook implied</span><strong id="allDataImplied">--</strong></div>
+                <div><span>Edge</span><strong id="allDataEdge">--</strong></div>
+                <div><span>Confidence</span><strong id="allDataConfidence">--</strong></div>
+              </div>
+
+              <p class="model-note" id="allDataStatus">
+                Uses synced MLB, PropLine, weather, Savant, BvP, and odds snapshot data. ML is not required.
+              </p>
+              <pre id="allDataOutput" class="json-output">All Data Prop Predictor is ready.</pre>
+            </div>
+          </details>
+
+
+<details class="model-refresh-panel" open>
+            <summary>5A. Player Prop ML Predictions</summary>
+            <div class="model-refresh-body">
+              <div class="mlb-command-grid">
+                <label>
+                  Market
+                  <select id="propMlMarket">
+                    <option value="pitcher_strikeouts">Pitcher strikeouts</option>
+                    <option value="batter_hits">Batter hits</option>
+                    <option value="batter_total_bases">Batter total bases</option>
+                    <option value="batter_home_runs">Batter home runs</option>
+                    <option value="pitcher_hits_allowed">Pitcher hits allowed</option>
+                    <option value="pitcher_earned_runs">Pitcher earned runs</option>
+                  
+                    <option value="moneyline">Moneyline</option>
+                    <option value="moneyline_first_five">Moneyline First Five</option>
+                    <option value="run_line">Run Line</option>
+                    <option value="run_line_first_five">Run Line First Five</option>
+                    <option value="run_line_first_inning">Run Line First Inning</option>
+                    <option value="game_total_runs">Game Total Runs</option>
+                    <option value="first_five_total_runs">First Five Total Runs</option>
+                    <option value="first_inning_total_runs">First Inning Total Runs</option>
+                    <option value="team_total_runs">Team Total Runs</option>
+                    <option value="team_first_to_score">Team First To Score</option>
+
+                  </select>
+                </label>
+                <label>
+                  Player
+                  <input id="propMlPlayer" type="text" placeholder="Aaron Judge or Gerrit Cole" />
+                </label>
+                <label>
+                  Team
+                  <input id="propMlTeam" type="text" placeholder="NYY" />
+                </label>
+                <label>
+                  Opponent
+                  <input id="propMlOpponent" type="text" placeholder="BOS" />
+                </label>
+                <label>
+                  Pitcher
+                  <input id="propMlPitcher" type="text" placeholder="Optional opposing pitcher" />
+                </label>
+                <label>
+                  Sportsbook line
+                  <input id="propMlLine" type="number" step="0.5" value="4.5" />
+                </label>
+                <label>
+                  American odds
+                  <input id="propMlOdds" type="number" step="1" value="-110" />
+                </label>
+                <label>
+                  Recent rate
+                  <input id="propMlRecentRate" type="number" min="0" max="1" step="0.01" value="0.50" />
+                </label>
+                <label>
+                  Season rate
+                  <input id="propMlSeasonRate" type="number" min="0" max="1" step="0.01" value="0.50" />
+                </label>
+                <label>
+                  Opponent rate
+                  <input id="propMlOpponentRate" type="number" min="0" max="1" step="0.01" value="0.50" />
+                </label>
+                <label>
+                  Park factor
+                  <input id="propMlParkFactor" type="number" min="0" max="3" step="0.01" value="1.00" />
+                </label>
+                <button id="propMlPredictButton" type="button">Predict Player Prop ML</button>
+              </div>
+
+              <div class="stat-grid matchup-grid">
+                <div><span>Model probability</span><strong id="propMlProbability">--</strong></div>
+                <div><span>Sportsbook implied</span><strong id="propMlImplied">--</strong></div>
+                <div><span>Model edge</span><strong id="propMlEdge">--</strong></div>
+                <div><span>Fair odds</span><strong id="propMlFairOdds">--</strong></div>
+              </div>
+
+              <p class="model-note" id="propMlStatus">Enter a prop and run the trained player-prop ML model.</p>
+              <pre id="propMlTrainingStatus" class="json-output">Training status will appear here.</pre>
+              <pre id="propMlOutput" class="json-output">{}</pre>
+            </div>
+          </details>
+
+<details class="model-refresh-panel" open>
+            <summary>5B. Moneyline ML Predictions</summary>
+            <div class="model-refresh-body">
+              <div class="mlb-command-grid">
+                <label>
+                  Team
+                  <input id="moneylineTeam" type="text" placeholder="NYY" value="NYY" />
+                </label>
+                <label>
+                  Opponent
+                  <input id="moneylineOpponent" type="text" placeholder="BOS" value="BOS" />
+                </label>
+                <label>
+                  Home/Away
+                  <select id="moneylineHomeAway">
+                    <option value="home">Home</option>
+                    <option value="away">Away</option>
+                  </select>
+                </label>
+                <label>
+                  Team moneyline
+                  <input id="moneylineTeamOdds" type="number" step="1" value="-150" />
+                </label>
+                <label>
+                  Opponent moneyline
+                  <input id="moneylineOpponentOdds" type="number" step="1" value="130" />
+                </label>
+                <label>
+                  Game total
+                  <input id="moneylineGameTotal" type="number" step="0.5" value="8.5" />
+                </label>
+                <button id="moneylinePredictButton" type="button">Predict Moneyline</button>
+              </div>
+
+              <div class="stat-grid matchup-grid">
+                <div><span>Team win probability</span><strong id="moneylineWinProbability">--</strong></div>
+                <div><span>Sportsbook implied</span><strong id="moneylineImpliedProbability">--</strong></div>
+                <div><span>Model edge</span><strong id="moneylineEdge">--</strong></div>
+                <div><span>Status</span><strong id="moneylineFavoriteStatus">--</strong></div>
+              </div>
+
+              <p class="model-note" id="moneylineStatus">Enter team odds and run a moneyline prediction.</p>
+              <pre id="moneylineOutput" class="json-output">{}</pre>
+            </div>
+          </details>
+
+<details class="model-refresh-panel" open>
+  <summary>Advanced: Manual Pipeline Tools</summary>
+  <div class="model-refresh-body">
+    <label>
+      Pipeline date
+      <input id="pipelineDate" type="date" />
+    </label>
+
+    <div class="source-actions">
+      <button id="pipelinePullPropsButton" type="button">Before Game: Pull All Supported Props</button>
+      <button id="pipelineCreateTemplateButton" type="button">Before Game: Create Game Odds Template</button>
+    </div>
+
+    <div class="source-actions">
+      <button id="pipelineGradeButton" type="button">After Game: Grade Props</button>
+      <button id="pipelineMergeButton" type="button">Merge Game Odds</button>
+      <button id="pipelinePrepareButton" type="button">Prepare Strikeout Training</button>
+      <button id="pipelineTrainButton" type="button">Train Strikeout ML</button>
+    </div>
+
+    <button id="pipelineRunAllButton" type="button">Run Full After-Game Pipeline</button>
+
+    <p class="model-note" id="pipelineStatus">Ready. Pull props before games, then run after-game steps once games are final.</p>
+    <pre id="pipelineOutput" class="json-output">{}</pre>
+  </div>
+</details>
+        
+          <details class="model-refresh-panel" open>
+            <summary>Data Health Dashboard</summary>
+            <div class="model-refresh-body">
+              <label>
+                Health date
+                <input id="dataHealthDate" type="date" />
+              </label>
+
+              <div class="source-actions">
+                <button id="dataHealthButton" type="button">Check Data Health</button>
+              </div>
+
+              <div class="stat-grid matchup-grid">
+                <div><span>Props</span><strong id="healthProps">--</strong></div>
+                <div><span>MLB games</span><strong id="healthGames">--</strong></div>
+                <div><span>Boxscores</span><strong id="healthBoxscores">--</strong></div>
+                <div><span>Warnings</span><strong id="healthWarnings">--</strong></div>
+              </div>
+
+              <p class="model-note" id="dataHealthStatus">
+                Shows whether the autonomous collector has enough data for predictions.
+              </p>
+              <pre id="dataHealthOutput" class="json-output">Data Health Dashboard is ready.</pre>
+            </div>
+          </details>
+
+        </div>
+
+        <div class="results">
+          <section class="scoreboard">
+            <div>
+              <span id="cardOneLabel">Chance of 1+ hit</span>
+              <strong id="cardOneValue">--</strong>
+            </div>
+            <div>
+              <span id="cardTwoLabel">Expected hits</span>
+              <strong id="cardTwoValue">--</strong>
+            </div>
+            <div>
+              <span id="cardThreeLabel">Chance of 2+ hits</span>
+              <strong id="cardThreeValue">--</strong>
+            </div>
+          </section>
+
+          <section class="panel detail-panel">
+            <div>
+              <p class="eyebrow" id="matchupLabel">No prediction yet</p>
+              <h2 id="playerName">Choose a player</h2>
+            </div>
+            <div class="stat-grid">
+              <div><span id="teamLabel">Team</span><strong id="team">--</strong></div>
+              <div><span id="gamesLabel">Games</span><strong id="games">--</strong></div>
+              <div><span id="abGameLabel">AB/G</span><strong id="abGame">--</strong></div>
+              <div><span id="baLabel">BA</span><strong id="ba">--</strong></div>
+              <div><span id="opsLabel">OPS</span><strong id="ops">--</strong></div>
+              <div><span id="contactLabel">Contact</span><strong id="contact">--</strong></div>
+              <div><span>Data adj.</span><strong id="dataAdjustment">--</strong></div>
+              <div><span>Total adj.</span><strong id="totalAdjustment">--</strong></div>
+              <div><span>Implied</span><strong id="marketImplied">--</strong></div>
+              <div><span>Fair odds</span><strong id="marketFairOdds">--</strong></div>
+              <div><span>EV/unit</span><strong id="marketEv">--</strong></div>
+              <div><span>Edge</span><strong id="marketEdge">--</strong></div>
+            </div>
+            <p class="model-note" id="modelNote">
+              Load batting data, choose a player, then run a prediction.
+            </p>
+          </section>
+
+          <section class="panel team-matchup-panel" id="teamMatchupPanel">
+            <div class="table-header">
+              <h2>Team Matchup</h2>
+            </div>
+            <div class="stat-grid matchup-grid">
+              <div><span>W-L</span><strong id="teamMatchupRecord">--</strong></div>
+              <div><span>Win rate</span><strong id="teamMatchupWinRate">--</strong></div>
+              <div><span>Last 5</span><strong id="teamMatchupLast5">--</strong></div>
+              <div><span>Run diff/G</span><strong id="teamMatchupRunDiff">--</strong></div>
+              <div><span>Runs/G</span><strong id="teamMatchupRuns">--</strong></div>
+              <div><span>OPS</span><strong id="teamMatchupOps">--</strong></div>
+              <div><span>HR/G</span><strong id="teamMatchupHr">--</strong></div>
+              <div><span>K%</span><strong id="teamMatchupKRate">--</strong></div>
+            </div>
+            <p class="model-note" id="teamMatchupNote">Load team game logs to show win rate and advanced team matchup context.</p>
+          </section>
+
+          <section class="panel environment-panel" id="environmentPanel">
+            <div class="table-header">
+              <h2>Park & Weather</h2>
+            </div>
+            <div class="stat-grid matchup-grid">
+              <div><span>Venue</span><strong id="envVenue">--</strong></div>
+              <div><span>Roof</span><strong id="envRoof">--</strong></div>
+              <div><span>Temp</span><strong id="envTemp">--</strong></div>
+              <div><span>Wind</span><strong id="envWind">--</strong></div>
+              <div><span>Park</span><strong id="envParkFactor">--</strong></div>
+              <div><span>Hit factor</span><strong id="envHitFactor">--</strong></div>
+              <div><span>HR factor</span><strong id="envHrFactor">--</strong></div>
+              <div><span>K factor</span><strong id="envKFactor">--</strong></div>
+            </div>
+            <p class="model-note" id="environmentNote">Refresh a game date or import BallparkPal/weather rows to blend park factor, roof, wind, and temperature into predictions.</p>
+          </section>
+
+          <section class="panel recent-panel" id="recentFormPanel">
+            <div class="table-header">
+              <h2>Recent Form</h2>
+            </div>
+            <div class="stat-grid matchup-grid">
+              <div><span>Last 5 AVG</span><strong id="last5Avg">--</strong></div>
+              <div><span>Last 5 H/G</span><strong id="last5Hits">--</strong></div>
+              <div><span>Last 10 AVG</span><strong id="last10Avg">--</strong></div>
+              <div><span>Vs opp AVG</span><strong id="lastOppAvg">--</strong></div>
+            </div>
+            <p class="model-note" id="recentFormNote">Upload player game logs to unlock last 5, last 10, and last 5 vs opponent context.</p>
+            <div class="recent-lookup">
+              <label>
+                Last 5 vs team
+                <input id="recentOpponentSearch" type="search" placeholder="Type any opponent team" autocomplete="off" />
+                <div class="search-results" id="recentOpponentSearchResults"></div>
+              </label>
+            </div>
+            <div class="table-wrap compact-table recent-games-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Opp</th>
+                    <th>PA</th>
+                    <th>AB</th>
+                    <th>H</th>
+                    <th>HR</th>
+                    <th>SO</th>
+                    <th>TB</th>
+                  </tr>
+                </thead>
+                <tbody id="recentOpponentRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel advanced-context-panel" id="advancedContextPanel">
+            <div class="table-header">
+              <h2>Advanced Model Inputs</h2>
+            </div>
+            <div class="stat-grid matchup-grid">
+              <div><span>xBA</span><strong id="advXba">--</strong></div>
+              <div><span>xSLG</span><strong id="advXslg">--</strong></div>
+              <div><span>xwOBA</span><strong id="advXwoba">--</strong></div>
+              <div><span>Barrel</span><strong id="advBarrel">--</strong></div>
+              <div><span>Hard-hit</span><strong id="advHardHit">--</strong></div>
+              <div><span>Last 7 K%</span><strong id="advLast7K">--</strong></div>
+              <div><span>Split</span><strong id="advSplit">--</strong></div>
+              <div><span>Adv adj.</span><strong id="advAdjustment">--</strong></div>
+            </div>
+            <p class="model-note" id="advancedContextNote">Run model data refresh for selected players to populate Savant quality, rolling form, and handedness split inputs.</p>
+          </section>
+
+          <section class="panel hr-panel" id="batterHrPanel">
+            <div class="table-header">
+              <h2>Batter HR Profile</h2>
+            </div>
+            <div class="stat-grid matchup-grid">
+              <div><span>HR</span><strong id="batterHrTotal">--</strong></div>
+              <div><span>HR/G</span><strong id="batterHrPerGame">--</strong></div>
+              <div><span>HR rate</span><strong id="batterHrRate">--</strong></div>
+              <div><span>PA/HR</span><strong id="batterPaPerHr">--</strong></div>
+              <div><span>SLG</span><strong id="batterHrSlug">--</strong></div>
+              <div><span>Matchup HR</span><strong id="batterMatchupHr">--</strong></div>
+              <div><span>Barrel</span><strong id="batterMatchupBarrel">--</strong></div>
+              <div><span>Pitcher HR rate</span><strong id="pitcherHrAllowedRate">--</strong></div>
+            </div>
+          </section>
+
+          <section class="panel pitcher-profile-panel" id="pitcherProfilePanel">
+            <div class="table-header">
+              <h2>Pitcher Profile</h2>
+            </div>
+            <div class="stat-grid matchup-grid">
+              <div><span>ERA</span><strong id="profileEra">--</strong></div>
+              <div><span>WHIP</span><strong id="profileWhip">--</strong></div>
+              <div><span>K/9</span><strong id="profileK9">--</strong></div>
+              <div><span>BB/9</span><strong id="profileBb9">--</strong></div>
+              <div><span>HR/9</span><strong id="profileHr9">--</strong></div>
+              <div><span>H/9</span><strong id="profileH9">--</strong></div>
+              <div><span>K/G</span><strong id="profileKGame">--</strong></div>
+              <div><span>Runs/G</span><strong id="profileRunsGame">--</strong></div>
+            </div>
+            <p class="model-note" id="pitcherProfileNote">Choose an opposing pitcher or pitcher prop to see run prevention, strikeout, walk, and HR indicators.</p>
+          </section>
+
+          <section class="panel matchup-panel">
+            <div class="table-header">
+              <h2>Advanced Matchup</h2>
+            </div>
+            <div class="stat-grid matchup-grid">
+              <div><span>PA</span><strong id="matchupPa">--</strong></div>
+              <div><span>wOBA</span><strong id="matchupWoba">--</strong></div>
+              <div><span>xwOBA</span><strong id="matchupXwoba">--</strong></div>
+              <div><span>Barrel</span><strong id="matchupBarrel">--</strong></div>
+              <div><span>Whiff</span><strong id="matchupWhiff">--</strong></div>
+              <div><span>K rate</span><strong id="matchupKRate">--</strong></div>
+              <div><span>HR</span><strong id="matchupHr">--</strong></div>
+              <div><span>OPS</span><strong id="matchupOps">--</strong></div>
+            </div>
+            <p class="model-note" id="matchupNote">Upload advanced batter-vs-pitcher rows to use exact matchup history.</p>
+          </section>
+
+          <section class="panel strikeout-panel hidden" id="strikeoutPanel">
+            <div class="table-header">
+              <h2>Strikeout Targets</h2>
+            </div>
+            <div class="stat-grid matchup-grid">
+              <div><span>Pitcher K%</span><strong id="pitcherKRate">--</strong></div>
+              <div><span>Opponent K%</span><strong id="opponentKRate">--</strong></div>
+              <div><span>Expected BF</span><strong id="expectedBf">--</strong></div>
+              <div><span>Expected IP</span><strong id="expectedIp">--</strong></div>
+            </div>
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Batter</th>
+                    <th>PA/G</th>
+                    <th>K%</th>
+                    <th>Matchup K%</th>
+                    <th>1+ K</th>
+                  </tr>
+                </thead>
+                <tbody id="strikeoutRows"></tbody>
+              </table>
+            </div>
+            <p class="model-note">Highest-risk opposing batters are estimated from uploaded batting data and the selected pitcher profile.</p>
+          </section>
+
+          <section class="panel needs-panel">
+            <div class="table-header">
+              <h2>Model Data Needs</h2>
+            </div>
+            <div class="needs-columns">
+              <div>
+                <p class="eyebrow">Missing</p>
+                <ul id="missingDataList"></ul>
+              </div>
+              <div>
+                <p class="eyebrow">Useful next</p>
+                <ul id="usefulDataList"></ul>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel prop-board-panel">
+            <div class="table-header">
+              <h2>Prop Board Analyzer</h2>
+            </div>
+            <div class="prop-board-controls">
+              <label>
+                Input type
+                <select id="propBoardInputType">
+                  <option value="prop-odds-csv">Prop odds CSV</option>
+                  <option value="strikeout-odds-text">Strikeout ladder OCR text</option>
+                </select>
+              </label>
+              <label>
+                Date
+                <input id="propBoardDate" type="date" />
+              </label>
+              <label>
+                Recent games
+                <input id="propBoardRecentGames" type="number" min="1" max="20" step="1" value="5" />
+              </label>
+              <button id="propBoardButton" type="button">Analyze Board</button>
+            </div>
+            <label class="prop-board-text">
+              Odds CSV or OCR text
+              <textarea id="propBoardText" rows="7" placeholder="Market,Player,Team,Opponent,Line,Odds,Book,Side&#10;Home Run,Aaron Judge,NYY,BOS,0.5,+390,DraftKings,Over&#10;Pitcher Strikeouts,Max Fried,NYY,BAL,5.5,-115,FanDuel,Over"></textarea>
+            </label>
+            <div class="github-summary">
+              <p class="eyebrow" id="propBoardStatus">Ready</p>
+              <h2 id="propBoardSummary">Batch prop EV and payout ranking</h2>
+              <p class="model-note" id="propBoardMeta">Uses the same model as the predictor, plus schedule, probable starters, recent logs, and parlay math.</p>
+            </div>
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Selection</th>
+                    <th>Odds</th>
+                    <th>Model</th>
+                    <th>Edge</th>
+                    <th>EV/u</th>
+                    <th>$10 payout</th>
+                  </tr>
+                </thead>
+                <tbody id="propBoardRows"></tbody>
+              </table>
+            </div>
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Parlay</th>
+                    <th>Legs</th>
+                    <th>Model</th>
+                    <th>Edge</th>
+                    <th>EV/u</th>
+                    <th>$10 payout</th>
+                  </tr>
+                </thead>
+                <tbody id="propParlayRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel github-panel">
+            <div class="table-header">
+              <h2>GitHub API</h2>
+            </div>
+            <div class="github-controls">
+              <label>
+                Repository
+                <input id="githubRepository" type="text" value="zero-sum-seattle/python-mlb-statsapi" placeholder="owner/repo" />
+              </label>
+              <button id="githubButton" type="button">Check Repo</button>
+            </div>
+            <div class="github-summary">
+              <p class="eyebrow" id="githubStatus">Not connected</p>
+              <h2 id="githubRepoName">Add a GitHub repository</h2>
+              <p class="model-note" id="githubRepoMeta">Use a public repo or set GITHUB_TOKEN for private repositories.</p>
+            </div>
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Workflow</th>
+                    <th>Status</th>
+                    <th>Result</th>
+                    <th>Branch</th>
+                    <th>Commit</th>
+                  </tr>
+                </thead>
+                <tbody id="githubRunRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel mlb-panel">
+            <div class="table-header">
+              <h2>MLB StatsAPI</h2>
+            </div>
+            <div class="github-controls">
+              <label>
+                Player
+                <input id="mlbPlayerName" type="text" placeholder="Aaron Judge" />
+              </label>
+              <label>
+                Season
+                <input id="mlbSeason" type="number" min="1876" max="2100" step="1" value="2026" />
+              </label>
+              <button id="mlbButton" type="button">Lookup</button>
+            </div>
+            <div class="github-summary">
+              <p class="eyebrow" id="mlbStatus">Checking package</p>
+              <h2 id="mlbPlayerResult">Live MLB data</h2>
+              <p class="model-note" id="mlbMeta">Powered by python-mlb-statsapi.</p>
+            </div>
+            <div class="stat-grid matchup-grid">
+              <div><span>G</span><strong id="mlbGames">--</strong></div>
+              <div><span>PA</span><strong id="mlbPa">--</strong></div>
+              <div><span>AB</span><strong id="mlbAb">--</strong></div>
+              <div><span>H</span><strong id="mlbHits">--</strong></div>
+              <div><span>HR</span><strong id="mlbHr">--</strong></div>
+              <div><span>BA</span><strong id="mlbAvg">--</strong></div>
+              <div><span>SLG</span><strong id="mlbSlg">--</strong></div>
+              <div><span>OPS</span><strong id="mlbOps">--</strong></div>
+            </div>
+            <div class="mlb-command-shell">
+              <div class="table-header compact-header">
+                <h2>Advanced Command</h2>
+              </div>
+              <div class="mlb-command-grid">
+                <label>
+                  Command
+                  <select id="mlbCommand">
+                    <option value="playerStats">Player stats</option>
+                    <option value="teamStats">Team stats</option>
+                    <option value="expectedStats">Expected stats</option>
+                    <option value="vsPlayerStats">vsPlayer stats</option>
+                    <option value="hotColdZones">Hot/cold zones</option>
+                    <option value="schedule">Schedule by date</option>
+                    <option value="game">Game weather/status</option>
+                    <option value="playByPlay">Play by play</option>
+                    <option value="lineScore">Line score</option>
+                    <option value="boxScore">Box score</option>
+                    <option value="gamepace">Gamepace</option>
+                    <option value="people">People by sport id</option>
+                    <option value="peopleId">Player id lookup</option>
+                    <option value="team">Team lookup</option>
+                    <option value="teamRoster">Team roster</option>
+                    <option value="teamCoaches">Team coaches</option>
+                    <option value="draft">Draft by year</option>
+                    <option value="awards">Awards</option>
+                    <option value="venue">Venue lookup</option>
+                    <option value="division">Division lookup</option>
+                    <option value="league">League lookup</option>
+                    <option value="season">Season lookup</option>
+                    <option value="standings">Standings</option>
+                  </select>
+                </label>
+                <label>
+                  Player
+                  <input id="mlbCommandPlayer" type="text" placeholder="Ty France" />
+                </label>
+                <label>
+                  Opposing player
+                  <input id="mlbCommandOpponent" type="text" placeholder="Shohei Ohtani" />
+                </label>
+                <label>
+                  Team
+                  <input id="mlbCommandTeam" type="text" placeholder="Seattle Mariners" />
+                </label>
+                <label>
+                  Stats
+                  <input id="mlbCommandStats" type="text" value="season,career" />
+                </label>
+                <label>
+                  Groups
+                  <input id="mlbCommandGroups" type="text" value="hitting,pitching" />
+                </label>
+                <label>
+                  Date
+                  <input id="mlbCommandDate" type="date" />
+                </label>
+                <label>
+                  Game ID
+                  <input id="mlbCommandGameId" type="number" placeholder="662242" />
+                </label>
+                <label>
+                  Sport ID
+                  <input id="mlbCommandSportId" type="number" value="1" />
+                </label>
+                <label>
+                  League ID
+                  <input id="mlbCommandLeagueId" type="number" placeholder="103" />
+                </label>
+                <label>
+                  Division ID
+                  <input id="mlbCommandDivisionId" type="number" placeholder="200" />
+                </label>
+                <label>
+                  Award ID
+                  <input id="mlbCommandAwardId" type="text" placeholder="RETIREDUNI_108" />
+                </label>
+                <label>
+                  Venue
+                  <input id="mlbCommandVenue" type="text" placeholder="PNC Park" />
+                </label>
+                <label>
+                  Limit
+                  <input id="mlbCommandLimit" type="number" min="1" max="500" value="25" />
+                </label>
+                <button id="mlbCommandButton" type="button">Run Command</button>
+              </div>
+              <p class="model-note" id="mlbCommandHint">Select a command; defaults mirror the python-mlb-statsapi examples.</p>
+              <pre id="mlbCommandOutput" class="json-output">{}</pre>
+            </div>
+          </section>
+
+          <section class="panel espn-panel">
+            <div class="table-header">
+              <h2>ESPN API</h2>
+            </div>
+            <div class="espn-controls">
+              <label>
+                Score date
+                <input id="espnDate" type="date" />
+              </label>
+              <button id="espnScoresButton" type="button">Load Scores</button>
+              <label>
+                Team
+                <select id="espnTeamSelect"></select>
+              </label>
+              <button id="espnTeamButton" type="button">Team Info</button>
+            </div>
+            <div class="github-summary">
+              <p class="eyebrow" id="espnStatus">Ready</p>
+              <h2 id="espnSummary">ESPN live scores and teams</h2>
+              <p class="model-note" id="espnMeta">Uses ESPN's public MLB scoreboard and teams endpoints.</p>
+            </div>
+            <div class="stat-grid matchup-grid">
+              <div><span>Team</span><strong id="espnTeamName">--</strong></div>
+              <div><span>Abbr</span><strong id="espnTeamAbbr">--</strong></div>
+              <div><span>ID</span><strong id="espnTeamId">--</strong></div>
+              <div><span>Fallback</span><strong id="espnTeamFallback">--</strong></div>
+            </div>
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Game</th>
+                    <th>Status</th>
+                    <th>Away</th>
+                    <th>Home</th>
+                    <th>Probables</th>
+                    <th>Venue</th>
+                    <th>Use</th>
+                  </tr>
+                </thead>
+                <tbody id="espnScoreRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel table-panel">
+            <div class="table-header">
+              <h2>Player Board</h2>
+              <select id="boardMode">
+                <option value="batters">Batters</option>
+                <option value="pitchers">Pitchers</option>
+                <option value="both">Both</option>
+                <option value="markets">Team/Game Markets</option>
+              </select>
+              <input id="search" type="search" placeholder="Search players" />
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead id="playerBoardHead">
+                  <tr>
+                    <th><button class="sort-header" type="button" data-sort="player">Player</button></th>
+                    <th><button class="sort-header" type="button" data-sort="team">Team</button></th>
+                    <th><button class="sort-header" type="button" data-sort="games">G</button></th>
+                    <th><button class="sort-header" type="button" data-sort="at_bats">AB</button></th>
+                    <th><button class="sort-header" type="button" data-sort="hits">H</button></th>
+                    <th><button class="sort-header" type="button" data-sort="batting_average">BA</button></th>
+                    <th><button class="sort-header" type="button" data-sort="ops">OPS</button></th>
+                    <th><button class="sort-header" type="button" data-sort="home_runs">HR</button></th>
+                  </tr>
+                </thead>
+                <tbody id="playerRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="/trust-surface.js" defer></script>
+    <script src="/active-bet-context.js" defer></script>
+    <script src="/result-card-ui.js" defer></script>
+    <script src="/model-cards.js" defer></script>
+    <script src="/app.js" defer></script>
+    <script src="/pipeline.js" defer></script>
+    <script src="/moneyline.js" defer></script>
+    <script src="/alldataprop.js" defer></script>
+    <script src="/all-data-ui-cleanup.js" defer></script>
+    <script src="/seamless-ui.js" defer></script>
+    <script src="/propml.js" defer></script>
+    <script src="/propml-autocomplete.js" defer></script>
+    <script src="/unified-prop-card.js" defer></script>
+    <script src="/incremental-stats-ui.js" defer></script>
+    <script src="/weather-ui.js" defer></script>
+    <script src="/odds-movement-ui.js" defer></script>
+    <script src="/savant-ui.js" defer></script>
+    <script src="/baseball-tools-ui.js" defer></script>
+    <script src="/prediction-history-ui.js" defer></script>
+    <script src="/prediction-dashboard-ui.js" defer></script>
+    <script src="/dailyworkflow.js" defer></script>
+    <script src="/datahealth.js" defer></script>
+    <script src="/data-health-dashboard.js" defer></script>
+    <script src="/ui-organizer.js" defer></script>
+    <script src="/ui-cleanup.js" defer></script>
+    <script src="/simple-user-ui.js" defer></script>
+    <script src="/app-pages.js" defer></script>
+    <script src="/my-picks.js" defer></script>
+    <script src="/prop-detail.js" defer></script>
+    <script src="/ui-text-sanitizer.js" defer></script>
+    <script src="/stage2-product-ui.js" defer></script>
+    <script src="/stage3-betting-ui.js" defer></script>
+    <script type="module" src="/assets/legacy-671183d858.js"></script>
+</body>
+</html>

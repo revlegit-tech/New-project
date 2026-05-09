@@ -1,0 +1,453 @@
+diff -ruN base/PHASE5_README.md repo/PHASE5_README.md
+--- base/PHASE5_README.md	1970-01-01 00:00:00.000000000 +0000
++++ repo/PHASE5_README.md	2026-05-07 17:40:52.621500024 +0000
+@@ -0,0 +1,45 @@
++# Phase 5 start — Repository CSV caching
++
++This cumulative overlay extends Phase 4 hot-path latency work into the repository layer.
++
++## Included changes
++
++- Adds `CsvStore.read_rows_cached(path, max_age_seconds=60)`.
++- Uses resolved-path cache keys.
++- Invalidates on TTL expiry or `(mtime_ns, size)` file-signature changes.
++- Protects cache state with a class-level `threading.RLock`.
++- Returns deep copies so service code cannot mutate cached rows.
++- Makes `write_rows()` temp-file + `os.replace()` atomic.
++- Invalidates the written path after successful writes.
++- Refactors `ModelCardService` backtest reads to use cached CSV access.
++- Refactors `ModelRegistryService` training stats reads to use cached CSV access.
++- Adds unit tests for hits, TTL expiry, mtime invalidation, count reuse, and write invalidation.
++
++## Validation
++
++Run:
++
++```bash
++python -m pytest \
++  tests/test_csv_store.py \
++  tests/test_model_card_service.py \
++  tests/test_prop_detail_service.py \
++  tests/test_edge_board_service.py \
++  tests/test_board_cache.py \
++  tests/test_wsgi_smoke.py \
++  tests/test_request_observability.py \
++  tests/test_cache_store.py \
++  tests/test_static_file_guard.py \
++  tests/test_security_export.py \
++  tests/test_trust_surface_static_safety.py \
++  -q
++```
++
++In this environment the suite was validated in two groups:
++
++```bash
++python -m pytest tests/test_csv_store.py tests/test_model_card_service.py tests/test_prop_detail_service.py tests/test_edge_board_service.py -q
++python -m pytest tests/test_board_cache.py tests/test_wsgi_smoke.py tests/test_request_observability.py tests/test_cache_store.py tests/test_static_file_guard.py tests/test_security_export.py tests/test_trust_surface_static_safety.py -q
++```
++
++Results: 16 passed and 27 passed.
+diff -ruN base/docs/repository/CSV_STORE_CACHE.md repo/docs/repository/CSV_STORE_CACHE.md
+--- base/docs/repository/CSV_STORE_CACHE.md	1970-01-01 00:00:00.000000000 +0000
++++ repo/docs/repository/CSV_STORE_CACHE.md	2026-05-07 17:40:52.608891394 +0000
+@@ -0,0 +1,57 @@
++# CsvStore mtime-aware cache
++
++`mlb_app.repositories.csv_store.CsvStore` is now the canonical CSV repository boundary for service-layer reads.
++
++## Goals
++
++- Avoid repeated full CSV materialization on hot service paths.
++- Invalidate automatically when pipeline outputs update a CSV.
++- Preserve correctness by returning deep copies to callers.
++- Keep local file I/O safe enough for the current file-backed production model.
++
++## Cache key and invalidation
++
++Cache entries are keyed by the resolved CSV path. Each entry stores:
++
++- row payload
++- resolved path
++- `st_mtime_ns`
++- file size
++- load timestamp
++- TTL
++- hit count
++
++A cached read is served only when:
++
++1. the TTL has not expired;
++2. the current `(mtime_ns, size)` signature matches the cached signature;
++3. the caller is using the same `max_age_seconds` policy.
++
++Default TTL is 60 seconds for repository reads.
++
++## API
++
++```python
++store = CsvStore()
++rows = store.read_rows_cached(path, max_age_seconds=60)
++count = store.count_rows(path)
++CsvStore.invalidate(path)
++CsvStore.invalidate()  # clear all
++status = CsvStore.status()
++```
++
++`read_rows(path)` remains as a compatibility wrapper and uses `read_rows_cached(path)` by default.
++
++## Writes
++
++`write_rows()` writes to a temp file in the same directory, flushes/fsyncs the file, and then atomically replaces the target with `os.replace()`. The target cache entry is invalidated after a successful write.
++
++## Service adoption
++
++- `ModelCardService` uses cached CSV reads for backtest summaries.
++- `ModelRegistryService` uses cached CSV reads for training stats.
++- Existing services that still call `read_rows()` also benefit from the default cached path.
++
++## Trust-surface rule
++
++This cache must never hide missing or stale data. Services remain responsible for reporting `Missing Data`, `Research Only`, or stale-state messages when required inputs are absent or unproven.
+diff -ruN base/mlb_app/repositories/csv_store.py repo/mlb_app/repositories/csv_store.py
+--- base/mlb_app/repositories/csv_store.py	2026-05-07 08:35:05.000000000 +0000
++++ repo/mlb_app/repositories/csv_store.py	2026-05-07 17:32:59.224980440 +0000
+@@ -1,28 +1,192 @@
+ from __future__ import annotations
+ 
++import copy
+ import csv
++import os
++import tempfile
++import threading
++import time
++from dataclasses import dataclass
+ from pathlib import Path
+-from typing import Any, Iterable
++from typing import Any, Callable, Iterable
++
++
++@dataclass(frozen=True)
++class CsvFileSignature:
++    """Stable file identity used for mtime-aware CSV cache invalidation."""
++
++    path: str
++    exists: bool
++    mtime_ns: int | None = None
++    size: int | None = None
++
++    @classmethod
++    def from_path(cls, path: str | Path) -> "CsvFileSignature":
++        target = Path(path).resolve()
++        try:
++            stat = target.stat()
++        except OSError:
++            return cls(path=str(target), exists=False)
++        return cls(path=str(target), exists=True, mtime_ns=stat.st_mtime_ns, size=stat.st_size)
++
++
++@dataclass
++class _CsvCacheEntry:
++    rows: list[dict[str, str]]
++    signature: CsvFileSignature
++    loaded_at: float
++    max_age_seconds: float
++    hits: int = 0
++    last_hit_at: float | None = None
++
++    def age_seconds(self, now: float) -> float:
++        return max(0.0, now - self.loaded_at)
++
++    def ttl_remaining_seconds(self, now: float) -> float:
++        return max(0.0, self.max_age_seconds - self.age_seconds(now))
+ 
+ 
+ class CsvStore:
+-    """Thin CSV repository with predictable UTF-8 behavior."""
++    """CSV repository with process-local, mtime-aware read caching.
++
++    CSV files are the platform's operational database until a real database is
++    introduced. This store therefore treats read caching and safe writes as
++    production concerns:
++
++    * cache keys are resolved paths;
++    * cache entries are invalidated by TTL or (mtime_ns, size) changes;
++    * cache state is protected by a class-level RLock;
++    * callers receive deep copies so row mutation cannot corrupt hot cache data;
++    * writes go through a temp file plus atomic os.replace().
++    """
++
++    _cache: dict[str, _CsvCacheEntry] = {}
++    _lock = threading.RLock()
++    _hits = 0
++    _misses = 0
++    _invalidations = 0
++    _writes = 0
++
++    def __init__(self, *, now: Callable[[], float] | None = None) -> None:
++        self._now = now or time.monotonic
+ 
+     def read_rows(self, path: str | Path) -> list[dict[str, str]]:
+-        target = Path(path)
+-        if not target.exists():
+-            return []
+-        with target.open("r", encoding="utf-8-sig", newline="") as handle:
+-            return list(csv.DictReader(handle))
++        """Compatibility wrapper.
++
++        Existing services can keep calling read_rows() and still benefit from
++        the default mtime-aware cache. Newer hot paths may call read_rows_cached()
++        directly to make the TTL explicit.
++        """
++
++        return self.read_rows_cached(path)
++
++    def read_rows_uncached(self, path: str | Path) -> list[dict[str, str]]:
++        """Read directly from disk without consulting or updating the cache."""
++
++        return self._read_rows_from_disk(Path(path).resolve())
++
++    def read_rows_cached(self, path: str | Path, max_age_seconds: float = 60.0) -> list[dict[str, str]]:
++        target = Path(path).resolve()
++        key = str(target)
++        signature = CsvFileSignature.from_path(target)
++        now = self._now()
++
++        with self._lock:
++            entry = self._cache.get(key)
++            if entry is not None:
++                stale_by_ttl = entry.age_seconds(now) > entry.max_age_seconds
++                stale_by_mtime = entry.signature != signature
++                stale_by_policy = float(max_age_seconds) != entry.max_age_seconds
++                if not stale_by_ttl and not stale_by_mtime and not stale_by_policy:
++                    entry.hits += 1
++                    entry.last_hit_at = now
++                    type(self)._hits += 1
++                    return copy.deepcopy(entry.rows)
++                self._cache.pop(key, None)
++                type(self)._invalidations += 1
++
++        rows = self._read_rows_from_disk(target)
++        entry = _CsvCacheEntry(
++            rows=copy.deepcopy(rows),
++            signature=signature,
++            loaded_at=now,
++            max_age_seconds=float(max_age_seconds),
++        )
++        with self._lock:
++            self._cache[key] = entry
++            type(self)._misses += 1
++        return copy.deepcopy(rows)
+ 
+-    def count_rows(self, path: str | Path) -> int:
+-        return len(self.read_rows(path))
++    def count_rows(self, path: str | Path, *, max_age_seconds: float = 60.0) -> int:
++        return len(self.read_rows_cached(path, max_age_seconds=max_age_seconds))
+ 
+     def write_rows(self, path: str | Path, rows: Iterable[dict[str, Any]], fieldnames: list[str]) -> None:
+-        target = Path(path)
++        target = Path(path).resolve()
+         target.parent.mkdir(parents=True, exist_ok=True)
+-        with target.open("w", encoding="utf-8", newline="") as handle:
+-            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+-            writer.writeheader()
+-            for row in rows:
+-                writer.writerow(row)
++
++        fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
++        tmp_path = Path(tmp_name)
++        try:
++            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
++                writer = csv.DictWriter(handle, fieldnames=fieldnames)
++                writer.writeheader()
++                for row in rows:
++                    writer.writerow({field: row.get(field, "") for field in fieldnames})
++                handle.flush()
++                os.fsync(handle.fileno())
++            os.replace(tmp_path, target)
++        except Exception:
++            try:
++                tmp_path.unlink(missing_ok=True)
++            finally:
++                raise
++
++        with self._lock:
++            self._cache.pop(str(target), None)
++            type(self)._writes += 1
++            type(self)._invalidations += 1
++
++    @classmethod
++    def invalidate(cls, path: str | Path | None = None) -> None:
++        with cls._lock:
++            if path is None:
++                removed = len(cls._cache)
++                cls._cache.clear()
++            else:
++                removed = 1 if str(Path(path).resolve()) in cls._cache else 0
++                cls._cache.pop(str(Path(path).resolve()), None)
++            cls._invalidations += removed
++
++    @classmethod
++    def status(cls) -> dict[str, Any]:
++        now = time.monotonic()
++        with cls._lock:
++            entries = []
++            for key, entry in cls._cache.items():
++                entries.append(
++                    {
++                        "path": key,
++                        "rows": len(entry.rows),
++                        "exists": entry.signature.exists,
++                        "mtimeNs": entry.signature.mtime_ns,
++                        "size": entry.signature.size,
++                        "ageSeconds": round(entry.age_seconds(now), 3),
++                        "ttlRemainingSeconds": round(entry.ttl_remaining_seconds(now), 3),
++                        "hits": entry.hits,
++                    }
++                )
++            return {
++                "entries": entries,
++                "entryCount": len(entries),
++                "hits": cls._hits,
++                "misses": cls._misses,
++                "invalidations": cls._invalidations,
++                "writes": cls._writes,
++            }
++
++    @staticmethod
++    def _read_rows_from_disk(path: Path) -> list[dict[str, str]]:
++        if not path.exists():
++            return []
++        with path.open("r", encoding="utf-8-sig", newline="") as handle:
++            return list(csv.DictReader(handle))
+diff -ruN base/mlb_app/services/model_card_service.py repo/mlb_app/services/model_card_service.py
+--- base/mlb_app/services/model_card_service.py	2026-05-07 17:10:14.000000000 +0000
++++ repo/mlb_app/services/model_card_service.py	2026-05-07 17:36:11.830284954 +0000
+@@ -509,7 +509,7 @@
+ 
+     def _load_backtest_rows_from_disk(self) -> tuple[str, list[dict[str, Any]]]:
+         for path in self._backtest_candidates():
+-            rows = self.csv_store.read_rows(path)
++            rows = _read_csv_rows_cached(self.csv_store, path)
+             if rows:
+                 return str(path), rows
+         summary_json = self.settings.data_dir / "health" / "latest_backtest_summary.json"
+@@ -544,6 +544,13 @@
+ 
+ 
+ 
++def _read_csv_rows_cached(csv_store: Any, path: Path) -> list[dict[str, Any]]:
++    reader = getattr(csv_store, "read_rows_cached", None)
++    if callable(reader):
++        return reader(path, max_age_seconds=60.0)
++    return csv_store.read_rows(path)
++
++
+ def _file_signatures(paths: Iterable[str | Path]) -> tuple[FileSignature, ...]:
+     return tuple(FileSignature.from_path(path) for path in sorted({str(Path(path).resolve()) for path in paths}))
+ 
+diff -ruN base/mlb_app/services/model_registry_service.py repo/mlb_app/services/model_registry_service.py
+--- base/mlb_app/services/model_registry_service.py	2026-05-07 08:35:05.000000000 +0000
++++ repo/mlb_app/services/model_registry_service.py	2026-05-07 17:36:11.830841878 +0000
+@@ -59,7 +59,7 @@
+     def training_stats(self, market: str) -> MarketTrainingStats:
+         key = normalize_market_key(market)
+         path = self.settings.data_dir / "training" / f"{key}_training.csv"
+-        rows = self.csv_store.read_rows(path)
++        rows = _read_csv_rows_cached(self.csv_store, path)
+         counts: Counter[str] = Counter()
+         for row in rows:
+             value = str(row.get("over", "")).strip()
+@@ -150,3 +150,10 @@
+                 "minimumTrainingRows": MIN_TRAINING_ROWS,
+             },
+         }
++
++
++def _read_csv_rows_cached(csv_store: Any, path: Path) -> list[dict[str, str]]:
++    reader = getattr(csv_store, "read_rows_cached", None)
++    if callable(reader):
++        return reader(path, max_age_seconds=60.0)
++    return csv_store.read_rows(path)
+diff -ruN base/tests/test_csv_store.py repo/tests/test_csv_store.py
+--- base/tests/test_csv_store.py	1970-01-01 00:00:00.000000000 +0000
++++ repo/tests/test_csv_store.py	2026-05-07 17:36:56.815410050 +0000
+@@ -0,0 +1,79 @@
++from __future__ import annotations
++
++import os
++from pathlib import Path
++
++from mlb_app.repositories.csv_store import CsvStore
++
++
++def _write(path: Path, text: str, *, mtime_ns: int) -> None:
++    path.write_text(text, encoding="utf-8")
++    os.utime(path, ns=(mtime_ns, mtime_ns))
++
++
++def test_csv_store_reuses_rows_within_ttl_and_protects_cache_from_mutation(tmp_path: Path) -> None:
++    now = [100.0]
++    path = tmp_path / "board.csv"
++    _write(path, "player,edge\nA,4.2\n", mtime_ns=1_000_000_000)
++    CsvStore.invalidate()
++    store = CsvStore(now=lambda: now[0])
++
++    first = store.read_rows_cached(path, max_age_seconds=60)
++    first[0]["player"] = "MUTATED"
++    second = store.read_rows_cached(path, max_age_seconds=60)
++
++    assert second == [{"player": "A", "edge": "4.2"}]
++    assert CsvStore.status()["hits"] >= 1
++
++
++def test_csv_store_invalidates_when_mtime_or_size_changes(tmp_path: Path) -> None:
++    now = [100.0]
++    path = tmp_path / "board.csv"
++    _write(path, "player,edge\nA,4.2\n", mtime_ns=1_000_000_000)
++    CsvStore.invalidate()
++    store = CsvStore(now=lambda: now[0])
++
++    assert store.read_rows_cached(path, max_age_seconds=60)[0]["edge"] == "4.2"
++
++    _write(path, "player,edge\nA,8.4\n", mtime_ns=2_000_000_000)
++    assert store.read_rows_cached(path, max_age_seconds=60)[0]["edge"] == "8.4"
++
++
++def test_csv_store_invalidates_when_ttl_expires_even_if_signature_unchanged(tmp_path: Path) -> None:
++    now = [100.0]
++    path = tmp_path / "board.csv"
++    _write(path, "player,edge\nA,4.2\n", mtime_ns=1_000_000_000)
++    CsvStore.invalidate()
++    store = CsvStore(now=lambda: now[0])
++
++    assert store.read_rows_cached(path, max_age_seconds=5)[0]["edge"] == "4.2"
++
++    # Keep the same size and mtime signature to prove TTL can still force a refresh.
++    _write(path, "player,edge\nA,9.9\n", mtime_ns=1_000_000_000)
++    now[0] = 106.0
++    assert store.read_rows_cached(path, max_age_seconds=5)[0]["edge"] == "9.9"
++
++
++def test_csv_store_count_rows_uses_cached_reader(tmp_path: Path) -> None:
++    path = tmp_path / "rows.csv"
++    _write(path, "id\n1\n2\n3\n", mtime_ns=1_000_000_000)
++    CsvStore.invalidate()
++    store = CsvStore()
++
++    assert store.count_rows(path) == 3
++    assert store.count_rows(path) == 3
++    assert CsvStore.status()["hits"] >= 1
++
++
++def test_csv_store_write_rows_is_atomic_and_invalidates_cache(tmp_path: Path) -> None:
++    path = tmp_path / "rows.csv"
++    _write(path, "id,value\n1,old\n", mtime_ns=1_000_000_000)
++    CsvStore.invalidate()
++    store = CsvStore()
++
++    assert store.read_rows_cached(path)[0]["value"] == "old"
++
++    store.write_rows(path, [{"id": "1", "value": "new"}], ["id", "value"])
++
++    assert store.read_rows_cached(path)[0]["value"] == "new"
++    assert not list(tmp_path.glob(".*.tmp"))

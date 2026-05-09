@@ -1,5 +1,2 @@
-pytest
-pytest-cov
-ruff
-mypy
-detect-secrets
+# Compatibility entrypoint. Local development and CI install the deterministic lockfile.
+-r requirements/dev.lock.txt

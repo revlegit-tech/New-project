@@ -1,0 +1,604 @@
+--- mlb_src/mlb_ui_hotfix_show_trust_surface_safe_source/Makefile	2026-05-07 11:52:22.301173692 +0000
++++ mlb_src/Makefile	2026-05-07 12:07:59.509624309 +0000
+@@ -1,4 +1,11 @@
+-.PHONY: install-dev test test-contracts coverage lint format typecheck ci run run-modular health safe-export security test-ui browsers validate-contracts clean
++.PHONY: install-dev test test-contracts coverage lint format typecheck ci run serve run-legacy run-modular health smoke smoke-live safe-export security test-ui browsers validate-contracts clean
++
++PORT ?= 8765
++HOST ?= 127.0.0.1
++GUNICORN_WORKERS ?= 4
++GUNICORN_TIMEOUT ?= 30
++GUNICORN_BIND ?= 0.0.0.0:$(PORT)
++SAFE_EXPORT_MAX_MB ?= 25
+ 
+ install-dev:
+ 	python -m pip install --upgrade pip
+@@ -26,22 +33,45 @@
+ typecheck:
+ 	mypy mlb_app --config-file pyproject.toml
+ 
+-ci: security lint typecheck test
++ci: security lint typecheck test smoke
+ 
++# Canonical local runtime: mlb_app only.
+ run:
+-	python app.py 8765
++	python -m mlb_app.server $(PORT) --host $(HOST)
++
++# Production-style bounded runtime: mlb_app via Gunicorn.
++serve:
++	gunicorn mlb_app.wsgi:application --workers $(GUNICORN_WORKERS) --bind $(GUNICORN_BIND) --timeout $(GUNICORN_TIMEOUT) --access-logfile -
++
++# Legacy reference path only. Do not add product behavior to app.py.
++run-legacy:
++	python app.py $(PORT)
+ 
+-run-modular:
+-	python -m mlb_app.server 8765
++# Temporary compatibility alias for existing developer muscle memory.
++run-modular: run
+ 
+ health:
+-	curl http://127.0.0.1:8765/api/app/status
++	python - <<'SMOKEPY'
++import urllib.request
++for path in ("/api/app/status", "/api/edge-board", "/api/playerboard/health", "/api/model-cards", "/api/data-health/dashboard"):
++    url = "http://127.0.0.1:$(PORT)" + path
++    with urllib.request.urlopen(url, timeout=10) as response:
++        print(response.status, path)
++SMOKEPY
++
++# Fast local smoke path. Does not boot app.py.
++smoke:
++	python -m pytest tests/test_api_contracts.py tests/test_modular_router.py tests/test_wsgi_smoke.py tests/test_static_file_guard.py tests/test_cache_store.py tests/test_security_export.py tests/test_trust_surface_static_safety.py
++
++# Live endpoint smoke for a separately running mlb_app server.
++smoke-live:
++	python tools/smoke_mlb_app.py --base-url http://127.0.0.1:$(PORT)
+ 
+ test-ui:
+ 	npm run test:e2e
+ 
+ safe-export:
+-	python tools/export_project.py --output dist/mlb-app-source.zip
++	python tools/export_project.py --output dist/mlb-app-source.zip --max-size-mb $(SAFE_EXPORT_MAX_MB)
+ 
+ security:
+ 	python tools/security_preflight.py
+--- mlb_src/mlb_ui_hotfix_show_trust_surface_safe_source/Dockerfile	2026-05-07 11:52:22.290345097 +0000
++++ mlb_src/Dockerfile	2026-05-07 12:07:59.509835959 +0000
+@@ -2,10 +2,19 @@
+ 
+ ENV PYTHONDONTWRITEBYTECODE=1 \
+     PYTHONUNBUFFERED=1
++
+ WORKDIR /app
++
+ COPY requirements.txt ./
+ RUN python -m pip install --no-cache-dir --upgrade pip \
+-    && python -m pip install --no-cache-dir -r requirements.txt
++    && python -m pip install --no-cache-dir -r requirements.txt \
++    && python -m pip install --no-cache-dir "gunicorn>=22.0,<24.0"
++
+ COPY . .
++
+ EXPOSE 8765
+-CMD ["python", "app.py", "8765"]
++
++HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
++    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/app/status', timeout=3)"
++
++CMD ["gunicorn", "mlb_app.wsgi:application", "--workers", "4", "--bind", "0.0.0.0:8765", "--timeout", "30", "--access-logfile", "-"]
+--- mlb_src/mlb_ui_hotfix_show_trust_surface_safe_source/requirements.txt	2026-05-07 11:52:22.341146790 +0000
++++ mlb_src/requirements.txt	2026-05-07 12:07:59.510306753 +0000
+@@ -15,3 +15,6 @@
+ 
+ pybaseball
+ requests
++
++# Production WSGI serving for mlb_app.
++gunicorn>=22.0,<24.0
+--- mlb_src/mlb_ui_hotfix_show_trust_surface_safe_source/mlb_app/server.py	2026-05-07 11:52:22.304457720 +0000
++++ mlb_src/mlb_app/server.py	2026-05-07 12:07:59.510528627 +0000
+@@ -3,7 +3,6 @@
+ from http import HTTPStatus
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+-from urllib.parse import urlparse
+ 
+ from .config import settings
+ from .http import RequestContext, json_response
+@@ -48,6 +47,23 @@
+     return router
+ 
+ 
++def resolve_static_target(public_dir: Path, request_path: str) -> Path | None:
++    """Resolve a static asset path and reject traversal/symlink escapes.
++
++    This helper exists so the local development server and WSGI adapter share
++    one path-safety rule. A symlink inside public/ that points outside public/
++    resolves outside the root and is therefore rejected.
++    """
++
++    public_root = public_dir.resolve()
++    relative = "index.html" if request_path in {"", "/"} else request_path.lstrip("/")
++    target = (public_root / relative).resolve()
++
++    if not target.is_relative_to(public_root):
++        return None
++    return target
++
++
+ class AppRequestHandler(BaseHTTPRequestHandler):
+     router = build_router()
+     public_dir = settings.public_dir
+@@ -68,9 +84,8 @@
+         json_response(self, {"status": "error", "code": "not_found", "error": "Not found"}, HTTPStatus.NOT_FOUND)
+ 
+     def serve_static(self, request_path: str) -> None:
+-        relative = "index.html" if request_path in {"", "/"} else request_path.lstrip("/")
+-        target = (self.public_dir / relative).resolve()
+-        if self.public_dir.resolve() not in target.parents and target != self.public_dir.resolve():
++        target = resolve_static_target(self.public_dir, request_path)
++        if target is None:
+             self.send_error(HTTPStatus.FORBIDDEN)
+             return
+         if not target.exists() or target.is_dir():
+--- mlb_src/mlb_ui_hotfix_show_trust_surface_safe_source/mlb_app/repositories/json_store.py	2026-05-07 11:52:22.302078110 +0000
++++ mlb_src/mlb_app/repositories/json_store.py	2026-05-07 12:10:23.007609195 +0000
+@@ -1,44 +1,82 @@
+ from __future__ import annotations
+ 
+ import json
++import os
+ import tempfile
+ import threading
+ from pathlib import Path
+ from typing import Any, Callable
+ 
+ 
++def _strict_json_reads_enabled() -> bool:
++    value = os.environ.get("MLB_STRICT_JSON_READS") or os.environ.get("MLB_DEV_MODE") or ""
++    return value.strip().lower() in {"1", "true", "yes", "on"}
++
++
+ class JsonStore:
+-    """Atomic JSON file store for local, user-owned app state."""
++    """Thread-safe, atomic JSON file store for local app state and caches."""
+ 
+     _locks: dict[Path, threading.RLock] = {}
+     _locks_guard = threading.Lock()
+ 
+-    def __init__(self, path: Path, *, default: dict[str, Any] | None = None) -> None:
+-        self.path = path
++    def __init__(self, path: Path | str, *, default: dict[str, Any] | None = None) -> None:
++        self.path = Path(path)
+         self.default = default or {}
+         with self._locks_guard:
+-            self._lock = self._locks.setdefault(path.resolve(), threading.RLock())
++            self._lock = self._locks.setdefault(self.path.resolve(), threading.RLock())
+ 
+-    def read(self) -> dict[str, Any]:
++    @classmethod
++    def for_path(cls, path: Path | str) -> "JsonStore":
++        return cls(path)
++
++    def _handle_read_error(self, error: Exception, default: Any) -> Any:
++        if _strict_json_reads_enabled():
++            raise ValueError(f"Failed to read JSON store {self.path}: {error}") from error
++        return default
++
++    def read_any(self, default: Any = None) -> Any:
+         with self._lock:
+             if not self.path.exists():
+-                return dict(self.default)
++                return default
+             try:
+-                payload = json.loads(self.path.read_text(encoding="utf-8"))
+-            except (OSError, json.JSONDecodeError):
+-                return dict(self.default)
+-            return payload if isinstance(payload, dict) else dict(self.default)
++                return json.loads(self.path.read_text(encoding="utf-8"))
++            except (OSError, json.JSONDecodeError) as error:
++                return self._handle_read_error(error, default)
+ 
+-    def write(self, payload: dict[str, Any]) -> dict[str, Any]:
++    def read(self) -> dict[str, Any]:
++        payload = self.read_any(dict(self.default))
++        if isinstance(payload, dict):
++            return payload
++        if _strict_json_reads_enabled():
++            raise ValueError(f"JSON store {self.path} expected object payload, got {type(payload).__name__}")
++        return dict(self.default)
++
++    def write_any(self, payload: Any) -> Any:
+         with self._lock:
+             self.path.parent.mkdir(parents=True, exist_ok=True)
+-            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.path.parent, delete=False) as handle:
+-                json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+-                handle.write("\n")
+-                temp_path = Path(handle.name)
+-            temp_path.replace(self.path)
++            temp_path: Path | None = None
++            try:
++                with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.path.parent, delete=False) as handle:
++                    json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
++                    handle.write("\n")
++                    handle.flush()
++                    os.fsync(handle.fileno())
++                    temp_path = Path(handle.name)
++                os.replace(temp_path, self.path)
++            finally:
++                if temp_path is not None and temp_path.exists():
++                    try:
++                        temp_path.unlink()
++                    except OSError:
++                        pass
+             return payload
+ 
++    def write(self, payload: dict[str, Any]) -> dict[str, Any]:
++        if not isinstance(payload, dict):
++            raise TypeError("JsonStore.write expects a dictionary")
++        self.write_any(payload)
++        return payload
++
+     def update(self, mutator: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
+         with self._lock:
+             next_payload = mutator(self.read())
+--- mlb_src/mlb_ui_hotfix_show_trust_surface_safe_source/mlb_app/repositories/cache_store.py	2026-05-07 11:52:22.301873759 +0000
++++ mlb_src/mlb_app/repositories/cache_store.py	2026-05-07 12:08:27.315245349 +0000
+@@ -1,19 +1,21 @@
+ from __future__ import annotations
+ 
+-import json
+ from pathlib import Path
+ from typing import Any
+ 
++from .json_store import JsonStore
++
+ 
+ class CacheStore:
++    """Compatibility wrapper around JsonStore.
++
++    CacheStore previously used unlocked direct writes. Keeping this adapter lets
++    existing services preserve their call sites while all JSON/cache writes now
++    share JsonStore's per-path RLock and atomic temp-file replace behavior.
++    """
++
+     def read_json(self, path: str | Path, default: Any = None) -> Any:
+-        target = Path(path)
+-        if not target.exists():
+-            return default
+-        with target.open("r", encoding="utf-8") as handle:
+-            return json.load(handle)
++        return JsonStore.for_path(path).read_any(default)
+ 
+     def write_json(self, path: str | Path, payload: Any) -> None:
+-        target = Path(path)
+-        target.parent.mkdir(parents=True, exist_ok=True)
+-        target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
++        JsonStore.for_path(path).write_any(payload)
+--- mlb_src/mlb_ui_hotfix_show_trust_surface_safe_source/public/trust-surface.js	2026-05-07 11:52:22.340113259 +0000
++++ mlb_src/public/trust-surface.js	2026-05-07 12:08:40.493794982 +0000
+@@ -13,12 +13,50 @@
+     return "is-partial";
+   }
+ 
++  function appendText(parent, tagName, text, className) {
++    const element = document.createElement(tagName);
++    if (className) element.className = className;
++    element.textContent = text;
++    parent.appendChild(element);
++    return element;
++  }
++
++  function metric(label, value, fallback) {
++    const wrapper = document.createElement("div");
++    appendText(wrapper, "dt", label);
++    appendText(wrapper, "dd", display(value, fallback));
++    return wrapper;
++  }
++
+   function stateLabel(detail, state) {
+-    return detail?.label || String(state || "research_mode").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
++    const raw = detail && typeof detail.label === "string"
++      ? detail.label
++      : String(state || "research_mode").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
++    return display(raw, "Research Mode");
++  }
++
++  function requestIdFrom(response, payload) {
++    return response?.headers?.get("X-Request-Id") || payload?.meta?.requestId || payload?.requestId || "";
+   }
+ 
+-  function normalizeStatus(payload) {
+-    const detail = payload.productStateDetail || payload.productState || {};
++  function validatePayload(payload) {
++    const errors = [];
++    if (!payload || typeof payload !== "object") {
++      return ["status payload must be an object"];
++    }
++    if (typeof payload.productState !== "string") errors.push("productState must be a string");
++    if (!payload.grading || typeof payload.grading.state !== "string") errors.push("grading.state must be a string");
++    if (typeof payload.dataConfidence !== "string") errors.push("dataConfidence must be a string");
++    if (!Array.isArray(payload.productionEligibleMarkets)) errors.push("productionEligibleMarkets must be an array");
++    const hasBoardDate = typeof payload.latestBoardDate === "string"
++      || typeof payload.playerboard?.latestAvailableDate === "string"
++      || typeof payload.playerboard?.date === "string";
++    if (!hasBoardDate) errors.push("latestBoardDate or playerboard date must be present");
++    return errors;
++  }
++
++  function normalizeStatus(payload, requestId) {
++    const detail = payload.productStateDetail && typeof payload.productStateDetail === "object" ? payload.productStateDetail : {};
+     const state = typeof payload.productState === "string" ? payload.productState : detail.state;
+     return {
+       state: state || detail.state || "research_mode",
+@@ -29,8 +67,9 @@
+       gradedDate: payload.latestFullyGradedDate || payload.grading?.latestFullyGradedDate || "",
+       gradingState: payload.grading?.state || "not_started",
+       dataConfidence: payload.dataConfidence || payload.playerboard?.dataConfidence || "Missing",
+-      productionMarkets: payload.productionEligibleMarkets || [],
+-      warnings: payload.warnings || [],
++      productionMarkets: Array.isArray(payload.productionEligibleMarkets) ? payload.productionEligibleMarkets : [],
++      warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
++      requestId: requestId || "",
+     };
+   }
+ 
+@@ -39,23 +78,29 @@
+     if (!banner) return;
+     banner.classList.remove("is-good", "is-partial", "is-bad");
+     banner.classList.add(confidenceClass(status.dataConfidence));
+-    banner.innerHTML = `
+-      <div class="trust-surface-main">
+-        <span class="trust-mode-pill">${display(status.label)}</span>
+-        <div>
+-          <strong>Today’s board is research-first.</strong>
+-          <p>${display(status.message)}</p>
+-        </div>
+-      </div>
+-      <dl class="trust-surface-metrics" aria-label="Board trust status">
+-        <div><dt>Board date</dt><dd>${display(status.boardDate)}</dd></div>
+-        <div><dt>Latest odds</dt><dd>${display(status.oddsTimestamp)}</dd></div>
+-        <div><dt>Fully graded slate</dt><dd>${display(status.gradedDate, "Not yet")}</dd></div>
+-        <div><dt>Grading</dt><dd>${display(status.gradingState)}</dd></div>
+-        <div><dt>Data confidence</dt><dd>${display(status.dataConfidence)}</dd></div>
+-        <div><dt>Production markets</dt><dd>${status.productionMarkets.length}</dd></div>
+-      </dl>
+-    `;
++    banner.replaceChildren();
++
++    const main = document.createElement("div");
++    main.className = "trust-surface-main";
++    appendText(main, "span", display(status.label), "trust-mode-pill");
++
++    const copy = document.createElement("div");
++    appendText(copy, "strong", "Today’s board is research-first.");
++    appendText(copy, "p", display(status.message));
++    main.appendChild(copy);
++    banner.appendChild(main);
++
++    const metrics = document.createElement("dl");
++    metrics.className = "trust-surface-metrics";
++    metrics.setAttribute("aria-label", "Board trust status");
++    metrics.appendChild(metric("Board date", status.boardDate));
++    metrics.appendChild(metric("Latest odds", status.oddsTimestamp));
++    metrics.appendChild(metric("Fully graded slate", status.gradedDate, "Not yet"));
++    metrics.appendChild(metric("Grading", status.gradingState));
++    metrics.appendChild(metric("Data confidence", status.dataConfidence));
++    metrics.appendChild(metric("Production markets", status.productionMarkets.length));
++    if (status.requestId) metrics.appendChild(metric("Request ID", status.requestId));
++    banner.appendChild(metrics);
+ 
+     const warning = $("#trustSurfaceWarning");
+     if (warning) {
+@@ -64,23 +109,38 @@
+     }
+   }
+ 
++  function renderSafeFailure(message, requestId) {
++    render({
++      label: "Research Only",
++      message: display(message, "Status is unavailable. Treat all model output as research-only until health checks recover."),
++      dataConfidence: "Missing",
++      gradingState: "failed",
++      productionMarkets: [],
++      warnings: [display(message, "Malformed or unavailable trust-surface status payload.")],
++      requestId: requestId || "",
++    });
++  }
++
+   async function loadTrustSurface() {
+     const banner = $("#trustSurfaceBanner");
+     if (!banner) return;
+     try {
+       const response = await fetch("/api/app/status", { cache: "no-store" });
+-      if (!response.ok) throw new Error(`Status ${response.status}`);
++      const requestId = requestIdFrom(response, null);
++      if (!response.ok) throw new Error(`Status ${response.status}${requestId ? ` (${requestId})` : ""}`);
+       const payload = await response.json();
+-      render(normalizeStatus(payload));
++      const finalRequestId = requestIdFrom(response, payload);
++      const validationErrors = validatePayload(payload);
++      if (validationErrors.length) {
++        console.warn("Trust surface contract violation", { errors: validationErrors, requestId: finalRequestId });
++        renderSafeFailure("Malformed status payload. Treat this slate as research-only until contract validation passes.", finalRequestId);
++        return;
++      }
++      render(normalizeStatus(payload, finalRequestId));
+     } catch (error) {
+-      render({
+-        label: "Research Mode",
+-        message: "Status is unavailable. Treat all model output as research-only until health checks recover.",
+-        dataConfidence: "Missing",
+-        gradingState: "failed",
+-        productionMarkets: [],
+-        warnings: [String(error && error.message ? error.message : error)],
+-      });
++      const message = String(error && error.message ? error.message : error);
++      console.warn("Trust surface status load failed", { error: message });
++      renderSafeFailure(message, "");
+     }
+   }
+ 
+--- mlb_src/mlb_ui_hotfix_show_trust_surface_safe_source/tools/export_project.py	2026-05-07 11:52:22.348531840 +0000
++++ mlb_src/tools/export_project.py	2026-05-07 12:09:06.126139263 +0000
+@@ -11,6 +11,8 @@
+ from pathlib import Path
+ from typing import Iterable
+ 
++DEFAULT_MAX_ARCHIVE_BYTES = 25 * 1024 * 1024
++
+ DEFAULT_EXCLUDES: tuple[str, ...] = (
+     ".git/**",
+     ".venv/**",
+@@ -27,6 +29,7 @@
+     ".coverage",
+     "coverage.xml",
+     "*.pyc",
++    "*.pyo",
+     ".env",
+     ".env.*",
+     "*.env",
+@@ -35,6 +38,12 @@
+     "*.pem",
+     "secrets.*",
+     "*.secret",
++    "*.zip",
++    "*.tar",
++    "*.tgz",
++    "*.tar.gz",
++    "*.7z",
++    "*.rar",
+     "data/audit/**",
+     "data/backtests/**",
+     "data/cache/**",
+@@ -86,6 +95,15 @@
+     "*.secret",
+ )
+ 
++ARCHIVE_FILENAME_PATTERNS: tuple[str, ...] = (
++    "*.zip",
++    "*.tar",
++    "*.tgz",
++    "*.tar.gz",
++    "*.7z",
++    "*.rar",
++)
++
+ SECRET_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
+     re.compile(r"(?i)(api[_-]?key|secret|token|password)\s*=\s*['\"]?([A-Za-z0-9_\-]{16,})"),
+     re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]{20,}"),
+@@ -113,11 +131,14 @@
+     return matches_any(path, excludes) or any(path.startswith(pattern.removesuffix("/**") + "/") for pattern in excludes if pattern.endswith("/**"))
+ 
+ 
+-def iter_export_items(root: Path, excludes: tuple[str, ...]) -> list[ExportItem]:
++def iter_export_items(root: Path, excludes: tuple[str, ...], *, output: Path | None = None) -> list[ExportItem]:
+     items: list[ExportItem] = []
++    resolved_output = output.resolve() if output is not None else None
+     for path in sorted(root.rglob("*")):
+         if path.is_dir():
+             continue
++        if resolved_output is not None and path.resolve() == resolved_output:
++            continue
+         rel = norm(path.relative_to(root))
+         if should_exclude(rel, excludes):
+             continue
+@@ -131,6 +152,8 @@
+     basename = Path(arcname).name
+     if matches_any(basename, SECRET_FILENAME_PATTERNS) or matches_any(arcname, SECRET_FILENAME_PATTERNS):
+         raise ValueError(f"Refusing to export secret-bearing filename: {arcname}")
++    if matches_any(basename, ARCHIVE_FILENAME_PATTERNS) or matches_any(arcname, ARCHIVE_FILENAME_PATTERNS):
++        raise ValueError(f"Refusing to export nested generated archive: {arcname}")
+ 
+ 
+ def assert_safe_content(path: Path, arcname: str) -> None:
+@@ -154,11 +177,19 @@
+     return tuple(excludes)
+ 
+ 
+-def export_project(root: Path, output: Path, *, include_data: bool = False, include_model_artifacts: bool = False, dry_run: bool = False) -> list[ExportItem]:
++def export_project(
++    root: Path,
++    output: Path,
++    *,
++    include_data: bool = False,
++    include_model_artifacts: bool = False,
++    dry_run: bool = False,
++    max_archive_bytes: int = DEFAULT_MAX_ARCHIVE_BYTES,
++) -> list[ExportItem]:
+     root = root.resolve()
+     output = output.resolve()
+     excludes = build_excludes(include_data=include_data, include_model_artifacts=include_model_artifacts)
+-    items = iter_export_items(root, excludes)
++    items = iter_export_items(root, excludes, output=output)
+     for item in items:
+         assert_safe_filename(item.arcname)
+         assert_safe_content(item.path, item.arcname)
+@@ -168,6 +199,12 @@
+     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+         for item in items:
+             archive.write(item.path, item.arcname)
++    size = output.stat().st_size
++    if size > max_archive_bytes:
++        output.unlink(missing_ok=True)
++        raise ValueError(
++            f"Refusing oversized export: {size} bytes exceeds threshold {max_archive_bytes} bytes"
++        )
+     return items
+ 
+ 
+@@ -178,6 +215,7 @@
+     parser.add_argument("--include-data", action="store_true", help="Include generated data folders. Off by default.")
+     parser.add_argument("--include-model-artifacts", action="store_true", help="Include data/models artifacts. Off by default.")
+     parser.add_argument("--dry-run", action="store_true", help="List files that would be exported without writing zip")
++    parser.add_argument("--max-size-mb", type=float, default=25.0, help="Fail if the produced archive exceeds this size")
+     return parser.parse_args(argv)
+ 
+ 
+@@ -190,6 +228,7 @@
+             include_data=args.include_data,
+             include_model_artifacts=args.include_model_artifacts,
+             dry_run=args.dry_run,
++            max_archive_bytes=int(args.max_size_mb * 1024 * 1024),
+         )
+     except ValueError as error:
+         print(f"safe export failed: {error}", file=sys.stderr)
+--- mlb_src/mlb_ui_hotfix_show_trust_surface_safe_source/tests/test_security_export.py	2026-05-07 11:52:22.348001994 +0000
++++ mlb_src/tests/test_security_export.py	2026-05-07 12:09:37.996946765 +0000
+@@ -48,3 +48,33 @@
+         assert "secret-like content" in str(error)
+     else:
+         raise AssertionError("export_project should reject secret-like content")
++
++
++def test_safe_export_excludes_nested_archives(tmp_path: Path) -> None:
++    root = tmp_path / "project"
++    root.mkdir()
++    (root / "app.py").write_text("print('ok')\n", encoding="utf-8")
++    (root / "old-export.zip").write_bytes(b"zip data")
++    output = tmp_path / "source.zip"
++
++    export_project(root, output)
++
++    with zipfile.ZipFile(output) as archive:
++        names = set(archive.namelist())
++    assert "app.py" in names
++    assert "old-export.zip" not in names
++
++
++def test_safe_export_fails_when_archive_is_too_large(tmp_path: Path) -> None:
++    root = tmp_path / "project"
++    root.mkdir()
++    (root / "big.txt").write_text("x" * 1000, encoding="utf-8")
++    output = tmp_path / "source.zip"
++
++    try:
++        export_project(root, output, max_archive_bytes=10)
++    except ValueError as error:
++        assert "oversized export" in str(error)
++        assert not output.exists()
++    else:
++        raise AssertionError("export_project should reject oversized artifacts")

@@ -581,7 +581,7 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
             summary["oddsMovement"] = {"error": str(odds_error)}
 
         try:
-            from playerboard import build_playerboard
+            from mlb_app.services.playerboard_builder import build_playerboard
 
             # Automatically save the full ranked board for ML/backtesting.
             # This does not clutter prediction_history; it writes to data/playerboard.

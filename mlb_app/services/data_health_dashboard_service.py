@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from mlb_app.config import Settings, settings as default_settings
 from mlb_app.services.data_health_service import DataHealthService
 from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.model_registry_service import ModelRegistryService
@@ -52,23 +53,27 @@ class DataHealthDashboardService:
         workflow_service: WorkflowHealthService | None = None,
         product_state_service: ProductStateService | None = None,
         model_registry_service: ModelRegistryService | None = None,
+        settings: Settings = default_settings,
     ) -> None:
-        self.grading_service = grading_service or GradingStateService()
-        self.product_state_service = product_state_service or ProductStateService()
+        self.settings = settings
+        self.grading_service = grading_service or GradingStateService(settings=self.settings)
+        self.product_state_service = product_state_service or ProductStateService(settings=self.settings)
         self.data_health_service = data_health_service or DataHealthService(
             grading_service=self.grading_service,
             product_state_service=self.product_state_service,
+            settings=self.settings,
         )
         self.playerboard_service = playerboard_service or PlayerboardService(
             grading_service=self.grading_service,
             product_state_service=self.product_state_service,
+            settings=self.settings,
         )
-        self.workflow_service = workflow_service or WorkflowHealthService()
-        self.model_registry_service = model_registry_service or ModelRegistryService()
+        self.workflow_service = workflow_service or WorkflowHealthService(settings=self.settings)
+        self.model_registry_service = model_registry_service or ModelRegistryService(settings=self.settings)
 
     def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
         query = query or {}
-        season_raw = str((query.get("season") or ["2026"])[0] or "2026")
+        season_raw = str(self.settings.season_from_query(query))
         date_label = str((query.get("date") or [datetime.now().strftime("%Y-%m-%d")])[0] or "")
 
         data_health = self.data_health_service.payload({"date": [date_label]})

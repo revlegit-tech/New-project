@@ -1,0 +1,11 @@
+# ML, data collection, and optional OCR dependencies.
+-r base.in
+pandas
+numpy
+scikit-learn
+joblib
+pybaseball
+requests
+pillow
+pytesseract
+propline

@@ -1,0 +1,4088 @@
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/PHASE8_README.md /mnt/data/phase8_cumulative_frontend_architecture_artifacts/PHASE8_README.md
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/PHASE8_README.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/PHASE8_README.md	2026-05-07 22:07:42.086896060 +0000
+@@ -0,0 +1,42 @@
++# Phase 8 Cumulative Overlay — Frontend Architecture and Luxury UI Refactor
++
++This bundle is cumulative through Phase 7 and adds the first Phase 8 frontend split.
++
++## What changed
++
++- `public/outlier-ui.js` is now a small compatibility bootstrap.
++- `public/outlier-core.js` owns the premium shell, navigation, trust host, and module loading.
++- `public/outlier-board.js` renders the primary board immediately.
++- `public/outlier-detail.js`, `public/outlier-picks.js`, `public/outlier-model-room.js`, and `public/outlier-admin.js` lazy-load on demand.
++- `public/outlier-shared.js` centralizes safe DOM helpers, fetch handling, formatting, and events.
++- `tools/lint_frontend_safety.py` blocks unsafe rendering patterns in trust-critical frontend modules.
++- `docs/frontend/OUTLIER_MODULE_SPLIT.md` documents the module contract.
++
++## Run locally
++
++```bash
++make run
++```
++
++Open the default app:
++
++```text
++http://localhost:8765
++```
++
++Preview the modular Outlier shell:
++
++```text
++http://localhost:8765/?view=outlier
++```
++
++## Validation
++
++```bash
++PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/test_phase8_frontend_architecture.py -q
++python tools/lint_frontend_safety.py --root .
++```
++
++## Notes
++
++This phase starts the split without introducing new betting markets. Admin workflows remain quarantined and non-executable from the bettor-facing shell.
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/docs/frontend/OUTLIER_MODULE_SPLIT.md /mnt/data/phase8_cumulative_frontend_architecture_artifacts/docs/frontend/OUTLIER_MODULE_SPLIT.md
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/docs/frontend/OUTLIER_MODULE_SPLIT.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/docs/frontend/OUTLIER_MODULE_SPLIT.md	2026-05-07 22:07:42.068155076 +0000
+@@ -0,0 +1,47 @@
++# Phase 8 — Outlier UI Module Split
++
++`public/outlier-ui.js` is now a small opt-in bootstrap. The premium Outlier shell still activates only with:
++
++```text
++/?view=outlier
++```
++
++The bootstrap loads `outlier-core.js`, and the core module owns shell construction, navigation, the trust-surface host, and primary board activation. Secondary workspaces are lazy-loaded on first use.
++
++## Module map
++
++| Module | Responsibility | Load timing |
++|---|---|---|
++| `outlier-ui.js` | Compatibility bootstrap from the existing script tag. | On page load, only if `view=outlier`. |
++| `outlier-core.js` | Shell, navigation, trust-surface host, shared view state, module loader. | First Outlier load. |
++| `outlier-shared.js` | Safe DOM utilities, JSON fetch wrapper, formatters, events. | Imported by modules. |
++| `outlier-board.js` | Today/Props/Games primary board workspace. | Immediate primary view. |
++| `outlier-detail.js` | Prop detail rail. | Lazy-loaded after row selection. |
++| `outlier-picks.js` | My Picks and exposure workspace. | Lazy-loaded on Picks tab. |
++| `outlier-model-room.js` | Model cards and data-health dashboard summary. | Lazy-loaded on Model Room/Data Health tabs. |
++| `outlier-admin.js` | Quarantine notice for admin workflows. | Lazy-loaded on Admin tab; intentionally does not execute workflows. |
++
++## UX rules preserved
++
++- Primary row data stays visible in the board grid.
++- Confidence/readiness stays visible in each row.
++- Missing board data renders a visible **Missing Data** state.
++- Malformed or unavailable status renders **Research Only**, not a generic fallback.
++- Request IDs are displayed only in operational metadata/error contexts.
++
++## Safety rule
++
++Outlier modules must construct DOM nodes with `document.createElement()` and assign API strings using `textContent`. The lint command checks trust-critical modules:
++
++```bash
++python tools/lint_frontend_safety.py --root .
++```
++
++The default scan targets:
++
++```text
++public/outlier-*.js
++public/trust-surface.js
++```
++
++Use explicit allow markers only for audited static markup that cannot contain API-sourced values.
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-admin.js /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-admin.js
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-admin.js	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-admin.js	2026-05-07 22:07:23.054225406 +0000
+@@ -0,0 +1,35 @@
++import { createElement, replaceChildren, renderStatePanel, listen } from "/outlier-shared.js";
++
++let mounted = false;
++
++export async function mount() {
++  if (mounted) return;
++  mounted = true;
++  listen("outlier:view", (event) => {
++    if (event.detail.module === "admin") renderAdminQuarantine();
++  });
++}
++
++function renderAdminQuarantine() {
++  const host = document.getElementById("outlierWorkspace");
++  if (!host) return;
++  replaceChildren(host, [
++    createElement("section", { className: "ob-admin-module" }, [
++      createElement("div", { className: "ob-section-heading" }, [
++        createElement("div", {}, [createElement("p", { className: "ob-kicker", text: "Quarantined" }), createElement("h2", { text: "Admin workflows are not product UI" })]),
++      ]),
++      renderStatePanel(
++        "Workflow quarantine active",
++        "Sync, training, backfill, grading, and cache-repair actions must remain behind CLI, scheduler, or authenticated admin boundaries. They are intentionally not executable from the betting shell.",
++        "partial"
++      ),
++      createElement("ul", { className: "ob-admin-list" }, [
++        createElement("li", { text: "Weather, Savant, odds-movement, umpire, and platoon sync jobs" }),
++        createElement("li", { text: "Model refresh, training, grading, and season-cache backfills" }),
++        createElement("li", { text: "Any workflow that writes files, calls paid APIs, or mutates bankroll/pick state" }),
++      ]),
++    ]),
++  ]);
++}
++
++export const __testHooks = { renderAdminQuarantine };
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-board.js /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-board.js
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-board.js	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-board.js	2026-05-07 22:07:22.595514137 +0000
+@@ -0,0 +1,153 @@
++import { MARKETS, button, createElement, jsonFetch, normalizeRows, propLabel, replaceChildren, rowKey, signedPercent, text, percent, formatOdds, renderStatePanel, dispatch, listen } from "/outlier-shared.js";
++
++const boardState = {
++  mounted: false,
++  rows: [],
++  filteredRows: [],
++  loading: false,
++  error: "",
++  market: "",
++  sort: "edge",
++  filters: {},
++};
++
++export async function mount() {
++  if (boardState.mounted) return;
++  boardState.mounted = true;
++  listen("outlier:view", (event) => {
++    if (event.detail.module === "board") renderBoardView(event.detail.state || {});
++  });
++  listen("outlier:filters", (event) => {
++    boardState.filters = event.detail || {};
++    applyFilters();
++    renderTable();
++  });
++}
++
++async function renderBoardView(shellState = {}) {
++  const host = document.getElementById("outlierWorkspace");
++  if (!host) return;
++  replaceChildren(host, [layout()]);
++  await loadBoard(shellState);
++}
++
++function layout() {
++  const wrapper = createElement("section", { className: "ob-board-module" });
++  const filters = createElement("div", { className: "ob-filter-row" }, MARKETS.map(([value, label]) => {
++    return button(label, { className: `ob-chip${value === boardState.market ? " is-active" : ""}`, dataset: { market: value } });
++  }));
++  filters.addEventListener("click", (event) => {
++    const target = event.target.closest("[data-market]");
++    if (!target) return;
++    boardState.market = target.dataset.market;
++    filters.querySelectorAll(".ob-chip").forEach((chip) => chip.classList.toggle("is-active", chip === target));
++    applyFilters();
++    renderTable();
++  });
++  wrapper.append(
++    createElement("div", { className: "ob-section-heading" }, [
++      createElement("div", {}, [
++        createElement("p", { className: "ob-kicker", text: "Primary board" }),
++        createElement("h2", { text: "High-density edge board" }),
++      ]),
++      createElement("span", { id: "outlierBoardMeta", className: "ob-board-meta", text: "Loading" }),
++    ]),
++    filters,
++    createElement("div", { id: "outlierBoardTable", className: "ob-board-table" })
++  );
++  return wrapper;
++}
++
++async function loadBoard(shellState = {}) {
++  const meta = document.getElementById("outlierBoardMeta");
++  const table = document.getElementById("outlierBoardTable");
++  boardState.loading = true;
++  boardState.error = "";
++  if (meta) meta.textContent = "Loading board";
++  replaceChildren(table, [renderStatePanel("Loading board", "Fetching cached EdgeBoard payload.", "partial")]);
++  try {
++    const params = new URLSearchParams();
++    if (shellState.date) params.set("date", shellState.date);
++    if (boardState.market) params.set("market", boardState.market);
++    const { payload, requestId } = await jsonFetch(`/api/edge-board${params.toString() ? `?${params}` : ""}`);
++    boardState.rows = normalizeRows(payload);
++    boardState.requestId = requestId || payload?.meta?.requestId || "";
++    boardState.cache = payload?.boardCache || { hit: Boolean(payload?.cacheHit) };
++    applyFilters();
++    renderTable();
++  } catch (error) {
++    boardState.error = text(error?.message, "Failed to load EdgeBoard.");
++    replaceChildren(table, [renderStatePanel("Missing Data", boardState.error, "bad")]);
++    if (meta) meta.textContent = "Missing Data";
++  } finally {
++    boardState.loading = false;
++  }
++}
++
++function applyFilters() {
++  const search = String(boardState.filters.search || "").toLowerCase().trim();
++  boardState.filteredRows = boardState.rows.filter((row) => {
++    const marketMatch = !boardState.market || row.market === boardState.market || row.marketDisplay === boardState.market;
++    const haystack = [row.player, row.playerName, row.team, row.opponent, row.market, row.marketDisplay].join(" ").toLowerCase();
++    const searchMatch = !search || haystack.includes(search);
++    return marketMatch && searchMatch;
++  }).sort((a, b) => Number(b.finalEdgePercent || b.edge || 0) - Number(a.finalEdgePercent || a.edge || 0));
++}
++
++function renderTable() {
++  const table = document.getElementById("outlierBoardTable");
++  const meta = document.getElementById("outlierBoardMeta");
++  if (!table) return;
++  if (!boardState.filteredRows.length) {
++    replaceChildren(table, [renderStatePanel("No board rows", "No market rows matched the active filters. This is Missing Data, not a fallback board.", "bad")]);
++    if (meta) meta.textContent = "0 rows";
++    return;
++  }
++  const rows = boardState.filteredRows.slice(0, 80);
++  const grid = createElement("div", { className: "ob-table-grid", attrs: { role: "table", "aria-label": "Outlier edge board" } });
++  grid.append(headerRow());
++  rows.forEach((row, index) => grid.append(dataRow(row, index)));
++  replaceChildren(table, [grid]);
++  if (meta) {
++    const cache = boardState.cache?.hit ? "cache hit" : "cache miss";
++    meta.textContent = `${boardState.filteredRows.length} rows · ${cache}${boardState.requestId ? ` · ${boardState.requestId}` : ""}`;
++  }
++}
++
++function headerRow() {
++  return createElement("div", { className: "ob-table-row ob-table-head", attrs: { role: "row" } }, [
++    cell("Player", "head"), cell("Prop", "head"), cell("Model", "head"), cell("Implied", "head"), cell("Edge", "head"), cell("Odds", "head"), cell("Readiness", "head"),
++  ]);
++}
++
++function dataRow(row, index) {
++  const model = row.finalProbabilityPercent || row.modelProbability || row.probability;
++  const implied = row.sportsbookImpliedPercent || row.impliedProbability;
++  const edge = row.finalEdgePercent || row.edge;
++  const readiness = row.modelCard?.status || row.readiness || row.confidence || (row.missingData?.length ? "Research Only" : "Ready Check");
++  const element = createElement("button", {
++    className: `ob-table-row ob-data-row ${Number(edge) > 0 ? "is-positive" : "is-neutral"}`,
++    type: "button",
++    dataset: { key: rowKey(row), index },
++    attrs: { role: "row" },
++  }, [
++    cell(text(row.player || row.playerName || row.team, "Unknown"), "strong"),
++    cell(propLabel(row)),
++    cell(percent(model)),
++    cell(percent(implied)),
++    cell(signedPercent(edge)),
++    cell(formatOdds(row.americanOdds || row.odds)),
++    cell(readiness),
++  ]);
++  element.addEventListener("click", () => {
++    dispatch("outlier:prop-selected", { row, index, source: "edge-board" });
++    import("/outlier-detail.js").then((module) => module.mount?.()).then(() => dispatch("outlier:open-detail", { row, index }));
++  });
++  return element;
++}
++
++function cell(value, kind = "cell") {
++  return createElement("span", { className: `ob-table-cell ob-${kind}`, text: value, attrs: { role: kind === "head" ? "columnheader" : "cell" } });
++}
++
++export const __testHooks = { boardState, applyFilters };
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-core.js /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-core.js
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-core.js	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-core.js	2026-05-07 22:07:22.580675760 +0000
+@@ -0,0 +1,199 @@
++import { MODULES, createElement, replaceChildren, jsonFetch, text, todayIso } from "/outlier-shared.js";
++
++const moduleLoaders = {
++  board: () => import("/outlier-board.js"),
++  detail: () => import("/outlier-detail.js"),
++  picks: () => import("/outlier-picks.js"),
++  "model-room": () => import("/outlier-model-room.js"),
++  admin: () => import("/outlier-admin.js"),
++};
++
++const loaded = new Map();
++const state = {
++  activeView: "today",
++  date: todayIso(),
++  market: "",
++  search: "",
++  status: null,
++  requestId: "",
++};
++
++export async function bootOutlierApp({ params } = {}) {
++  if (params?.get("view") && params.get("view") !== "outlier") return;
++  createShell();
++  bindShellEvents();
++  await loadStatus();
++  await activateView("today");
++}
++
++function createShell() {
++  const main = document.querySelector("main") || document.body;
++  const shell = createElement("main", { id: "outlierApp", className: "ob-shell ob-shell-modular" });
++  const nav = createElement("nav", { className: "ob-sidebar", attrs: { "aria-label": "Outlier navigation" } });
++  nav.append(
++    createElement("div", { className: "ob-brand" }, [
++      createElement("span", { className: "ob-brand-mark", text: "O" }),
++      createElement("div", {}, [
++        createElement("strong", { text: "Outlier" }),
++        createElement("small", { text: "MLB research desk" }),
++      ]),
++    ]),
++    createElement("div", { className: "ob-nav-list" }, Object.entries(MODULES).map(([key, item]) => {
++      const button = createElement("button", {
++        className: `ob-nav-item${key === state.activeView ? " is-active" : ""}${item.devOnly ? " is-dev-only" : ""}`,
++        type: "button",
++        text: item.label,
++        dataset: { view: key, module: item.module },
++      });
++      return button;
++    }))
++  );
++
++  const header = createElement("header", { className: "ob-topbar" }, [
++    createElement("div", {}, [
++      createElement("p", { className: "ob-kicker", text: "Controlled promotion runtime" }),
++      createElement("h1", { text: "Today’s MLB Edge Board" }),
++    ]),
++    createElement("div", { className: "ob-topbar-actions" }, [
++      createElement("input", {
++        className: "ob-input",
++        type: "date",
++        value: state.date,
++        dataset: { control: "date" },
++        attrs: { "aria-label": "Board date" },
++      }),
++      createElement("input", {
++        className: "ob-input ob-input-search",
++        type: "search",
++        placeholder: "Search player, team, market",
++        dataset: { control: "search" },
++        attrs: { "aria-label": "Search board" },
++      }),
++    ]),
++  ]);
++
++  const trust = createElement("section", { id: "outlierTrustSurface", className: "ob-trust-panel" });
++  const workspace = createElement("section", { id: "outlierWorkspace", className: "ob-workspace", attrs: { "aria-live": "polite" } });
++  const rail = createElement("aside", { id: "outlierDetailHost", className: "ob-detail-host" });
++  const content = createElement("section", { className: "ob-main" }, [header, trust, workspace]);
++  shell.append(nav, content, rail);
++  main.replaceWith(shell);
++}
++
++function bindShellEvents() {
++  document.addEventListener("click", async (event) => {
++    const nav = event.target.closest("[data-view]");
++    if (nav) {
++      await activateView(nav.dataset.view);
++    }
++  });
++
++  document.addEventListener("input", async (event) => {
++    const control = event.target.dataset?.control;
++    if (control === "search") {
++      state.search = event.target.value;
++      document.dispatchEvent(new CustomEvent("outlier:filters", { detail: { ...state } }));
++    }
++  });
++
++  document.addEventListener("change", async (event) => {
++    const control = event.target.dataset?.control;
++    if (control === "date") {
++      state.date = event.target.value || todayIso();
++      document.dispatchEvent(new CustomEvent("outlier:filters", { detail: { ...state } }));
++    }
++  });
++}
++
++async function activateView(key) {
++  const item = MODULES[key] || MODULES.today;
++  state.activeView = key in MODULES ? key : "today";
++  document.querySelectorAll(".ob-nav-item").forEach((node) => {
++    node.classList.toggle("is-active", node.dataset.view === state.activeView);
++  });
++  await ensureModule(item.module);
++  document.dispatchEvent(new CustomEvent("outlier:view", { detail: { view: state.activeView, module: item.module, state: { ...state } } }));
++}
++
++async function ensureModule(name) {
++  if (loaded.has(name)) return loaded.get(name);
++  const loader = moduleLoaders[name];
++  if (!loader) throw new Error(`Unknown Outlier module: ${name}`);
++  const module = await loader();
++  if (typeof module.mount === "function") {
++    await module.mount({ state });
++  }
++  loaded.set(name, module);
++  return module;
++}
++
++async function loadStatus() {
++  const host = document.getElementById("outlierTrustSurface");
++  if (!host) return;
++  host.replaceChildren(renderTrustSkeleton());
++  try {
++    const { payload, requestId } = await jsonFetch("/api/app/status");
++    state.status = payload;
++    state.requestId = requestId || payload?.meta?.requestId || "";
++    host.replaceChildren(renderTrust(payload, state.requestId));
++  } catch (error) {
++    host.replaceChildren(renderTrustFailure(error));
++  }
++}
++
++function renderTrustSkeleton() {
++  return createElement("div", { className: "ob-trust-grid" }, [
++    createElement("div", {}, [
++      createElement("p", { className: "ob-kicker", text: "Research Only" }),
++      createElement("h2", { text: "Checking model readiness" }),
++      createElement("p", { text: "The board stays research-only until app status confirms data health and readiness." }),
++    ]),
++  ]);
++}
++
++function renderTrust(payload, requestId) {
++  const label = text(payload?.productStateDetail?.label || payload?.productState, "Research Only");
++  const confidence = text(payload?.dataConfidence || payload?.playerboard?.dataConfidence, "Missing");
++  const markets = Array.isArray(payload?.productionEligibleMarkets) ? payload.productionEligibleMarkets.length : 0;
++  const panel = createElement("div", { className: `ob-trust-grid ${confidence.toLowerCase() === "good" ? "is-good" : "is-partial"}` });
++  panel.append(
++    createElement("div", {}, [
++      createElement("p", { className: "ob-kicker", text: label }),
++      createElement("h2", { text: "Trust surface is live" }),
++      createElement("p", { text: text(payload?.productStateDetail?.message, "Treat picks as research-only unless market readiness is explicit.") }),
++    ]),
++    metricGroup([
++      ["Board date", payload?.latestBoardDate || payload?.playerboard?.latestAvailableDate],
++      ["Data confidence", confidence],
++      ["Grading", payload?.grading?.state],
++      ["Production markets", markets],
++      ["Request ID", requestId || payload?.meta?.requestId],
++    ])
++  );
++  return panel;
++}
++
++function renderTrustFailure(error) {
++  return createElement("div", { className: "ob-trust-grid is-bad" }, [
++    createElement("div", {}, [
++      createElement("p", { className: "ob-kicker", text: "Research Only" }),
++      createElement("h2", { text: "Status unavailable" }),
++      createElement("p", { text: text(error?.message, "Missing app-status contract. Treat all markets as research-only.") }),
++    ]),
++  ]);
++}
++
++function metricGroup(rows) {
++  const list = createElement("dl", { className: "ob-trust-metrics" });
++  rows.forEach(([label, value]) => {
++    list.append(
++      createElement("div", {}, [
++        createElement("dt", { text: label }),
++        createElement("dd", { text: text(value) }),
++      ])
++    );
++  });
++  return list;
++}
++
++export const __testHooks = { moduleLoaders, loaded, state, activateView };
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-detail.js /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-detail.js
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-detail.js	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-detail.js	2026-05-07 22:07:22.660176809 +0000
+@@ -0,0 +1,88 @@
++import { createElement, dispatch, jsonFetch, propLabel, replaceChildren, text, percent, signedPercent, formatOdds, renderStatePanel, listen } from "/outlier-shared.js";
++
++let mounted = false;
++let selectedRow = null;
++
++export async function mount() {
++  if (mounted) return;
++  mounted = true;
++  listen("outlier:open-detail", (event) => openDetail(event.detail.row));
++  listen("outlier:prop-selected", (event) => { selectedRow = event.detail.row; });
++}
++
++async function openDetail(row) {
++  selectedRow = row;
++  const host = document.getElementById("outlierDetailHost");
++  if (!host) return;
++  host.classList.add("is-open");
++  replaceChildren(host, [detailShell(row, renderStatePanel("Loading prop detail", "Reusing cached EdgeBoard row before requesting extra context.", "partial"))]);
++  try {
++    const params = new URLSearchParams();
++    const player = row.player || row.playerName;
++    if (player) params.set("player", player);
++    if (row.market) params.set("market", row.market);
++    if (row.line) params.set("line", row.line);
++    if (row.rawLabel || row.side) params.set("side", row.rawLabel || row.side);
++    const { payload, requestId } = await jsonFetch(`/api/prop-detail?${params}`);
++    replaceChildren(host, [detailShell(row, renderDetail(payload, requestId))]);
++  } catch (error) {
++    replaceChildren(host, [detailShell(row, renderStatePanel("Detail unavailable", text(error?.message, "Missing prop detail data."), "bad"))]);
++  }
++}
++
++function detailShell(row, body) {
++  const close = createElement("button", { className: "ob-detail-close", type: "button", text: "×", attrs: { "aria-label": "Close detail" } });
++  close.addEventListener("click", () => {
++    const host = document.getElementById("outlierDetailHost");
++    if (host) {
++      host.classList.remove("is-open");
++      host.replaceChildren();
++    }
++    dispatch("outlier:detail-closed", { row: selectedRow });
++  });
++  return createElement("section", { className: "ob-detail-panel" }, [
++    createElement("div", { className: "ob-detail-header" }, [
++      createElement("div", {}, [
++        createElement("p", { className: "ob-kicker", text: "Prop Detail" }),
++        createElement("h2", { text: text(row.player || row.playerName || row.team, "Selected prop") }),
++        createElement("p", { text: propLabel(row) }),
++      ]),
++      close,
++    ]),
++    body,
++  ]);
++}
++
++function renderDetail(payload, requestId) {
++  const detail = payload?.detail || payload?.propDetail || payload || {};
++  const source = detail?.source || payload?.source || {};
++  return createElement("div", { className: "ob-detail-body" }, [
++    metricCards([
++      ["Model", percent(detail.finalProbabilityPercent || detail.modelProbability)],
++      ["Implied", percent(detail.sportsbookImpliedPercent || detail.impliedProbability)],
++      ["Edge", signedPercent(detail.finalEdgePercent || detail.edge)],
++      ["Odds", formatOdds(detail.americanOdds || detail.odds)],
++    ]),
++    createElement("section", { className: "ob-detail-copy" }, [
++      createElement("h3", { text: "Readiness" }),
++      createElement("p", { text: text(detail.modelCard?.status || detail.readiness || detail.confidence, "Research Only") }),
++      createElement("p", { text: text(detail.modelCard?.message || detail.reason || "No silent fallback: missing model-card context remains research-only.") }),
++    ]),
++    metricCards([
++      ["Detail source", text(source.modelCardSource || "edge_board_row")],
++      ["Board cache", source.boardCache?.hit ? "hit" : "miss/unknown"],
++      ["Request ID", requestId || payload?.meta?.requestId],
++    ]),
++  ]);
++}
++
++function metricCards(rows) {
++  return createElement("dl", { className: "ob-metric-cards" }, rows.map(([label, value]) => {
++    return createElement("div", { className: "ob-metric-card" }, [
++      createElement("dt", { text: label }),
++      createElement("dd", { text: text(value) }),
++    ]);
++  }));
++}
++
++export const __testHooks = { detailShell, renderDetail };
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-model-room.js /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-model-room.js
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-model-room.js	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-model-room.js	2026-05-07 22:07:22.954725795 +0000
+@@ -0,0 +1,72 @@
++import { createElement, jsonFetch, replaceChildren, text, renderStatePanel, listen } from "/outlier-shared.js";
++
++let mounted = false;
++
++export async function mount() {
++  if (mounted) return;
++  mounted = true;
++  listen("outlier:view", (event) => {
++    if (event.detail.module === "model-room") renderModelRoom(event.detail.view);
++  });
++}
++
++async function renderModelRoom(view = "models") {
++  const host = document.getElementById("outlierWorkspace");
++  if (!host) return;
++  replaceChildren(host, [renderStatePanel("Loading model room", "Fetching model-card and data-health contracts.", "partial")]);
++  try {
++    const [models, health] = await Promise.allSettled([jsonFetch("/api/model-cards"), jsonFetch("/api/data-health/dashboard")]);
++    const cards = models.status === "fulfilled" ? normalizeCards(models.value.payload) : [];
++    const healthPayload = health.status === "fulfilled" ? health.value.payload : null;
++    replaceChildren(host, [
++      createElement("section", { className: "ob-model-room" }, [
++        createElement("div", { className: "ob-section-heading" }, [
++          createElement("div", {}, [createElement("p", { className: "ob-kicker", text: view === "health" ? "Data Health" : "Model Room" }), createElement("h2", { text: "Readiness & grading" })]),
++          createElement("span", { className: "ob-board-meta", text: models.value?.requestId || health.value?.requestId || "contract checked" }),
++        ]),
++        cards.length ? cardGrid(cards) : renderStatePanel("Missing model cards", "No model-card markets were returned. Keep markets research-only.", "bad"),
++        healthSummary(healthPayload),
++      ]),
++    ]);
++  } catch (error) {
++    replaceChildren(host, [renderStatePanel("Model room unavailable", text(error?.message, "Model readiness is unavailable."), "bad")]);
++  }
++}
++
++function normalizeCards(payload) {
++  if (Array.isArray(payload?.markets)) return payload.markets;
++  if (Array.isArray(payload?.modelCards)) return payload.modelCards;
++  if (Array.isArray(payload?.cards)) return payload.cards;
++  return [];
++}
++
++function cardGrid(cards) {
++  return createElement("div", { className: "ob-model-grid" }, cards.map((card) => createElement("article", { className: "ob-model-card" }, [
++    createElement("p", { className: "ob-kicker", text: text(card.status || card.state, "Research Only") }),
++    createElement("h3", { text: text(card.marketDisplay || card.market, "Market") }),
++    createElement("p", { text: text(card.message || card.reason, "Readiness details unavailable; keep this market research-only.") }),
++    createElement("dl", { className: "ob-mini-dl" }, [
++      pair("Backtest rows", card.backtestRows || card.backtestCount),
++      pair("Eligible", card.productionEligible === true ? "Yes" : "No"),
++    ]),
++  ])));
++}
++
++function healthSummary(payload) {
++  const status = payload?.status || payload?.state || "unknown";
++  return createElement("section", { className: "ob-health-summary" }, [
++    createElement("h3", { text: "Data-health dashboard" }),
++    createElement("p", { text: text(payload?.message || payload?.summary, "No silent fallback: unavailable data health blocks production confidence.") }),
++    createElement("dl", { className: "ob-mini-dl" }, [
++      pair("Status", status),
++      pair("Latest board", payload?.latestBoardDate || payload?.playerboard?.latestAvailableDate),
++      pair("Missing sources", Array.isArray(payload?.missingSources) ? payload.missingSources.length : payload?.missingCount),
++    ]),
++  ]);
++}
++
++function pair(label, value) {
++  return createElement("div", {}, [createElement("dt", { text: label }), createElement("dd", { text: text(value) })]);
++}
++
++export const __testHooks = { normalizeCards, cardGrid, healthSummary };
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-picks.js /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-picks.js
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-picks.js	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-picks.js	2026-05-07 22:07:22.749600460 +0000
+@@ -0,0 +1,53 @@
++import { createElement, jsonFetch, replaceChildren, text, renderStatePanel, listen, formatOdds } from "/outlier-shared.js";
++
++let mounted = false;
++
++export async function mount() {
++  if (mounted) return;
++  mounted = true;
++  listen("outlier:view", (event) => {
++    if (event.detail.module === "picks") renderPicks();
++  });
++}
++
++async function renderPicks() {
++  const host = document.getElementById("outlierWorkspace");
++  if (!host) return;
++  replaceChildren(host, [renderStatePanel("Loading picks", "Fetching tracked positions and bankroll exposure.", "partial")]);
++  try {
++    const { payload, requestId } = await jsonFetch("/api/my-picks");
++    const picks = Array.isArray(payload?.picks) ? payload.picks : [];
++    const exposure = payload?.exposure || {};
++    replaceChildren(host, [
++      createElement("section", { className: "ob-picks-module" }, [
++        createElement("div", { className: "ob-section-heading" }, [
++          createElement("div", {}, [createElement("p", { className: "ob-kicker", text: "Portfolio" }), createElement("h2", { text: "My Picks & Exposure" })]),
++          createElement("span", { className: "ob-board-meta", text: requestId || "Protected mutation surface" }),
++        ]),
++        exposureCards(exposure),
++        picks.length ? pickList(picks) : renderStatePanel("No tracked picks", "Saved picks will appear here after a protected mutation request succeeds.", "partial"),
++      ]),
++    ]);
++  } catch (error) {
++    replaceChildren(host, [renderStatePanel("Picks unavailable", text(error?.message, "Protected picks endpoint is unavailable."), "bad")]);
++  }
++}
++
++function exposureCards(exposure) {
++  return createElement("dl", { className: "ob-metric-cards" }, [
++    ["Open risk", exposure.openRisk || exposure.totalRisk || "--"],
++    ["Open positions", exposure.openCount || exposure.count || 0],
++    ["Mode", "Protected"],
++  ].map(([label, value]) => createElement("div", { className: "ob-metric-card" }, [createElement("dt", { text: label }), createElement("dd", { text: text(value) })])));
++}
++
++function pickList(picks) {
++  return createElement("div", { className: "ob-pick-list" }, picks.map((pick) => createElement("article", { className: "ob-pick-card" }, [
++    createElement("p", { className: "ob-kicker", text: text(pick.status, "Tracked") }),
++    createElement("h3", { text: text(pick.player || pick.team || pick.market, "Pick") }),
++    createElement("p", { text: [pick.side, pick.line, pick.market].filter(Boolean).join(" ") }),
++    createElement("p", { text: `Odds ${formatOdds(pick.odds || pick.americanOdds)}` }),
++  ])));
++}
++
++export const __testHooks = { exposureCards, pickList };
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-shared.js /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-shared.js
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-shared.js	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-shared.js	2026-05-07 22:07:22.565082186 +0000
+@@ -0,0 +1,176 @@
++export const OUTLIER_MODULE_VERSION = "phase8-modular-v1";
++
++export const MARKETS = [
++  ["", "All"],
++  ["batter_total_bases", "Batter Bases"],
++  ["batter_hits", "Batter Hits"],
++  ["batter_home_runs", "Home Runs"],
++  ["pitcher_strikeouts", "Pitcher Ks"],
++  ["pitcher_hits_allowed", "Hits Allowed"],
++  ["pitcher_earned_runs", "Earned Runs"],
++  ["team_total_runs", "Team Runs"],
++  ["team_first_to_score", "Team First"],
++];
++
++export const MODULES = {
++  today: { label: "Today", module: "board", primary: true },
++  props: { label: "Props", module: "board", primary: true },
++  games: { label: "Games", module: "board", primary: true },
++  picks: { label: "My Picks", module: "picks" },
++  models: { label: "Model Room", module: "model-room" },
++  health: { label: "Data Health", module: "model-room" },
++  admin: { label: "Admin", module: "admin", devOnly: true },
++};
++
++export function qs(selector, root = document) {
++  return root.querySelector(selector);
++}
++
++export function qsa(selector, root = document) {
++  return Array.from(root.querySelectorAll(selector));
++}
++
++export function text(value, fallback = "--") {
++  const raw = value === null || value === undefined ? "" : String(value).trim();
++  return raw || fallback;
++}
++
++export function number(value, fallback = 0) {
++  const parsed = Number(value);
++  return Number.isFinite(parsed) ? parsed : fallback;
++}
++
++export function percent(value, fallback = "--") {
++  const parsed = number(value, NaN);
++  return Number.isFinite(parsed) ? `${parsed.toFixed(parsed % 1 ? 1 : 0)}%` : fallback;
++}
++
++export function signedPercent(value) {
++  const parsed = number(value, NaN);
++  if (!Number.isFinite(parsed)) return "--";
++  return `${parsed >= 0 ? "+" : ""}${parsed.toFixed(1)}%`;
++}
++
++export function formatOdds(value) {
++  const raw = text(value, "");
++  if (!raw) return "--";
++  const parsed = Number(raw);
++  if (!Number.isFinite(parsed)) return raw;
++  return parsed > 0 ? `+${parsed}` : String(parsed);
++}
++
++export function todayIso() {
++  const now = new Date();
++  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
++  return local.toISOString().slice(0, 10);
++}
++
++export function createElement(tagName, options = {}, children = []) {
++  const element = document.createElement(tagName);
++  if (options.className) element.className = options.className;
++  if (options.id) element.id = options.id;
++  if (options.text !== undefined) element.textContent = text(options.text, "");
++  if (options.title) element.title = text(options.title, "");
++  if (options.type) element.type = options.type;
++  if (options.value !== undefined) element.value = String(options.value);
++  if (options.placeholder) element.placeholder = options.placeholder;
++  if (options.name) element.name = options.name;
++  if (options.dataset) {
++    Object.entries(options.dataset).forEach(([key, value]) => {
++      element.dataset[key] = String(value);
++    });
++  }
++  if (options.attrs) {
++    Object.entries(options.attrs).forEach(([key, value]) => {
++      if (value !== false && value !== null && value !== undefined) {
++        element.setAttribute(key, String(value));
++      }
++    });
++  }
++  const list = Array.isArray(children) ? children : [children];
++  list.filter(Boolean).forEach((child) => {
++    element.append(child instanceof Node ? child : document.createTextNode(String(child)));
++  });
++  return element;
++}
++
++export function button(label, options = {}) {
++  return createElement("button", {
++    className: options.className || "ob-chip",
++    type: "button",
++    text: label,
++    dataset: options.dataset,
++    attrs: options.attrs,
++  });
++}
++
++export function replaceChildren(target, children = []) {
++  if (!target) return;
++  target.replaceChildren(...children.filter(Boolean));
++}
++
++export function dispatch(name, detail = {}) {
++  document.dispatchEvent(new CustomEvent(name, { detail }));
++}
++
++export function listen(name, handler) {
++  document.addEventListener(name, handler);
++  return () => document.removeEventListener(name, handler);
++}
++
++export async function jsonFetch(path, options = {}) {
++  const response = await fetch(path, {
++    cache: "no-store",
++    headers: { Accept: "application/json", ...(options.headers || {}) },
++    ...options,
++  });
++  const requestId = response.headers.get("X-Request-Id") || "";
++  let payload = null;
++  try {
++    payload = await response.json();
++  } catch (error) {
++    if (response.ok) throw error;
++  }
++  if (!response.ok) {
++    const message = payload && payload.error ? payload.error : `HTTP ${response.status}`;
++    const error = new Error(requestId ? `${message} (${requestId})` : message);
++    error.status = response.status;
++    error.requestId = requestId;
++    throw error;
++  }
++  return { payload, requestId };
++}
++
++export function normalizeRows(payload) {
++  if (Array.isArray(payload)) return payload;
++  if (Array.isArray(payload?.rows)) return payload.rows;
++  if (Array.isArray(payload?.data?.rows)) return payload.data.rows;
++  if (Array.isArray(payload?.board)) return payload.board;
++  return [];
++}
++
++export function propLabel(row) {
++  const side = text(row?.side || row?.rawLabel || row?.pickSide, "");
++  const line = text(row?.line || row?.propLine, "");
++  const market = text(row?.marketDisplay || row?.market || row?.propType, "Prop");
++  return [side, line, market].filter(Boolean).join(" ");
++}
++
++export function rowKey(row) {
++  return [
++    row?.player || row?.playerName || row?.team || "unknown",
++    row?.market || row?.marketDisplay || "market",
++    row?.line || "line",
++    row?.rawLabel || row?.side || "side",
++  ].map((part) => String(part).toLowerCase().replace(/\s+/g, "-")).join("|");
++}
++
++export function renderStatePanel(title, copy, tone = "partial") {
++  const panel = createElement("section", { className: `ob-state ob-state-${tone}` });
++  panel.append(
++    createElement("p", { className: "ob-kicker", text: tone === "bad" ? "Missing Data" : "Research Only" }),
++    createElement("h2", { text: title }),
++    createElement("p", { text: copy })
++  );
++  return panel;
++}
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-ui.css /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-ui.css
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-ui.css	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-ui.css	2026-05-07 22:07:23.255527518 +0000
+@@ -0,0 +1,2985 @@
++:root {
++  --ob-bg: #070808;
++  --ob-rail: #0c0d0d;
++  --ob-panel: #111313;
++  --ob-panel-2: #171919;
++  --ob-row: #141616;
++  --ob-row-hover: #1a1e1d;
++  --ob-line: #242827;
++  --ob-line-soft: rgba(255, 255, 255, 0.07);
++  --ob-text: #f4f7f6;
++  --ob-muted: #98a4a0;
++  --ob-dim: #6f7a77;
++  --ob-green: #18d99c;
++  --ob-green-soft: rgba(24, 217, 156, 0.14);
++  --ob-green-deep: rgba(24, 217, 156, 0.24);
++  --ob-amber: #f6c453;
++  --ob-red: #ff6b6b;
++  --ob-blue: #7bb7ff;
++  --ob-purple: #b990ff;
++  --ob-radius: 8px;
++  --ob-sidebar: 238px;
++  --ob-right-rail: 320px;
++}
++
++.outlier-mode {
++  color-scheme: dark;
++  background: var(--ob-bg);
++}
++
++.outlier-mode body,
++body.outlier-mode {
++  margin: 0;
++  min-height: 100vh;
++  color: var(--ob-text);
++  background:
++    radial-gradient(circle at 56% 0, rgba(92, 84, 10, 0.36), transparent 22rem),
++    radial-gradient(circle at 38% 0, rgba(8, 89, 70, 0.34), transparent 26rem),
++    var(--ob-bg);
++}
++
++.outlier-mode .app-shell {
++  width: 100%;
++  max-width: none;
++  margin: 0;
++  padding: 0;
++}
++
++.outlier-mode .app-shell > :not(#outlierApp) {
++  display: none !important;
++}
++
++.outlier-app {
++  min-height: 100vh;
++  display: grid;
++  grid-template-columns: var(--ob-sidebar) minmax(0, 1fr) var(--ob-right-rail);
++  background:
++    linear-gradient(90deg, rgba(255, 255, 255, 0.03), transparent 12rem),
++    var(--ob-bg);
++  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
++}
++
++.ob-sidebar {
++  position: sticky;
++  top: 0;
++  height: 100vh;
++  display: flex;
++  flex-direction: column;
++  gap: 22px;
++  border-right: 1px solid #101312;
++  padding: 22px 18px 18px;
++  background: #0a0b0b;
++}
++
++.ob-brand {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 12px;
++  min-height: 36px;
++}
++
++.ob-brand-lockup {
++  display: flex;
++  align-items: center;
++  gap: 10px;
++  min-width: 0;
++}
++
++.ob-mark {
++  position: relative;
++  width: 28px;
++  height: 28px;
++  flex: 0 0 auto;
++  border-radius: 999px;
++  background:
++    conic-gradient(from 20deg, var(--ob-green), #52d6ff 24%, transparent 25% 38%, #ff7cad 39% 58%, transparent 59% 72%, var(--ob-purple) 73% 100%);
++}
++
++.ob-mark::after {
++  content: "";
++  position: absolute;
++  inset: 6px;
++  border-radius: inherit;
++  background: #0a0b0b;
++}
++
++.ob-brand strong {
++  display: block;
++  color: var(--ob-text);
++  font-size: 1.02rem;
++  line-height: 1;
++}
++
++.ob-brand span {
++  display: block;
++  margin-top: 2px;
++  color: var(--ob-muted);
++  font-size: 0.72rem;
++  font-weight: 800;
++}
++
++.ob-season-chip {
++  flex: 0 0 auto;
++  border: 1px solid var(--ob-line);
++  border-radius: 999px;
++  padding: 6px 9px;
++  color: var(--ob-muted);
++  background: var(--ob-panel);
++  font-size: 0.73rem;
++  font-weight: 850;
++}
++
++.ob-nav {
++  display: grid;
++  gap: 7px;
++}
++
++.ob-nav button,
++.ob-icon-button,
++.ob-filter-button,
++.ob-tab,
++.ob-row-action,
++.ob-load-button,
++.ob-toggle,
++.ob-select,
++.ob-input {
++  font: inherit;
++}
++
++.ob-nav button {
++  width: 100%;
++  min-height: 40px;
++  display: flex;
++  align-items: center;
++  gap: 11px;
++  border: 0;
++  border-radius: 999px;
++  padding: 0 13px;
++  color: #9ea8a5;
++  background: transparent;
++  font-size: 0.86rem;
++  font-weight: 850;
++  text-align: left;
++  cursor: pointer;
++}
++
++.ob-nav button:hover,
++.ob-nav button.is-active {
++  color: var(--ob-text);
++  background: #1b1d1d;
++}
++
++.ob-nav-icon {
++  position: relative;
++  width: 17px;
++  height: 17px;
++  flex: 0 0 auto;
++  border: 1.5px solid currentColor;
++  border-radius: 5px;
++  opacity: 0.75;
++}
++
++.ob-nav-icon::after {
++  content: "";
++  position: absolute;
++  width: 5px;
++  height: 5px;
++  right: -3px;
++  bottom: 1px;
++  border-radius: 999px;
++  background: var(--ob-green);
++  box-shadow: 5px -7px 0 #ff7cad;
++  opacity: 0;
++}
++
++.ob-nav button.is-active .ob-nav-icon::after {
++  opacity: 1;
++}
++
++.ob-sidebar-footer {
++  margin-top: auto;
++  border-top: 1px solid var(--ob-line);
++  padding-top: 16px;
++}
++
++.ob-mini-metric {
++  display: grid;
++  gap: 7px;
++  border: 1px solid var(--ob-line-soft);
++  border-radius: var(--ob-radius);
++  padding: 12px;
++  background: var(--ob-panel);
++}
++
++.ob-mini-metric span {
++  color: var(--ob-muted);
++  font-size: 0.75rem;
++  font-weight: 800;
++}
++
++.ob-mini-metric strong {
++  color: var(--ob-text);
++  font-size: 1.35rem;
++  line-height: 1;
++}
++
++.ob-main {
++  min-width: 0;
++  border-right: 1px solid #171a19;
++}
++
++.ob-hero {
++  position: sticky;
++  top: 0;
++  z-index: 8;
++  border-bottom: 1px solid var(--ob-line);
++  padding: 16px 28px 0;
++  background:
++    linear-gradient(90deg, rgba(7, 60, 46, 0.82), rgba(70, 58, 4, 0.7) 58%, rgba(44, 61, 4, 0.74)),
++    rgba(7, 8, 8, 0.92);
++  backdrop-filter: blur(18px);
++}
++
++.ob-topbar {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 18px;
++  min-height: 42px;
++}
++
++.ob-kicker {
++  margin: 0;
++  color: #d5dfdc;
++  font-size: 0.74rem;
++  font-weight: 850;
++}
++
++.ob-title {
++  margin: 2px 0 0;
++  color: var(--ob-text);
++  font-size: clamp(1.8rem, 3vw, 2.55rem);
++  line-height: 1;
++  letter-spacing: 0;
++}
++
++.ob-date-wrap {
++  display: flex;
++  align-items: center;
++  gap: 8px;
++  min-width: 0;
++}
++
++.ob-input,
++.ob-select {
++  min-height: 36px;
++  border: 1px solid var(--ob-line);
++  border-radius: 7px;
++  color: var(--ob-text);
++  background: rgba(14, 16, 16, 0.86);
++  padding: 0 10px;
++  outline: none;
++}
++
++.ob-input:focus,
++.ob-select:focus {
++  border-color: rgba(24, 217, 156, 0.55);
++  box-shadow: 0 0 0 3px rgba(24, 217, 156, 0.13);
++}
++
++.ob-date {
++  width: 150px;
++}
++
++.ob-sport-row {
++  display: flex;
++  align-items: center;
++  gap: 8px;
++  margin: 16px 0 13px;
++  overflow-x: auto;
++  scrollbar-width: none;
++}
++
++.ob-sport-row::-webkit-scrollbar {
++  display: none;
++}
++
++.ob-tab {
++  min-height: 31px;
++  display: inline-flex;
++  align-items: center;
++  gap: 8px;
++  border: 1px solid rgba(255, 255, 255, 0.11);
++  border-radius: 999px;
++  padding: 0 12px;
++  color: #b5bfbc;
++  background: rgba(11, 13, 13, 0.62);
++  font-size: 0.8rem;
++  font-weight: 850;
++  white-space: nowrap;
++  cursor: pointer;
++}
++
++.ob-tab.is-active {
++  color: var(--ob-text);
++  border-color: rgba(24, 217, 156, 0.3);
++  background: rgba(24, 217, 156, 0.18);
++}
++
++.ob-filter-shell {
++  display: flex;
++  align-items: center;
++  gap: 9px;
++  border-top: 1px solid rgba(255, 255, 255, 0.08);
++  padding: 11px 0 12px;
++  overflow-x: auto;
++  scrollbar-width: thin;
++}
++
++.ob-filter-button,
++.ob-load-button,
++.ob-row-action,
++.ob-icon-button,
++.ob-toggle {
++  min-height: 35px;
++  border: 1px solid var(--ob-line);
++  border-radius: 7px;
++  color: var(--ob-text);
++  background: #111313;
++  padding: 0 12px;
++  font-size: 0.78rem;
++  font-weight: 900;
++  white-space: nowrap;
++  cursor: pointer;
++}
++
++.ob-filter-button.is-primary {
++  color: #07110e;
++  border-color: var(--ob-text);
++  background: var(--ob-text);
++}
++
++.ob-filter-button.is-saved {
++  color: var(--ob-text);
++  background: #060707;
++}
++
++.ob-filter-count {
++  display: inline-grid;
++  place-items: center;
++  min-width: 18px;
++  height: 18px;
++  margin-right: 6px;
++  border-radius: 999px;
++  color: #06120e;
++  background: var(--ob-green);
++}
++
++.ob-search {
++  width: min(280px, 26vw);
++}
++
++.ob-min-edge {
++  width: 98px;
++}
++
++.ob-toggle {
++  display: inline-flex;
++  align-items: center;
++  gap: 8px;
++  color: #c7cfcc;
++  background: transparent;
++}
++
++.ob-toggle-dot {
++  width: 28px;
++  height: 16px;
++  border-radius: 999px;
++  padding: 2px;
++  background: #363a39;
++}
++
++.ob-toggle-dot::after {
++  content: "";
++  display: block;
++  width: 12px;
++  height: 12px;
++  border-radius: 999px;
++  background: #8a9390;
++  transition: transform 140ms ease, background 140ms ease;
++}
++
++.ob-toggle.is-on .ob-toggle-dot {
++  background: rgba(24, 217, 156, 0.3);
++}
++
++.ob-toggle.is-on .ob-toggle-dot::after {
++  transform: translateX(12px);
++  background: var(--ob-green);
++}
++
++.ob-board-wrap {
++  padding: 8px 20px 28px;
++}
++
++.ob-board {
++  overflow: hidden;
++  border: 1px solid #1c201f;
++  border-radius: var(--ob-radius);
++  background: var(--ob-panel);
++}
++
++.ob-board-meta {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 12px;
++  border-bottom: 1px solid var(--ob-line);
++  padding: 10px 16px;
++  color: var(--ob-muted);
++  background: #0e1010;
++  font-size: 0.76rem;
++  font-weight: 820;
++}
++
++.ob-board-meta strong {
++  color: var(--ob-text);
++}
++
++.ob-table-scroll {
++  overflow: auto;
++}
++
++.ob-table {
++  width: 100%;
++  min-width: 1080px;
++  border-collapse: collapse;
++  table-layout: fixed;
++}
++
++.ob-table th,
++.ob-table td {
++  border-bottom: 1px solid #202321;
++  padding: 0;
++  text-align: left;
++  vertical-align: middle;
++}
++
++.ob-table th {
++  height: 35px;
++  color: #7f8a87;
++  background: #0e1010;
++  font-size: 0.72rem;
++  font-weight: 900;
++}
++
++.ob-table th span {
++  display: block;
++  padding: 0 8px;
++}
++
++.ob-table tbody tr {
++  height: 57px;
++  background: var(--ob-row);
++  cursor: pointer;
++}
++
++.ob-table tbody tr:nth-child(even) {
++  background: #171918;
++}
++
++.ob-table tbody tr:hover,
++.ob-table tbody tr.is-selected {
++  background: var(--ob-row-hover);
++}
++
++.ob-table td > .ob-cell {
++  display: flex;
++  align-items: center;
++  min-height: 57px;
++  padding: 6px 8px;
++}
++
++.ob-plus {
++  width: 22px;
++  height: 22px;
++  display: grid;
++  place-items: center;
++  border: 1px solid #343938;
++  border-radius: 6px;
++  padding: 0;
++  color: #c7d0cd;
++  background: #1b1d1d;
++  font-size: 1rem;
++  line-height: 1;
++  cursor: pointer;
++}
++
++.ob-plus.is-saved {
++  color: #06120e;
++  border-color: rgba(24, 217, 156, 0.72);
++  background: var(--ob-green);
++}
++
++.ob-player {
++  display: grid;
++  grid-template-columns: 30px minmax(0, 1fr);
++  align-items: center;
++  gap: 9px;
++  min-width: 0;
++}
++
++.ob-avatar {
++  width: 30px;
++  height: 30px;
++  display: grid;
++  place-items: center;
++  border: 1px solid rgba(255, 255, 255, 0.12);
++  border-radius: 999px;
++  color: var(--ob-text);
++  background:
++    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.24), transparent 0.28rem),
++    linear-gradient(150deg, #494f4c, #191d1b);
++  font-size: 0.66rem;
++  font-weight: 950;
++}
++
++.ob-player-name,
++.ob-prop-title {
++  overflow: hidden;
++  color: var(--ob-text);
++  font-size: 0.82rem;
++  font-weight: 950;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.ob-player-sub,
++.ob-prop-sub {
++  overflow: hidden;
++  margin-top: 2px;
++  color: var(--ob-muted);
++  font-size: 0.72rem;
++  font-weight: 800;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.ob-market-tag {
++  color: var(--ob-green);
++  font-size: 0.7rem;
++  font-weight: 950;
++}
++
++.ob-number {
++  justify-content: flex-end;
++  color: #dce4e1;
++  font-size: 0.78rem;
++  font-weight: 900;
++  text-align: right;
++}
++
++.ob-odds {
++  justify-content: flex-end;
++  color: #d5ddda;
++  font-size: 0.78rem;
++  font-weight: 900;
++}
++
++.ob-book {
++  display: inline-grid;
++  place-items: center;
++  width: 19px;
++  height: 19px;
++  margin-left: 7px;
++  border-radius: 5px;
++  color: #0c1110;
++  background: var(--ob-purple);
++  font-size: 0.63rem;
++  font-weight: 950;
++}
++
++.ob-heat {
++  justify-content: center;
++  color: var(--ob-green);
++  background: linear-gradient(90deg, rgba(24, 217, 156, 0.11), rgba(24, 217, 156, 0.25));
++  font-size: 0.78rem;
++  font-weight: 950;
++}
++
++.ob-heat.warn {
++  color: var(--ob-amber);
++  background: linear-gradient(90deg, rgba(246, 196, 83, 0.08), rgba(246, 196, 83, 0.18));
++}
++
++.ob-heat.bad {
++  color: var(--ob-red);
++  background: linear-gradient(90deg, rgba(255, 107, 107, 0.08), rgba(255, 107, 107, 0.18));
++}
++
++.ob-confidence {
++  justify-content: center;
++}
++
++.ob-confidence span {
++  display: inline-flex;
++  align-items: center;
++  min-height: 23px;
++  border-radius: 999px;
++  padding: 0 8px;
++  color: #07120e;
++  background: var(--ob-green);
++  font-size: 0.68rem;
++  font-weight: 950;
++}
++
++.ob-confidence.medium span {
++  color: #171000;
++  background: var(--ob-amber);
++}
++
++.ob-confidence.low span {
++  color: #eff5f3;
++  background: #383f3c;
++}
++
++.ob-empty {
++  display: grid;
++  gap: 8px;
++  justify-items: center;
++  padding: 44px 18px;
++  color: var(--ob-muted);
++  text-align: center;
++}
++
++.ob-empty strong {
++  color: var(--ob-text);
++}
++
++.ob-right-rail {
++  position: sticky;
++  top: 0;
++  height: 100vh;
++  overflow: auto;
++  padding: 15px 14px 22px;
++  background: #0a0b0b;
++}
++
++.ob-rail-tabs {
++  display: grid;
++  grid-template-columns: repeat(3, minmax(0, 1fr));
++  gap: 6px;
++  margin-bottom: 10px;
++  border: 1px solid rgba(255, 255, 255, 0.09);
++  border-radius: 999px;
++  padding: 5px;
++  background: rgba(255, 255, 255, 0.04);
++}
++
++.ob-rail-tabs button {
++  min-height: 34px;
++  border: 0;
++  border-radius: 999px;
++  color: #cbd4d1;
++  background: transparent;
++  font-size: 0.75rem;
++  font-weight: 950;
++}
++
++.ob-rail-tabs button.is-active {
++  color: var(--ob-text);
++  background: rgba(255, 255, 255, 0.12);
++}
++
++.ob-rail-card {
++  overflow: hidden;
++  border: 1px solid var(--ob-line-soft);
++  border-radius: var(--ob-radius);
++  margin-bottom: 10px;
++  background: var(--ob-panel);
++}
++
++.ob-rail-card-header {
++  display: flex;
++  justify-content: space-between;
++  gap: 8px;
++  border-bottom: 1px solid var(--ob-line);
++  padding: 11px 12px;
++}
++
++.ob-rail-card h3 {
++  margin: 0;
++  color: var(--ob-text);
++  font-size: 0.9rem;
++  line-height: 1.15;
++}
++
++.ob-rail-card-header span,
++.ob-rail-note {
++  color: var(--ob-muted);
++  font-size: 0.72rem;
++  font-weight: 800;
++}
++
++.ob-rail-body {
++  padding: 12px;
++}
++
++.ob-pick-title {
++  margin: 0;
++  color: var(--ob-text);
++  font-size: 0.9rem;
++  font-weight: 950;
++  line-height: 1.28;
++}
++
++.ob-pick-copy {
++  margin: 8px 0 0;
++  color: #d8e0dd;
++  font-size: 0.78rem;
++  font-weight: 800;
++  line-height: 1.36;
++}
++
++.ob-rail-metrics {
++  display: grid;
++  grid-template-columns: repeat(3, minmax(0, 1fr));
++  gap: 7px;
++  margin-top: 12px;
++}
++
++.ob-rail-metric {
++  display: grid;
++  gap: 3px;
++  border: 1px solid rgba(255, 255, 255, 0.07);
++  border-radius: 7px;
++  padding: 8px;
++  background: #0d0f0f;
++}
++
++.ob-rail-metric span {
++  color: var(--ob-muted);
++  font-size: 0.65rem;
++  font-weight: 850;
++}
++
++.ob-rail-metric strong {
++  overflow: hidden;
++  color: var(--ob-text);
++  font-size: 0.84rem;
++  font-weight: 950;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.ob-bar-list {
++  display: grid;
++  gap: 10px;
++}
++
++.ob-signal-row {
++  display: grid;
++  gap: 5px;
++}
++
++.ob-signal-label {
++  display: flex;
++  justify-content: space-between;
++  gap: 8px;
++  color: var(--ob-muted);
++  font-size: 0.72rem;
++  font-weight: 850;
++}
++
++.ob-meter {
++  height: 6px;
++  overflow: hidden;
++  border-radius: 999px;
++  background: #222725;
++}
++
++.ob-meter span {
++  display: block;
++  height: 100%;
++  width: 0;
++  border-radius: inherit;
++  background: linear-gradient(90deg, var(--ob-green), #29c5ff);
++}
++
++.ob-insight-list {
++  display: grid;
++  gap: 9px;
++}
++
++.ob-insight-item {
++  border-bottom: 1px solid var(--ob-line-soft);
++  padding-bottom: 9px;
++}
++
++.ob-insight-item:last-child {
++  border-bottom: 0;
++  padding-bottom: 0;
++}
++
++.ob-insight-item strong {
++  display: block;
++  color: var(--ob-text);
++  font-size: 0.78rem;
++  line-height: 1.25;
++}
++
++.ob-insight-item span {
++  display: block;
++  margin-top: 3px;
++  color: var(--ob-muted);
++  font-size: 0.7rem;
++  font-weight: 800;
++}
++
++.ob-mobile-cards {
++  display: none;
++}
++
++@media (max-width: 1220px) {
++  .outlier-app {
++    grid-template-columns: 208px minmax(0, 1fr);
++  }
++
++  .ob-right-rail {
++    display: none;
++  }
++}
++
++@media (max-width: 860px) {
++  .outlier-app {
++    grid-template-columns: 1fr;
++  }
++
++  .ob-sidebar {
++    position: relative;
++    height: auto;
++    border-right: 0;
++    border-bottom: 1px solid var(--ob-line);
++  }
++
++  .ob-nav {
++    grid-template-columns: repeat(4, minmax(0, 1fr));
++  }
++
++  .ob-nav button {
++    justify-content: center;
++    padding: 0 8px;
++  }
++
++  .ob-nav span:last-child {
++    display: none;
++  }
++
++  .ob-sidebar-footer {
++    display: none;
++  }
++
++  .ob-hero {
++    position: relative;
++    padding-inline: 14px;
++  }
++
++  .ob-topbar {
++    align-items: stretch;
++    flex-direction: column;
++  }
++
++  .ob-date-wrap {
++    flex-wrap: wrap;
++  }
++
++  .ob-search {
++    width: 100%;
++  }
++
++  .ob-filter-shell {
++    align-items: stretch;
++    flex-wrap: wrap;
++    overflow: visible;
++  }
++
++  .ob-filter-shell > * {
++    flex: 1 1 150px;
++  }
++
++  .ob-board-wrap {
++    padding: 10px 12px 22px;
++  }
++
++  .ob-table-scroll {
++    display: none;
++  }
++
++  .ob-mobile-cards {
++    display: grid;
++    gap: 10px;
++    padding: 10px;
++  }
++
++  .ob-mobile-card {
++    border: 1px solid var(--ob-line);
++    border-radius: var(--ob-radius);
++    padding: 12px;
++    background: var(--ob-row);
++  }
++
++  .ob-mobile-card-head {
++    display: flex;
++    justify-content: space-between;
++    gap: 10px;
++    margin-bottom: 10px;
++  }
++
++  .ob-mobile-card h3 {
++    margin: 0;
++    color: var(--ob-text);
++    font-size: 0.95rem;
++  }
++
++  .ob-mobile-card p {
++    margin: 3px 0 0;
++    color: var(--ob-muted);
++    font-size: 0.76rem;
++    font-weight: 800;
++  }
++
++  .ob-mobile-grid {
++    display: grid;
++    grid-template-columns: repeat(3, minmax(0, 1fr));
++    gap: 7px;
++  }
++}
++
++/* Stage 5 props table rebuild */
++.outlier-mode .ob-kicker {
++  display: none;
++}
++
++.outlier-mode .ob-filter-shell {
++  display: grid;
++  grid-template-columns: auto minmax(340px, 1fr) auto;
++  align-items: center;
++  gap: 10px;
++  overflow: visible;
++}
++
++.outlier-mode .ob-filter-left,
++.outlier-mode .ob-filter-controls,
++.outlier-mode .ob-filter-right {
++  display: flex;
++  align-items: center;
++  gap: 8px;
++  min-width: 0;
++}
++
++.outlier-mode .ob-filter-controls {
++  justify-content: flex-start;
++  overflow-x: auto;
++  scrollbar-width: none;
++}
++
++.outlier-mode .ob-filter-controls::-webkit-scrollbar {
++  display: none;
++}
++
++.outlier-mode .ob-filter-right {
++  justify-content: flex-end;
++}
++
++.outlier-mode .ob-filter-button,
++.outlier-mode .ob-load-button,
++.outlier-mode .ob-icon-button,
++.outlier-mode .ob-toggle,
++.outlier-mode .ob-select,
++.outlier-mode .ob-input {
++  min-height: 34px;
++  border-radius: 8px;
++}
++
++.outlier-mode .ob-filter-button.is-saved.is-active {
++  border-color: var(--ob-green);
++  color: var(--ob-green);
++  background: var(--ob-green-soft);
++}
++
++.outlier-mode .ob-icon-button {
++  min-width: 36px;
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  padding: 0 10px;
++}
++
++.outlier-mode .ob-clear-filter.is-hidden {
++  display: none;
++}
++
++.outlier-mode .ob-filter-controls .ob-select {
++  flex: 0 0 150px;
++  min-width: 150px;
++}
++
++.outlier-mode .ob-filter-controls .ob-search {
++  flex: 0 0 170px;
++  width: 170px;
++}
++
++.outlier-mode .ob-filter-right .ob-toggle {
++  flex-direction: row;
++  padding-inline: 10px;
++}
++
++.outlier-mode .ob-filter-right .ob-toggle-dot {
++  order: 2;
++}
++
++.outlier-mode .ob-board {
++  border-radius: 8px;
++}
++
++.outlier-mode .ob-table {
++  min-width: 1180px;
++  table-layout: fixed;
++}
++
++.outlier-mode .ob-col-action { width: 44px; }
++.outlier-mode .ob-col-player { width: 245px; }
++.outlier-mode .ob-col-prop { width: 205px; }
++.outlier-mode .ob-col-line { width: 70px; }
++.outlier-mode .ob-col-odds { width: 92px; }
++.outlier-mode .ob-col-ip { width: 64px; }
++.outlier-mode .ob-col-hit { width: 64px; }
++
++.outlier-mode .ob-table th {
++  height: 34px;
++}
++
++.outlier-mode .ob-table th span {
++  padding: 0;
++}
++
++.outlier-mode .ob-sort {
++  width: 100%;
++  min-height: 34px;
++  display: flex;
++  align-items: center;
++  justify-content: flex-start;
++  gap: 4px;
++  border: 0;
++  padding: 0 8px;
++  color: var(--ob-dim);
++  background: transparent;
++  font: inherit;
++  font-size: 0.7rem;
++  font-weight: 900;
++  cursor: pointer;
++}
++
++.outlier-mode .ob-sort:hover,
++.outlier-mode .ob-sort.is-active {
++  color: var(--ob-green);
++}
++
++.outlier-mode .ob-sort i {
++  min-width: 8px;
++  color: currentColor;
++  font-style: normal;
++  font-size: 0.62rem;
++  line-height: 1;
++}
++
++.outlier-mode .ob-table tbody tr {
++  height: 56px;
++}
++
++.outlier-mode .ob-table td > .ob-cell {
++  min-height: 56px;
++}
++
++.outlier-mode .ob-player {
++  grid-template-columns: 32px minmax(0, 1fr);
++}
++
++.outlier-mode .ob-avatar {
++  width: 32px;
++  height: 32px;
++}
++
++.outlier-mode .ob-player-pitcher {
++  color: var(--ob-dim);
++}
++
++.outlier-mode .ob-odds {
++  align-items: flex-end;
++  flex-direction: column;
++  justify-content: center;
++  gap: 4px;
++}
++
++.outlier-mode .ob-edge-badge {
++  display: inline-flex;
++  align-items: center;
++  min-height: 18px;
++  border-radius: 999px;
++  padding: 0 6px;
++  font-size: 0.62rem;
++  font-weight: 950;
++  line-height: 1;
++}
++
++.outlier-mode .ob-edge-badge.is-good {
++  color: var(--ob-bg);
++  background: var(--ob-green);
++}
++
++.outlier-mode .ob-edge-badge.is-watch {
++  color: var(--ob-bg);
++  background: var(--ob-amber);
++}
++
++.outlier-mode .ob-edge-badge.is-bad {
++  color: var(--ob-red);
++  background: rgba(255, 107, 107, 0.12);
++}
++
++.outlier-mode .ob-ip {
++  justify-content: center;
++  color: var(--ob-text);
++  font-size: 0.78rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-hit-cell {
++  border-left: 1px solid rgba(255, 255, 255, 0.045);
++  color: var(--ob-dim);
++  font-size: 0.78rem;
++  font-weight: 950;
++  text-align: center;
++}
++
++.outlier-mode .ob-hit-cell span {
++  min-height: 56px;
++  display: grid;
++  place-items: center;
++  padding: 0 4px;
++}
++
++.outlier-mode .ob-hit-cell.is-hot {
++  color: var(--ob-green);
++  background: var(--ob-green-soft);
++}
++
++.outlier-mode .ob-hit-cell.is-mid {
++  color: var(--ob-text);
++  background: transparent;
++}
++
++.outlier-mode .ob-hit-cell.is-cold,
++.outlier-mode .ob-hit-cell.is-empty {
++  color: var(--ob-dim);
++  background: transparent;
++}
++
++.outlier-mode .ob-row-warning {
++  height: 27px;
++  background: var(--ob-panel) !important;
++  cursor: default;
++}
++
++.outlier-mode .ob-row-warning td {
++  border-bottom: 1px solid var(--ob-line);
++  padding: 0 12px;
++  color: var(--ob-muted);
++  font-size: 0.7rem;
++  font-weight: 820;
++}
++
++.outlier-mode .ob-warn-icon {
++  display: inline-grid;
++  place-items: center;
++  width: 16px;
++  height: 16px;
++  margin-right: 7px;
++  border-radius: 999px;
++  color: var(--ob-bg);
++  background: var(--ob-amber);
++  font-size: 0.66rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-toast {
++  position: fixed;
++  right: 22px;
++  bottom: 22px;
++  z-index: 50;
++  max-width: min(360px, calc(100vw - 32px));
++  border: 1px solid var(--ob-green);
++  border-radius: 8px;
++  padding: 11px 13px;
++  color: var(--ob-text);
++  background: var(--ob-panel);
++  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.42);
++  font-size: 0.78rem;
++  font-weight: 850;
++  opacity: 0;
++  pointer-events: none;
++  transform: translateY(8px);
++  transition: opacity 140ms ease, transform 140ms ease;
++}
++
++.outlier-mode .ob-toast.is-visible {
++  opacity: 1;
++  transform: translateY(0);
++}
++
++@media (max-width: 1120px) {
++  .outlier-mode .ob-filter-shell {
++    grid-template-columns: 1fr;
++  }
++
++  .outlier-mode .ob-filter-left,
++  .outlier-mode .ob-filter-controls,
++  .outlier-mode .ob-filter-right {
++    flex-wrap: wrap;
++    justify-content: flex-start;
++  }
++}
++
++@media (max-width: 860px) {
++  .outlier-mode .ob-filter-shell {
++    display: grid;
++    grid-template-columns: 1fr;
++  }
++
++  .outlier-mode .ob-filter-shell > * {
++    flex: none;
++  }
++
++  .outlier-mode .ob-filter-controls {
++    display: grid;
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++    width: 100%;
++  }
++
++  .outlier-mode .ob-filter-controls .ob-select,
++  .outlier-mode .ob-filter-controls .ob-search {
++    width: 100%;
++    min-width: 0;
++  }
++
++  .outlier-mode .ob-filter-right {
++    width: 100%;
++    justify-content: space-between;
++  }
++
++  .outlier-mode .ob-mobile-grid {
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++  }
++}
++
++.outlier-mode .ob-sport-row .ob-tab {
++  border: 1px solid var(--ob-line);
++  color: var(--ob-muted);
++  background: rgba(11, 13, 13, 0.72);
++  box-shadow: none;
++}
++
++.outlier-mode .ob-sport-row .ob-tab:hover {
++  color: var(--ob-text);
++  border-color: var(--ob-line);
++  background: var(--ob-panel-2);
++}
++
++.outlier-mode .ob-sport-row .ob-tab.is-active {
++  color: var(--ob-text);
++  border-color: var(--ob-green);
++  background: var(--ob-green-soft);
++}
++
++.outlier-mode .ob-load-button,
++.outlier-mode .ob-icon-button,
++.outlier-mode .ob-filter-button,
++.outlier-mode .ob-toggle,
++.outlier-mode .ob-plus {
++  box-shadow: none;
++}
++
++.outlier-mode .ob-icon-button,
++.outlier-mode .ob-toggle {
++  color: var(--ob-text);
++  background: var(--ob-panel);
++}
++
++.outlier-mode .ob-toggle.is-on {
++  color: var(--ob-green);
++  background: var(--ob-green-soft);
++}
++
++.outlier-mode .ob-load-button {
++  min-width: 100px;
++  color: var(--ob-text);
++  background: var(--ob-panel);
++  white-space: nowrap;
++}
++
++.outlier-mode .ob-load-button:hover,
++.outlier-mode .ob-icon-button:hover,
++.outlier-mode .ob-filter-button:hover,
++.outlier-mode .ob-toggle:hover {
++  border-color: var(--ob-green);
++}
++
++.outlier-mode .ob-select,
++.outlier-mode .ob-input {
++  color: var(--ob-text);
++  background: var(--ob-panel);
++  box-shadow: none;
++}
++
++.outlier-mode .ob-select option {
++  color: var(--ob-text);
++  background: var(--ob-panel);
++}
++
++.outlier-mode .ob-plus {
++  color: var(--ob-text);
++  background: var(--ob-panel-2);
++}
++
++.outlier-mode .ob-plus:hover {
++  border-color: var(--ob-green);
++}
++
++.outlier-mode .ob-table {
++  min-width: 900px;
++}
++
++.outlier-mode .ob-col-action { width: 42px; }
++.outlier-mode .ob-col-player { width: 205px; }
++.outlier-mode .ob-col-prop { width: 180px; }
++.outlier-mode .ob-col-line { width: 52px; }
++.outlier-mode .ob-col-odds { width: 76px; }
++.outlier-mode .ob-col-ip { width: 50px; }
++.outlier-mode .ob-col-hit { width: 49px; }
++
++/* Stage 5 gap close: reusable shimmer skeletons */
++.outlier-mode .ob-skeleton {
++  display: block;
++  background: linear-gradient(90deg,
++    var(--ob-panel-2) 25%,
++    rgba(255,255,255,0.06) 50%,
++    var(--ob-panel-2) 75%);
++  background-size: 200% 100%;
++  animation: ob-shimmer 1.4s ease-in-out infinite;
++  border-radius: 4px;
++}
++
++@keyframes ob-shimmer {
++  0%   { background-position: 200% 0; }
++  100% { background-position: -200% 0; }
++}
++
++.outlier-mode .ob-loading-table tbody tr {
++  cursor: default;
++}
++
++.outlier-mode .ob-skeleton-row td {
++  padding: 10px 12px;
++  vertical-align: middle;
++}
++
++.outlier-mode .ob-skel-dot {
++  width: 18px;
++  height: 18px;
++  border-radius: 999px;
++}
++
++.outlier-mode .ob-skel-avatar {
++  display: inline-block;
++  width: 32px;
++  height: 32px;
++  margin-right: 10px;
++  border-radius: 999px;
++  vertical-align: middle;
++}
++
++.outlier-mode .ob-skel-text {
++  height: 9px;
++  margin: 4px 0;
++}
++
++.outlier-mode .ob-skel-text.wide { width: 78%; }
++.outlier-mode .ob-skel-text.mid { width: 54%; }
++.outlier-mode .ob-skel-text.small { width: 38%; }
++
++.outlier-mode .ob-skel-pill {
++  width: 42px;
++  height: 18px;
++  margin-inline: auto;
++  border-radius: 999px;
++}
++
++.outlier-mode .ob-skel-block {
++  height: 72px;
++  margin-top: 12px;
++  border-radius: var(--ob-radius);
++}
++
++/* Stage 5 gap close: category sub-tabs */
++.outlier-mode .ob-category-tabs {
++  display: flex;
++  gap: 8px;
++  overflow-x: auto;
++  padding: 12px 0 14px;
++  scrollbar-width: none;
++}
++
++.outlier-mode .ob-category-tabs::-webkit-scrollbar {
++  display: none;
++}
++
++.outlier-mode .ob-category-tabs button {
++  flex: 0 0 auto;
++  min-height: 31px;
++  border: 1px solid var(--ob-line);
++  border-radius: 999px;
++  padding: 0 12px;
++  color: var(--ob-muted);
++  background: rgba(11, 13, 13, 0.72);
++  font: inherit;
++  font-size: 0.75rem;
++  font-weight: 900;
++  cursor: pointer;
++}
++
++.outlier-mode .ob-category-tabs button:hover {
++  color: var(--ob-text);
++  background: var(--ob-panel-2);
++}
++
++.outlier-mode .ob-category-tabs button.is-active {
++  color: var(--ob-text);
++  border-color: var(--ob-green);
++  background: var(--ob-green-soft);
++}
++
++/* Stage 5 gap close: canonical percentage tone classes */
++.outlier-mode .ob-hit-cell.ob-pct--high,
++.outlier-mode .ob-hit-cell.is-hot {
++  color: var(--ob-green);
++  background: var(--ob-green-soft);
++}
++
++.outlier-mode .ob-hit-cell.ob-pct--mid,
++.outlier-mode .ob-hit-cell.is-mid {
++  color: var(--ob-text);
++  background: transparent;
++}
++
++.outlier-mode .ob-hit-cell.ob-pct--low,
++.outlier-mode .ob-hit-cell.is-cold,
++.outlier-mode .ob-hit-cell.is-empty {
++  color: var(--ob-dim);
++  background: transparent;
++}
++
++/* Stage 5 gap close: stacked typed toasts */
++.outlier-mode .ob-toast-stack {
++  position: fixed;
++  right: 24px;
++  bottom: 24px;
++  z-index: 9999;
++  display: flex;
++  width: min(320px, calc(100vw - 32px));
++  flex-direction: column-reverse;
++  gap: 10px;
++  pointer-events: none;
++}
++
++.outlier-mode .ob-toast-stack .ob-toast {
++  position: static;
++  max-width: none;
++  border: 1px solid var(--ob-line);
++  border-left: 3px solid var(--ob-blue);
++  border-radius: var(--ob-radius);
++  padding: 12px 16px;
++  color: var(--ob-text);
++  background: var(--ob-panel);
++  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
++  font-size: 0.78rem;
++  font-weight: 850;
++  opacity: 0;
++  transform: translateX(120%);
++  transition: opacity 0.2s ease, transform 0.2s ease;
++}
++
++.outlier-mode .ob-toast-stack .ob-toast.is-visible {
++  opacity: 1;
++  transform: translateX(0);
++}
++
++.outlier-mode .ob-toast-stack .ob-toast--success { border-left-color: var(--ob-green); }
++.outlier-mode .ob-toast-stack .ob-toast--error { border-left-color: var(--ob-red); }
++.outlier-mode .ob-toast-stack .ob-toast--info { border-left-color: var(--ob-blue); }
++
++/* Stage 6: Player Prop Detail Page */
++.outlier-mode .ob-detail-shell {
++  min-height: 100vh;
++  background: rgba(7, 8, 8, 0.66);
++}
++
++.outlier-mode .ob-detail-header {
++  display: flex;
++  flex-direction: column;
++  gap: 14px;
++  border-bottom: 1px solid var(--ob-line);
++  padding: 18px 28px 20px;
++  background:
++    radial-gradient(circle at 64% 0, rgba(96, 73, 7, 0.34), transparent 18rem),
++    linear-gradient(90deg, rgba(7, 60, 46, 0.76), rgba(7, 8, 8, 0.94));
++}
++
++.outlier-mode .ob-detail-header-top,
++.outlier-mode .ob-detail-player-row {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 16px;
++  min-width: 0;
++}
++
++.outlier-mode .ob-detail-back {
++  border: 0;
++  padding: 0;
++  color: var(--ob-muted);
++  background: transparent;
++  font: inherit;
++  font-size: 0.8rem;
++  font-weight: 900;
++  cursor: pointer;
++}
++
++.outlier-mode .ob-detail-back:hover {
++  color: var(--ob-text);
++}
++
++.outlier-mode .ob-detail-game-info {
++  color: var(--ob-dim);
++  font-size: 0.78rem;
++  font-weight: 850;
++  text-align: right;
++}
++
++.outlier-mode .ob-avatar-lg {
++  width: 44px;
++  height: 44px;
++  display: grid;
++  flex: 0 0 auto;
++  place-items: center;
++  border: 1px solid var(--team-color);
++  border-radius: 999px;
++  color: var(--team-color);
++  background: var(--team-bg);
++  font-size: 0.9rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-detail-title-block {
++  min-width: 0;
++  margin-right: auto;
++}
++
++.outlier-mode .ob-detail-title-block h1 {
++  overflow: hidden;
++  margin: 0;
++  color: var(--ob-text);
++  font-size: 1.3rem;
++  font-weight: 950;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.outlier-mode .ob-detail-title-block span {
++  display: block;
++  margin-top: 2px;
++  color: var(--ob-muted);
++  font-size: 0.75rem;
++  font-weight: 900;
++}
++
++.outlier-mode .ob-detail-proposition {
++  flex: 0 0 auto;
++  color: var(--ob-text);
++  font-size: 1rem;
++  font-weight: 950;
++  text-align: right;
++}
++
++.outlier-mode .ob-detail-body {
++  display: grid;
++  gap: 10px;
++  padding: 12px 20px 28px;
++}
++
++.outlier-mode .ob-line-selector {
++  position: relative;
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 12px;
++  border: 1px solid var(--ob-line);
++  border-radius: var(--ob-radius);
++  padding: 10px;
++  background: #0c0e0e;
++}
++
++.outlier-mode .ob-line-pills {
++  display: flex;
++  gap: 8px;
++  min-width: 0;
++  overflow-x: auto;
++  scrollbar-width: none;
++}
++
++.outlier-mode .ob-line-pills button,
++.outlier-mode .ob-alt-trigger,
++.outlier-mode .ob-alt-menu button,
++.outlier-mode .ob-stat-tabs button,
++.outlier-mode .ob-period-tabs button,
++.outlier-mode .ob-chart-toggle button,
++.outlier-mode .ob-mini-tabs button,
++.outlier-mode .ob-error-panel button {
++  font: inherit;
++  cursor: pointer;
++}
++
++.outlier-mode .ob-line-pills button {
++  min-height: 34px;
++  border: 1px solid var(--ob-line);
++  border-radius: 8px;
++  padding: 0 13px;
++  color: var(--ob-text);
++  background: var(--ob-panel);
++  font-size: 0.78rem;
++  font-weight: 950;
++  white-space: nowrap;
++}
++
++.outlier-mode .ob-line-pills button strong {
++  margin-left: 8px;
++}
++
++.outlier-mode .ob-line-pills button.is-active {
++  border-color: var(--ob-green);
++  background: var(--ob-green-deep);
++}
++
++.outlier-mode .ob-alt-lines {
++  position: relative;
++  flex: 0 0 auto;
++}
++
++.outlier-mode .ob-alt-trigger {
++  min-height: 34px;
++  border: 1px solid var(--ob-line);
++  border-radius: 8px;
++  padding: 0 12px;
++  color: var(--ob-text);
++  background: #f4f7f6;
++  color: #07110e;
++  font-size: 0.74rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-alt-trigger span {
++  margin-left: 8px;
++  color: #07110e;
++}
++
++.outlier-mode .ob-alt-menu {
++  position: absolute;
++  right: 0;
++  top: calc(100% + 8px);
++  z-index: 200;
++  width: 280px;
++  overflow: hidden;
++  border: 1px solid var(--ob-line);
++  border-radius: var(--ob-radius);
++  background: #0a0b0b;
++  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.54);
++}
++
++.outlier-mode .ob-alt-menu button {
++  width: 100%;
++  min-height: 40px;
++  display: grid;
++  grid-template-columns: 1fr auto auto;
++  gap: 12px;
++  align-items: center;
++  border: 0;
++  border-bottom: 1px solid var(--ob-line-soft);
++  padding: 0 12px;
++  color: var(--ob-text);
++  background: transparent;
++  font-size: 0.76rem;
++  font-weight: 900;
++  text-align: left;
++}
++
++.outlier-mode .ob-alt-menu button:hover {
++  background: var(--ob-row-hover);
++}
++
++.outlier-mode .ob-alt-menu em,
++.outlier-mode .ob-alt-empty {
++  color: var(--ob-muted);
++  font-style: normal;
++  font-size: 0.7rem;
++}
++
++.outlier-mode .ob-alt-empty {
++  padding: 12px;
++  font-weight: 850;
++}
++
++.outlier-mode .ob-stat-tabs,
++.outlier-mode .ob-period-tabs {
++  display: flex;
++  gap: 2px;
++  overflow-x: auto;
++  border-bottom: 1px solid var(--ob-line);
++  scrollbar-width: none;
++}
++
++.outlier-mode .ob-stat-tabs::-webkit-scrollbar,
++.outlier-mode .ob-period-tabs::-webkit-scrollbar {
++  display: none;
++}
++
++.outlier-mode .ob-stat-tabs button,
++.outlier-mode .ob-period-tabs button {
++  flex: 0 0 auto;
++  min-height: 39px;
++  border: 0;
++  border-bottom: 2px solid transparent;
++  padding: 8px 14px;
++  color: var(--ob-muted);
++  background: transparent;
++  font-size: 0.77rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-stat-tabs button:hover,
++.outlier-mode .ob-period-tabs button:hover,
++.outlier-mode .ob-stat-tabs button.is-active,
++.outlier-mode .ob-period-tabs button.is-active {
++  color: var(--ob-text);
++  border-bottom-color: var(--ob-green);
++}
++
++.outlier-mode .ob-detail-controls {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 12px;
++}
++
++.outlier-mode .ob-detail-controls .ob-period-tabs {
++  flex: 1 1 auto;
++  border-bottom: 0;
++}
++
++.outlier-mode .ob-chart-toggle {
++  display: inline-flex;
++  gap: 6px;
++}
++
++.outlier-mode .ob-chart-toggle button {
++  width: 34px;
++  min-height: 30px;
++  border: 1px solid var(--ob-line);
++  border-radius: 8px;
++  color: var(--ob-muted);
++  background: var(--ob-panel);
++  font-weight: 950;
++}
++
++.outlier-mode .ob-chart-toggle button.is-active {
++  color: var(--ob-green);
++  border-color: rgba(24, 217, 156, 0.55);
++  background: var(--ob-green-soft);
++}
++
++.outlier-mode .ob-perf-summary,
++.outlier-mode .ob-detail-card {
++  border: 1px solid var(--ob-line);
++  border-radius: var(--ob-radius);
++  background: var(--ob-panel);
++}
++
++.outlier-mode .ob-perf-summary {
++  display: grid;
++  gap: 10px;
++  padding: 14px 16px;
++}
++
++.outlier-mode .ob-perf-primary {
++  display: flex;
++  align-items: baseline;
++  gap: 8px;
++}
++
++.outlier-mode .ob-perf-primary span,
++.outlier-mode .ob-card-heading span {
++  color: var(--ob-muted);
++  font-size: 0.74rem;
++  font-weight: 900;
++}
++
++.outlier-mode .ob-perf-primary strong {
++  color: var(--ob-green);
++  font-size: 1.15rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-perf-primary em {
++  color: var(--ob-muted);
++  font-style: normal;
++  font-size: 0.74rem;
++  font-weight: 850;
++}
++
++.outlier-mode .ob-perf-secondary,
++.outlier-mode .ob-perf-average {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 12px;
++  color: var(--ob-muted);
++  font-size: 0.72rem;
++  font-weight: 850;
++}
++
++.outlier-mode .ob-pct-text--high { color: var(--ob-green); }
++.outlier-mode .ob-pct-text--mid { color: var(--ob-text); }
++.outlier-mode .ob-pct-text--low { color: var(--ob-dim); }
++
++.outlier-mode .ob-detail-card {
++  overflow: hidden;
++  padding: 0;
++}
++
++.outlier-mode .ob-card-heading {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 12px;
++  border-bottom: 1px solid var(--ob-line);
++  padding: 12px 14px;
++}
++
++.outlier-mode .ob-card-heading h2 {
++  margin: 0;
++  color: var(--ob-text);
++  font-size: 0.9rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-chart-wrap {
++  position: relative;
++  min-height: 220px;
++  padding: 10px 12px 12px;
++}
++
++.outlier-mode .ob-chart-wrap canvas,
++.outlier-mode .ob-support-card canvas,
++.outlier-mode .ob-pitch-mix canvas,
++.outlier-mode .ob-heatmap-grid canvas {
++  width: 100%;
++  display: block;
++}
++
++#ob-chart-tooltip {
++  position: fixed;
++  z-index: 9999;
++  display: grid;
++  gap: 3px;
++  border: 1px solid var(--ob-line);
++  border-radius: 8px;
++  padding: 8px 10px;
++  color: var(--ob-text);
++  background: #080909;
++  box-shadow: 0 10px 35px rgba(0, 0, 0, 0.45);
++  pointer-events: none;
++  font-size: 0.74rem;
++}
++
++#ob-chart-tooltip span {
++  color: var(--ob-muted);
++}
++
++.outlier-mode .ob-support-charts {
++  display: grid;
++  grid-template-columns: repeat(3, minmax(0, 1fr));
++  gap: 12px;
++  padding: 14px;
++}
++
++.outlier-mode .ob-support-card {
++  overflow: hidden;
++  border: 1px solid var(--ob-line-soft);
++  border-radius: 8px;
++  background: #0d0f0f;
++}
++
++.outlier-mode .ob-support-card > div {
++  display: flex;
++  justify-content: space-between;
++  gap: 8px;
++  padding: 10px 10px 0;
++}
++
++.outlier-mode .ob-support-card strong {
++  color: var(--ob-muted);
++  font-size: 0.74rem;
++  font-weight: 900;
++}
++
++.outlier-mode .ob-support-card span {
++  color: var(--ob-text);
++  font-size: 0.86rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-insight-copy {
++  padding: 14px 16px;
++}
++
++.outlier-mode .ob-insight-copy p,
++.outlier-mode .ob-muted-line {
++  margin: 0 0 8px;
++  color: #dbe3e0;
++  font-size: 0.82rem;
++  font-weight: 800;
++  line-height: 1.45;
++}
++
++.outlier-mode .ob-muted-line {
++  padding: 14px;
++  color: var(--ob-muted);
++}
++
++.outlier-mode .ob-bvp-row {
++  display: grid;
++  grid-template-columns: repeat(7, minmax(0, 1fr));
++  gap: 1px;
++  border-bottom: 1px solid var(--ob-line);
++  background: var(--ob-line);
++}
++
++.outlier-mode .ob-bvp-row div {
++  display: grid;
++  gap: 4px;
++  padding: 10px;
++  background: #0d0f0f;
++}
++
++.outlier-mode .ob-bvp-row span,
++.outlier-mode .ob-context-table td:first-child,
++.outlier-mode .ob-mini-table th {
++  color: var(--ob-muted);
++  font-size: 0.7rem;
++  font-weight: 900;
++}
++
++.outlier-mode .ob-bvp-row strong,
++.outlier-mode .ob-context-table td:last-child {
++  color: var(--ob-text);
++  font-size: 0.82rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-split-grid,
++.outlier-mode .ob-arsenal-grid,
++.outlier-mode .ob-heatmap-grid {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 12px;
++  padding: 14px;
++}
++
++.outlier-mode .ob-context-table,
++.outlier-mode .ob-mini-table {
++  width: 100%;
++  border-collapse: collapse;
++}
++
++.outlier-mode .ob-context-table th,
++.outlier-mode .ob-context-table td,
++.outlier-mode .ob-mini-table th,
++.outlier-mode .ob-mini-table td {
++  border-bottom: 1px solid var(--ob-line-soft);
++  padding: 8px 9px;
++  text-align: left;
++}
++
++.outlier-mode .ob-context-table th {
++  color: var(--ob-text);
++  background: #0d0f0f;
++  font-size: 0.78rem;
++}
++
++.outlier-mode .ob-mini-table td {
++  color: var(--ob-text);
++  font-size: 0.76rem;
++  font-weight: 850;
++}
++
++.outlier-mode .ob-mini-table td.is-good { color: var(--ob-green); }
++.outlier-mode .ob-mini-table td.is-bad { color: var(--ob-red); }
++
++.outlier-mode .ob-pitch-mix {
++  display: grid;
++  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
++  align-items: center;
++  gap: 12px;
++}
++
++.outlier-mode .ob-pitch-legend {
++  display: grid;
++  gap: 8px;
++}
++
++.outlier-mode .ob-pitch-legend div {
++  display: grid;
++  grid-template-columns: 8px minmax(0, 1fr) auto;
++  align-items: center;
++  gap: 8px;
++  color: var(--ob-text);
++  font-size: 0.74rem;
++  font-weight: 850;
++}
++
++.outlier-mode .ob-pitch-legend i,
++.outlier-mode .ob-compared i {
++  width: 8px;
++  height: 8px;
++  border-radius: 2px;
++}
++
++.outlier-mode .ob-pitch-table-wrap {
++  min-width: 0;
++}
++
++.outlier-mode .ob-mini-tabs {
++  display: flex;
++  gap: 6px;
++  margin-bottom: 9px;
++  overflow-x: auto;
++  scrollbar-width: none;
++}
++
++.outlier-mode .ob-mini-tabs button {
++  min-height: 27px;
++  border: 1px solid var(--ob-line);
++  border-radius: 7px;
++  padding: 0 10px;
++  color: var(--ob-muted);
++  background: #0d0f0f;
++  font-size: 0.7rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-mini-tabs button.is-active {
++  color: var(--ob-text);
++  border-color: var(--ob-green);
++  background: var(--ob-green-soft);
++}
++
++.outlier-mode .ob-compared {
++  display: flex;
++  align-items: center;
++  gap: 6px;
++  margin-top: 9px;
++  color: var(--ob-muted);
++  font-size: 0.7rem;
++  font-weight: 850;
++}
++
++.outlier-mode .ob-compared i {
++  background: linear-gradient(135deg, var(--ob-green) 0 50%, var(--ob-red) 50% 100%);
++}
++
++.outlier-mode .ob-detail-skeleton {
++  margin: 14px;
++  border-radius: var(--ob-radius);
++}
++
++.outlier-mode .ob-error-panel {
++  display: flex;
++  align-items: center;
++  gap: 10px;
++  border: 1px solid var(--ob-red);
++  border-radius: var(--ob-radius);
++  padding: 14px 18px;
++  color: var(--ob-red);
++  background: rgba(255, 107, 107, 0.08);
++}
++
++.outlier-mode .ob-error-panel p {
++  flex: 1;
++  margin: 0;
++  font-size: 0.8rem;
++  font-weight: 850;
++}
++
++.outlier-mode .ob-error-panel button {
++  min-height: 30px;
++  border: 1px solid var(--ob-red);
++  border-radius: 7px;
++  padding: 0 10px;
++  color: var(--ob-text);
++  background: transparent;
++  font-size: 0.72rem;
++  font-weight: 950;
++}
++
++@media (max-width: 1120px) {
++  .outlier-mode .ob-detail-header,
++  .outlier-mode .ob-detail-body {
++    padding-inline: 14px;
++  }
++
++  .outlier-mode .ob-support-charts,
++  .outlier-mode .ob-split-grid,
++  .outlier-mode .ob-arsenal-grid,
++  .outlier-mode .ob-heatmap-grid {
++    grid-template-columns: 1fr;
++  }
++
++  .outlier-mode .ob-detail-player-row,
++  .outlier-mode .ob-line-selector,
++  .outlier-mode .ob-detail-controls {
++    align-items: stretch;
++    flex-direction: column;
++  }
++
++  .outlier-mode .ob-detail-proposition,
++  .outlier-mode .ob-detail-game-info {
++    text-align: left;
++  }
++}
++
++@media (max-width: 640px) {
++  .outlier-mode .ob-support-charts {
++    grid-template-columns: 1fr;
++  }
++
++  .outlier-mode .ob-bvp-row {
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++  }
++
++  .outlier-mode .ob-pitch-mix {
++    grid-template-columns: 1fr;
++  }
++}
++
++/* Stage 8: Games View */
++.outlier-mode .ob-games-shell,
++.outlier-mode .ob-insights-page,
++.outlier-mode .ob-stub-page {
++  min-height: 100vh;
++  padding: 22px 24px 32px;
++  background: rgba(7, 8, 8, 0.58);
++}
++
++.outlier-mode .ob-games-top,
++.outlier-mode .ob-insights-header {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 16px;
++  margin-bottom: 16px;
++}
++
++.outlier-mode .ob-games-top p,
++.outlier-mode .ob-insights-header p,
++.outlier-mode .ob-stub-card span {
++  margin: 0 0 4px;
++  color: var(--ob-green);
++  font-size: 0.72rem;
++  font-weight: 950;
++  letter-spacing: 0.06em;
++  text-transform: uppercase;
++}
++
++.outlier-mode .ob-games-top h1,
++.outlier-mode .ob-insights-header h1,
++.outlier-mode .ob-stub-card h2 {
++  margin: 0;
++  color: var(--ob-text);
++  font-size: clamp(1.5rem, 2.6vw, 2.2rem);
++  line-height: 1;
++}
++
++.outlier-mode .ob-insights-header span {
++  display: block;
++  margin-top: 7px;
++  color: var(--ob-muted);
++  font-size: 0.78rem;
++  font-weight: 800;
++}
++
++.outlier-mode .ob-games-actions {
++  display: flex;
++  align-items: center;
++  gap: 10px;
++}
++
++.outlier-mode .ob-games-layout {
++  display: grid;
++  grid-template-columns: minmax(220px, 275px) minmax(0, 1fr);
++  gap: 16px;
++  align-items: start;
++}
++
++.outlier-mode .ob-games-list {
++  position: sticky;
++  top: 16px;
++  display: grid;
++  gap: 8px;
++  max-height: calc(100vh - 120px);
++  overflow: auto;
++  padding-right: 2px;
++}
++
++.outlier-mode .ob-game-card {
++  width: 100%;
++  border: 1px solid var(--ob-line-soft);
++  border-left: 3px solid transparent;
++  border-radius: var(--ob-radius);
++  padding: 11px 12px;
++  color: var(--ob-text);
++  background: var(--ob-panel);
++  text-align: left;
++  cursor: pointer;
++  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
++}
++
++.outlier-mode .ob-game-card:hover,
++.outlier-mode .ob-game-card.is-active {
++  border-left-color: var(--ob-green);
++  background: var(--ob-row-hover);
++  transform: translateX(1px);
++}
++
++.outlier-mode .ob-game-teams {
++  display: grid;
++  gap: 9px;
++}
++
++.outlier-mode .ob-game-team,
++.outlier-mode .ob-game-matchup-title .ob-game-team {
++  display: flex;
++  min-width: 0;
++  align-items: center;
++  gap: 9px;
++  color: var(--ob-text);
++  font-size: 0.82rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-game-team span:last-child {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.outlier-mode .ob-team-logo {
++  display: inline-grid;
++  width: 31px;
++  height: 31px;
++  flex: 0 0 auto;
++  place-items: center;
++  border: 1px solid color-mix(in srgb, var(--team-color) 66%, transparent);
++  border-radius: 999px;
++  color: var(--team-color);
++  background: var(--team-bg);
++  font-size: 0.64rem;
++  font-weight: 1000;
++  letter-spacing: 0.02em;
++}
++
++.outlier-mode .ob-game-time {
++  margin-top: 10px;
++  color: var(--ob-muted);
++  font-size: 0.74rem;
++  font-weight: 850;
++}
++
++.outlier-mode .ob-game-detail {
++  min-width: 0;
++}
++
++.outlier-mode .ob-game-detail-header {
++  overflow: hidden;
++  border: 1px solid var(--ob-line-soft);
++  border-radius: var(--ob-radius);
++  margin-bottom: 12px;
++  background: linear-gradient(135deg, rgba(24,217,156,0.12), rgba(246,196,83,0.09) 48%, var(--ob-panel) 49%);
++}
++
++.outlier-mode .ob-game-detail-header .ob-detail-back {
++  margin: 14px 16px 0;
++}
++
++.outlier-mode .ob-game-matchup-title {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
++  gap: 18px;
++  align-items: center;
++  padding: 14px 18px 18px;
++}
++
++.outlier-mode .ob-game-matchup-title .ob-game-team:last-child {
++  justify-content: end;
++}
++
++.outlier-mode .ob-game-center {
++  display: grid;
++  gap: 4px;
++  justify-items: center;
++  color: var(--ob-text);
++}
++
++.outlier-mode .ob-game-center strong {
++  font-size: 1rem;
++  font-weight: 1000;
++}
++
++.outlier-mode .ob-game-center span {
++  color: var(--ob-muted);
++  font-size: 0.72rem;
++  font-weight: 850;
++}
++
++.outlier-mode .ob-game-subtabs {
++  display: flex;
++  gap: 6px;
++  overflow-x: auto;
++  border-top: 1px solid var(--ob-line-soft);
++  padding: 10px 14px;
++  background: rgba(0, 0, 0, 0.18);
++  scrollbar-width: none;
++}
++
++.outlier-mode .ob-game-subtabs button {
++  min-height: 32px;
++  border: 1px solid var(--ob-line);
++  border-radius: 999px;
++  padding: 0 12px;
++  color: var(--ob-muted);
++  background: rgba(12, 14, 14, 0.84);
++  font-size: 0.75rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-game-subtabs button.is-active {
++  border-color: var(--ob-green);
++  color: var(--ob-text);
++  background: var(--ob-green-soft);
++}
++
++.outlier-mode .ob-gamelines {
++  display: grid;
++  gap: 12px;
++}
++
++.outlier-mode .ob-line-section,
++.outlier-mode .ob-game-props-panel {
++  overflow: hidden;
++  border: 1px solid var(--ob-line-soft);
++  border-radius: var(--ob-radius);
++  background: var(--ob-panel);
++}
++
++.outlier-mode .ob-section-label {
++  border-bottom: 1px solid var(--ob-line-soft);
++  padding: 10px 14px;
++  color: var(--ob-muted);
++  font-size: 0.72rem;
++  font-weight: 1000;
++  letter-spacing: 0.04em;
++  text-transform: uppercase;
++}
++
++.outlier-mode .ob-market-line-row {
++  display: grid;
++  grid-template-columns: 104px minmax(135px, 1fr) 74px minmax(210px, 1.4fr);
++  gap: 12px;
++  align-items: center;
++  border-bottom: 1px solid var(--ob-line-soft);
++  padding: 12px 14px;
++}
++
++.outlier-mode .ob-market-line-row:last-child {
++  border-bottom: 0;
++}
++
++.outlier-mode .ob-book-chips {
++  display: flex;
++  gap: 5px;
++}
++
++.outlier-mode .ob-book-chips span,
++.outlier-mode .ob-odds-chip,
++.outlier-mode .ob-market-pill {
++  display: inline-flex;
++  min-height: 24px;
++  align-items: center;
++  justify-content: center;
++  border: 1px solid var(--ob-line);
++  border-radius: 999px;
++  padding: 0 8px;
++  color: var(--ob-text);
++  background: #0d0f0f;
++  font-size: 0.7rem;
++  font-weight: 1000;
++}
++
++.outlier-mode .ob-market-team {
++  display: grid;
++  gap: 3px;
++}
++
++.outlier-mode .ob-market-team strong {
++  color: var(--ob-text);
++  font-size: 0.85rem;
++  font-weight: 1000;
++}
++
++.outlier-mode .ob-market-team span {
++  color: var(--ob-muted);
++  font-size: 0.72rem;
++  font-weight: 850;
++}
++
++.outlier-mode .ob-prob-pair {
++  display: grid;
++  gap: 7px;
++}
++
++.outlier-mode .ob-prob-line {
++  display: grid;
++  grid-template-columns: 42px minmax(0, 1fr) 42px;
++  gap: 8px;
++  align-items: center;
++}
++
++.outlier-mode .ob-prob-line span,
++.outlier-mode .ob-prob-line strong {
++  color: var(--ob-muted);
++  font-size: 0.68rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-prob-line strong {
++  color: var(--ob-text);
++  text-align: right;
++}
++
++.outlier-mode .ob-prob-track {
++  overflow: hidden;
++  height: 5px;
++  border-radius: 999px;
++  background: #070808;
++}
++
++.outlier-mode .ob-prob-track i {
++  display: block;
++  height: 100%;
++  border-radius: inherit;
++}
++
++.outlier-mode .ob-prob-model { background: var(--ob-green); }
++.outlier-mode .ob-prob-implied { background: linear-gradient(90deg, var(--ob-red), var(--ob-amber)); }
++
++.outlier-mode .ob-game-accordions {
++  display: grid;
++  gap: 8px;
++}
++
++.outlier-mode .ob-game-accordion {
++  border: 1px solid var(--ob-line-soft);
++  border-radius: var(--ob-radius);
++  background: var(--ob-panel);
++}
++
++.outlier-mode .ob-game-accordion summary {
++  cursor: pointer;
++  padding: 13px 14px;
++  color: var(--ob-text);
++  font-size: 0.82rem;
++  font-weight: 950;
++}
++
++.outlier-mode .ob-game-accordion div {
++  border-top: 1px solid var(--ob-line-soft);
++  padding: 12px 14px;
++  color: var(--ob-muted);
++  font-size: 0.78rem;
++  font-weight: 800;
++}
++
++/* Stage 9: Insights Feed */
++.outlier-mode .ob-insights-feed {
++  display: grid;
++  gap: 9px;
++  max-width: 760px;
++}
++
++.outlier-mode .ob-insight-card {
++  position: relative;
++  overflow: hidden;
++  border: 1px solid var(--ob-line-soft);
++  border-left: 3px solid var(--ob-green);
++  border-radius: var(--ob-radius);
++  padding: 15px 16px;
++  background: var(--ob-panel);
++  box-shadow: 0 10px 30px rgba(0,0,0,0.18);
++}
++
++.outlier-mode .ob-insight-card.is-amber { border-left-color: var(--ob-amber); }
++.outlier-mode .ob-insight-card.is-red { border-left-color: var(--ob-red); }
++
++.outlier-mode .ob-insight-head {
++  display: flex;
++  align-items: center;
++  gap: 10px;
++  margin-bottom: 10px;
++}
++
++.outlier-mode .ob-insight-head h3 {
++  margin: 0;
++  color: var(--ob-text);
++  font-size: 0.9rem;
++  font-weight: 1000;
++}
++
++.outlier-mode .ob-insight-head span {
++  display: block;
++  margin-top: 2px;
++  color: var(--ob-muted);
++  font-size: 0.72rem;
++  font-weight: 850;
++}
++
++.outlier-mode .ob-insight-card p {
++  margin: 0 0 12px;
++  color: #edf5f2;
++  font-size: 0.86rem;
++  font-weight: 850;
++  line-height: 1.42;
++}
++
++.outlier-mode .ob-insight-market-row {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 8px;
++  align-items: center;
++  margin-bottom: 11px;
++}
++
++.outlier-mode .ob-insight-market-row strong {
++  display: inline-flex;
++  min-height: 24px;
++  align-items: center;
++  border-radius: 999px;
++  padding: 0 9px;
++  color: #06100d;
++  background: var(--ob-green);
++  font-size: 0.7rem;
++  font-weight: 1000;
++}
++
++.outlier-mode .ob-insight-bar-row {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) 44px;
++  gap: 9px;
++  align-items: center;
++}
++
++.outlier-mode .ob-insight-bar-row strong {
++  color: var(--ob-green);
++  font-size: 0.76rem;
++  font-weight: 1000;
++  text-align: right;
++}
++
++.outlier-mode .ob-insight-bar {
++  position: relative;
++  overflow: hidden;
++  height: 6px;
++  border-radius: 999px;
++  background: #070808;
++}
++
++.outlier-mode .ob-insight-bar-fill {
++  position: absolute;
++  inset: 0 auto 0 0;
++  border-radius: inherit;
++  background: var(--ob-green);
++}
++
++.outlier-mode .ob-insight-bar i {
++  position: absolute;
++  top: 0;
++  bottom: 0;
++  width: 1px;
++  background: rgba(255,255,255,0.22);
++}
++
++.outlier-mode .ob-stub-page {
++  display: grid;
++  place-items: center;
++}
++
++.outlier-mode .ob-stub-card {
++  width: min(520px, 100%);
++  border: 1px solid var(--ob-line-soft);
++  border-radius: calc(var(--ob-radius) + 4px);
++  padding: 26px;
++  background: var(--ob-panel);
++  text-align: center;
++}
++
++.outlier-mode .ob-stub-card p {
++  margin: 12px auto 18px;
++  color: var(--ob-muted);
++  font-size: 0.9rem;
++  font-weight: 800;
++  line-height: 1.45;
++}
++
++@media (max-width: 1280px) {
++  .outlier-mode .ob-games-layout {
++    grid-template-columns: 1fr;
++  }
++
++  .outlier-mode .ob-games-list {
++    position: static;
++    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
++    max-height: none;
++    overflow: visible;
++  }
++}
++
++@media (max-width: 760px) {
++  .outlier-mode .ob-games-shell,
++  .outlier-mode .ob-insights-page,
++  .outlier-mode .ob-stub-page {
++    padding: 16px 12px 88px;
++  }
++
++  .outlier-mode .ob-games-top,
++  .outlier-mode .ob-insights-header,
++  .outlier-mode .ob-games-actions {
++    align-items: stretch;
++    flex-direction: column;
++  }
++
++  .outlier-mode .ob-game-matchup-title,
++  .outlier-mode .ob-market-line-row {
++    grid-template-columns: 1fr;
++  }
++
++  .outlier-mode .ob-game-matchup-title .ob-game-team:last-child {
++    justify-content: start;
++  }
++}
++
++/* Stage 11: final navigation, responsive drawer, and polish pass */
++.outlier-mode .ob-nav button {
++  position: relative;
++  border-left: 3px solid transparent;
++  border-radius: 9px;
++}
++
++.outlier-mode .ob-nav button:hover,
++.outlier-mode .ob-nav button.is-active {
++  color: var(--ob-green);
++  border-left-color: var(--ob-green);
++  background: var(--ob-green-soft);
++}
++
++.outlier-mode .ob-nav button.is-active .ob-nav-icon {
++  color: var(--ob-green);
++  opacity: 1;
++}
++
++.outlier-mode .ob-sport-row .ob-tab {
++  position: relative;
++}
++
++.outlier-mode .ob-sport-row .ob-tab::after {
++  content: "";
++  position: absolute;
++  left: 12px;
++  right: 12px;
++  bottom: -8px;
++  height: 2px;
++  border-radius: 999px;
++  background: transparent;
++}
++
++.outlier-mode .ob-sport-row .ob-tab.is-active::after {
++  background: var(--ob-green);
++}
++
++.outlier-mode .ob-rail-toggle {
++  display: none;
++  width: 34px;
++  min-width: 34px;
++  padding: 0;
++  border-radius: 999px;
++  font-weight: 1000;
++  text-transform: lowercase;
++}
++
++.outlier-mode .ob-rail-overlay {
++  display: none;
++}
++
++.outlier-mode .ob-right-rail {
++  border-left: 1px solid #101312;
++}
++
++.outlier-mode .ob-rail-tabs {
++  position: sticky;
++  top: 0;
++  z-index: 10;
++  background: var(--ob-rail);
++}
++
++@media (max-width: 1440px) {
++  :root {
++    --ob-right-rail: 280px;
++  }
++}
++
++@media (max-width: 1280px) {
++  .outlier-mode .outlier-app {
++    grid-template-columns: var(--ob-sidebar) minmax(0, 1fr);
++  }
++
++  .outlier-mode .ob-rail-toggle {
++    display: inline-flex;
++  }
++
++  .outlier-mode .ob-right-rail {
++    display: block;
++    position: fixed;
++    top: 0;
++    right: 0;
++    z-index: 100;
++    width: min(360px, calc(100vw - 72px));
++    max-width: 100vw;
++    height: 100vh;
++    box-shadow: -18px 0 50px rgba(0, 0, 0, 0.5);
++    transform: translateX(100%);
++    transition: transform 0.25s ease;
++  }
++
++  .outlier-mode .outlier-app.is-rail-open .ob-right-rail {
++    transform: translateX(0);
++  }
++
++  .outlier-mode .outlier-app.is-rail-open .ob-rail-overlay {
++    display: block;
++    position: fixed;
++    inset: 0;
++    z-index: 90;
++    border: 0;
++    padding: 0;
++    background: rgba(0, 0, 0, 0.4);
++    cursor: pointer;
++  }
++}
++
++@media (max-width: 1024px) {
++  .outlier-mode .outlier-app {
++    grid-template-columns: 1fr;
++    padding-bottom: 74px;
++  }
++
++  .outlier-mode .ob-main {
++    border-right: 0;
++  }
++
++  .outlier-mode .ob-sidebar {
++    position: fixed;
++    left: 0;
++    right: 0;
++    bottom: 0;
++    top: auto;
++    z-index: 120;
++    height: 66px;
++    display: block;
++    border-top: 1px solid var(--ob-line);
++    border-right: 0;
++    border-bottom: 0;
++    padding: 7px 10px calc(7px + env(safe-area-inset-bottom));
++    background: rgba(10, 11, 11, 0.96);
++    backdrop-filter: blur(18px);
++  }
++
++  .outlier-mode .ob-brand,
++  .outlier-mode .ob-sidebar-footer {
++    display: none;
++  }
++
++  .outlier-mode .ob-nav {
++    display: flex;
++    height: 100%;
++    gap: 6px;
++    overflow-x: auto;
++    scrollbar-width: none;
++  }
++
++  .outlier-mode .ob-nav::-webkit-scrollbar {
++    display: none;
++  }
++
++  .outlier-mode .ob-nav button {
++    flex: 0 0 92px;
++    min-height: 50px;
++    justify-content: center;
++    gap: 5px;
++    border-left: 0;
++    border-top: 3px solid transparent;
++    border-radius: 10px;
++    padding: 5px 6px;
++    font-size: 0.68rem;
++    text-align: center;
++  }
++
++  .outlier-mode .ob-nav button.is-active {
++    border-top-color: var(--ob-green);
++  }
++
++  .outlier-mode .ob-nav-icon {
++    width: 15px;
++    height: 15px;
++  }
++
++  .outlier-mode .ob-hero {
++    position: relative;
++  }
++}
++
++@media (min-width: 641px) and (max-width: 860px) {
++  .outlier-mode .ob-table-scroll {
++    display: block;
++  }
++
++  .outlier-mode .ob-mobile-cards {
++    display: none;
++  }
++}
++
++@media (max-width: 640px) {
++  .outlier-mode .ob-table-scroll {
++    display: none;
++  }
++
++  .outlier-mode .ob-mobile-cards {
++    display: grid;
++    gap: 10px;
++    padding: 10px;
++  }
++
++  .outlier-mode .ob-nav button {
++    flex-basis: 76px;
++  }
++
++  .outlier-mode .ob-nav span:last-child {
++    display: block;
++    max-width: 70px;
++    overflow: hidden;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
++  .outlier-mode .ob-filter-controls {
++    grid-template-columns: 1fr;
++  }
++
++  .outlier-mode .ob-toast-stack {
++    right: 12px;
++    bottom: 84px;
++    width: min(320px, calc(100vw - 24px));
++  }
++}
++
++@media (max-width: 1024px) {
++  .outlier-mode .ob-nav span:last-child {
++    display: block;
++  }
++}
++
++/* Phase 8 modular Outlier shell additions. These classes intentionally layer on top of
++   the existing premium visual language without forcing a full visual rewrite. */
++.ob-shell-modular { min-height: 100vh; display: grid; grid-template-columns: 260px minmax(0, 1fr) minmax(0, 420px); gap: 18px; padding: 18px; background: radial-gradient(circle at top left, rgba(24,217,156,.12), transparent 34%), #060912; color: #f7fafc; }
++.ob-shell-error { padding: 32px; background: #060912; color: #f7fafc; }
++.ob-sidebar, .ob-main, .ob-detail-host { border: 1px solid rgba(255,255,255,.08); background: rgba(9,13,26,.78); border-radius: 24px; box-shadow: 0 24px 80px rgba(0,0,0,.35); }
++.ob-sidebar { padding: 18px; position: sticky; top: 18px; height: calc(100vh - 36px); }
++.ob-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
++.ob-brand-mark { width: 38px; height: 38px; display: inline-grid; place-items: center; border-radius: 14px; background: linear-gradient(135deg, #18d99c, #8b5cf6); color: #071014; font-weight: 900; }
++.ob-brand small, .ob-kicker { color: rgba(247,250,252,.62); text-transform: uppercase; letter-spacing: .14em; font-size: 11px; }
++.ob-nav-list { display: grid; gap: 8px; }
++.ob-nav-item, .ob-chip, .ob-data-row, .ob-detail-close { cursor: pointer; border: 0; }
++.ob-nav-item { width: 100%; text-align: left; border-radius: 16px; padding: 12px 14px; background: transparent; color: rgba(247,250,252,.72); }
++.ob-nav-item.is-active { background: rgba(24,217,156,.12); color: #fff; box-shadow: inset 0 0 0 1px rgba(24,217,156,.35); }
++.ob-nav-item.is-dev-only { opacity: .76; }
++.ob-main { padding: 18px; min-width: 0; }
++.ob-topbar { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-bottom: 16px; }
++.ob-topbar h1, .ob-section-heading h2, .ob-detail-header h2 { margin: 4px 0 0; }
++.ob-topbar-actions, .ob-filter-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
++.ob-input { border: 1px solid rgba(255,255,255,.1); border-radius: 14px; padding: 10px 12px; color: #f7fafc; background: rgba(255,255,255,.06); }
++.ob-input-search { min-width: 260px; }
++.ob-trust-panel, .ob-board-module, .ob-picks-module, .ob-model-room, .ob-admin-module { margin-top: 14px; }
++.ob-trust-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 16px; border-radius: 22px; padding: 16px; border: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.045); }
++.ob-trust-grid.is-good { border-color: rgba(24,217,156,.34); }
++.ob-trust-grid.is-bad, .ob-state-bad { border-color: rgba(248,113,113,.42); }
++.ob-trust-metrics, .ob-metric-cards, .ob-mini-dl { display: grid; gap: 10px; margin: 0; }
++.ob-trust-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
++.ob-trust-metrics div, .ob-metric-card, .ob-model-card, .ob-pick-card, .ob-health-summary { border-radius: 18px; padding: 12px; background: rgba(0,0,0,.22); border: 1px solid rgba(255,255,255,.07); }
++.ob-trust-metrics dt, .ob-metric-card dt, .ob-mini-dl dt { color: rgba(247,250,252,.58); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
++.ob-trust-metrics dd, .ob-metric-card dd, .ob-mini-dl dd { margin: 4px 0 0; font-weight: 750; }
++.ob-section-heading { display: flex; justify-content: space-between; align-items: end; gap: 12px; margin-bottom: 14px; }
++.ob-board-meta { color: rgba(247,250,252,.58); font-size: 12px; }
++.ob-chip { padding: 9px 12px; border-radius: 999px; background: rgba(255,255,255,.055); color: rgba(247,250,252,.76); }
++.ob-chip.is-active { background: rgba(24,217,156,.16); color: #fff; box-shadow: inset 0 0 0 1px rgba(24,217,156,.32); }
++.ob-table-grid { display: grid; gap: 6px; }
++.ob-table-row { display: grid; grid-template-columns: 1.35fr 1.4fr .7fr .7fr .65fr .55fr .9fr; gap: 10px; align-items: center; width: 100%; border-radius: 16px; padding: 11px 12px; color: #f7fafc; }
++.ob-table-head { background: rgba(255,255,255,.04); color: rgba(247,250,252,.58); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
++.ob-data-row { text-align: left; background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.055); }
++.ob-data-row:hover { background: rgba(24,217,156,.075); }
++.ob-data-row.is-positive .ob-table-cell:nth-child(5) { color: #18d99c; }
++.ob-state { border: 1px solid rgba(255,255,255,.08); border-radius: 22px; padding: 18px; background: rgba(255,255,255,.04); }
++.ob-detail-host { display: none; padding: 0; overflow: hidden; }
++.ob-detail-host.is-open { display: block; }
++.ob-detail-panel { padding: 16px; }
++.ob-detail-header { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 14px; }
++.ob-detail-close { width: 36px; height: 36px; border-radius: 50%; color: #fff; background: rgba(255,255,255,.08); font-size: 22px; }
++.ob-metric-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 14px; }
++.ob-model-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
++.ob-pick-list { display: grid; gap: 10px; }
++.ob-admin-list { display: grid; gap: 8px; color: rgba(247,250,252,.74); }
++@media (max-width: 1180px) { .ob-shell-modular { grid-template-columns: 1fr; } .ob-sidebar { position: static; height: auto; } .ob-detail-host { min-height: 0; } }
++@media (max-width: 760px) { .ob-topbar, .ob-section-heading, .ob-trust-grid { display: block; } .ob-table-row { grid-template-columns: 1fr; } .ob-table-head { display: none; } .ob-input-search { min-width: 0; width: 100%; } }
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-ui.js /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-ui.js
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/public/outlier-ui.js	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/public/outlier-ui.js	2026-05-07 22:07:22.550354148 +0000
+@@ -0,0 +1,29 @@
++(function () {
++  const params = new URLSearchParams(window.location.search);
++  const enabled = params.get("view") === "outlier" || params.has("outlier");
++  if (!enabled) return;
++
++  async function boot() {
++    try {
++      const core = await import("/outlier-core.js");
++      await core.bootOutlierApp({ params });
++    } catch (error) {
++      const target = document.querySelector("main") || document.body;
++      const panel = document.createElement("section");
++      panel.className = "ob-shell ob-shell-error";
++      const title = document.createElement("h1");
++      title.textContent = "Outlier UI could not start";
++      const copy = document.createElement("p");
++      copy.textContent = String(error && error.message ? error.message : error);
++      panel.append(title, copy);
++      target.replaceChildren(panel);
++      console.warn("Outlier module boot failed", error);
++    }
++  }
++
++  if (document.readyState === "loading") {
++    document.addEventListener("DOMContentLoaded", boot, { once: true });
++  } else {
++    boot();
++  }
++})();
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/tests/test_phase8_frontend_architecture.py /mnt/data/phase8_cumulative_frontend_architecture_artifacts/tests/test_phase8_frontend_architecture.py
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/tests/test_phase8_frontend_architecture.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/tests/test_phase8_frontend_architecture.py	2026-05-07 22:07:42.049834679 +0000
+@@ -0,0 +1,82 @@
++from __future__ import annotations
++
++import importlib.util
++import subprocess
++import sys
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++PUBLIC = ROOT / "public"
++
++
++def read(name: str) -> str:
++    return (PUBLIC / name).read_text(encoding="utf-8")
++
++
++def test_outlier_bootstrap_is_small_and_loads_core_module() -> None:
++    source = read("outlier-ui.js")
++    assert len(source.splitlines()) < 40
++    assert 'import("/outlier-core.js")' in source
++    assert 'view") === "outlier"' in source
++
++
++def test_outlier_modules_exist() -> None:
++    expected = {
++        "outlier-shared.js",
++        "outlier-core.js",
++        "outlier-board.js",
++        "outlier-detail.js",
++        "outlier-picks.js",
++        "outlier-model-room.js",
++        "outlier-admin.js",
++    }
++    assert expected.issubset({path.name for path in PUBLIC.glob("outlier-*.js")})
++
++
++def test_core_eager_primary_and_lazy_secondary_modules() -> None:
++    source = read("outlier-core.js")
++    assert 'board: () => import("/outlier-board.js")' in source
++    assert 'detail: () => import("/outlier-detail.js")' in source
++    assert 'picks: () => import("/outlier-picks.js")' in source
++    assert '"model-room": () => import("/outlier-model-room.js")' in source
++    assert 'admin: () => import("/outlier-admin.js")' in source
++    assert 'await activateView("today")' in source
++
++
++def test_board_module_loads_detail_only_after_row_selection() -> None:
++    source = read("outlier-board.js")
++    assert 'import("/outlier-detail.js")' in source
++    assert "addEventListener(\"click\"" in source
++    assert "outlier:open-detail" in source
++
++
++def test_admin_module_is_quarantined_not_action_executor() -> None:
++    source = read("outlier-admin.js")
++    assert "not executable from the betting shell" in source
++    assert "fetch(" not in source
++    assert "jsonFetch" not in source
++
++
++def test_frontend_safety_lint_passes_for_trust_critical_modules() -> None:
++    result = subprocess.run(
++        [sys.executable, "tools/lint_frontend_safety.py", "--root", str(ROOT)],
++        cwd=ROOT,
++        text=True,
++        capture_output=True,
++        check=False,
++    )
++    assert result.returncode == 0, result.stdout + result.stderr
++
++
++def test_safety_lint_reports_markup_assignment(tmp_path: Path) -> None:
++    public = tmp_path / "public"
++    public.mkdir()
++    sample = public / "outlier-bad.js"
++    sample.write_text('const x = document.createElement("div");\nx.innerHTML = apiValue;\n', encoding="utf-8")
++    spec = importlib.util.spec_from_file_location("lint_frontend_safety", ROOT / "tools/lint_frontend_safety.py")
++    assert spec and spec.loader
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    findings = module.scan(tmp_path, ["public/outlier-*.js"])
++    assert findings
++    assert findings[0].kind == "unsafe_markup_assignment"
+diff -ruN /mnt/data/phase7_cumulative_app_status_contract_artifacts/tools/lint_frontend_safety.py /mnt/data/phase8_cumulative_frontend_architecture_artifacts/tools/lint_frontend_safety.py
+--- /mnt/data/phase7_cumulative_app_status_contract_artifacts/tools/lint_frontend_safety.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase8_cumulative_frontend_architecture_artifacts/tools/lint_frontend_safety.py	2026-05-07 22:07:23.359273790 +0000
+@@ -0,0 +1,75 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import re
++import sys
++from dataclasses import dataclass
++from pathlib import Path
++
++DEFAULT_TARGETS = ("public/outlier-*.js", "public/trust-surface.js")
++
++PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
++    ("unsafe_markup_assignment", re.compile(r"\.innerHTML\s*[+]?="), "Do not assign markup strings in trust-critical UI; construct nodes and use textContent."),
++    ("unsafe_markup_insertion", re.compile(r"\.insertAdjacentHTML\s*\("), "Do not insert markup strings with API-sourced content."),
++    ("silent_catch", re.compile(r"catch\s*\([^)]*\)\s*\{\s*\}"), "Do not silently swallow rendering or contract failures."),
++    ("dangerous_eval", re.compile(r"\b(eval|Function)\s*\("), "Do not evaluate dynamic strings in frontend modules."),
++)
++
++ALLOW_MARKER = "frontend-safety-allow"
++
++@dataclass(frozen=True)
++class Finding:
++    path: Path
++    line: int
++    kind: str
++    message: str
++    source: str
++
++
++def iter_files(root: Path, patterns: list[str]) -> list[Path]:
++    files: set[Path] = set()
++    for pattern in patterns:
++        files.update(path for path in root.glob(pattern) if path.is_file())
++    return sorted(files)
++
++
++def scan_file(path: Path, root: Path) -> list[Finding]:
++    findings: list[Finding] = []
++    lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
++    rel = path.relative_to(root)
++    for line_number, line in enumerate(lines, start=1):
++        if ALLOW_MARKER in line:
++            continue
++        for kind, pattern, message in PATTERNS:
++            if pattern.search(line):
++                findings.append(Finding(rel, line_number, kind, message, line.strip()))
++    return findings
++
++
++def scan(root: Path, patterns: list[str]) -> list[Finding]:
++    findings: list[Finding] = []
++    for path in iter_files(root, patterns):
++        findings.extend(scan_file(path, root))
++    return findings
++
++
++def parse_args(argv: list[str]) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="Scan trust-critical frontend modules for unsafe rendering patterns.")
++    parser.add_argument("--root", default=".", help="Project root")
++    parser.add_argument("--target", action="append", help="Glob to scan. May be repeated. Defaults to Outlier modules and trust surface.")
++    return parser.parse_args(argv)
++
++
++def main(argv: list[str] | None = None) -> int:
++    args = parse_args(argv or sys.argv[1:])
++    root = Path(args.root).resolve()
++    targets = args.target or list(DEFAULT_TARGETS)
++    findings = scan(root, targets)
++    for finding in findings:
++      print(f"{finding.path}:{finding.line}: {finding.kind}: {finding.message}\n  {finding.source}")
++    return 1 if findings else 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

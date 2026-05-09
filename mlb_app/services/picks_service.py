@@ -1,24 +1,34 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
-from mlb_app.repositories.json_store import JsonStore
+from mlb_app.repositories.picks_repository import PickNotFoundError, PicksRepository
 from mlb_app.schemas.picks import ACTIVE_PICK_STATUSES, PICK_STATUSES, BankrollSettings, Pick, game_key
 from mlb_app.services.bankroll_service import BankrollService
 
-PICKS_VERSION = "2026-05-my-picks-v1"
+PICKS_VERSION = "2026-05-my-picks-v2-sqlite"
 
 
 class PicksService:
     """Separates user-tracked picks from model suggestions/backtests."""
 
-    def __init__(self, runtime_settings: Settings | None = None, *, bankroll_service: BankrollService | None = None) -> None:
+    def __init__(
+        self,
+        runtime_settings: Settings | None = None,
+        *,
+        bankroll_service: BankrollService | None = None,
+        repository: PicksRepository | None = None,
+        migrate_legacy_json: bool = True,
+    ) -> None:
         self.settings = runtime_settings or default_settings
         self.bankroll_service = bankroll_service or BankrollService(self.settings)
-        self.store = JsonStore(self.settings.data_dir / "user" / "my_picks.json", default={"version": PICKS_VERSION, "picks": []})
+        self.repository = repository or PicksRepository(self.settings)
+        if migrate_legacy_json:
+            self._migrate_legacy_json_if_needed()
 
     def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
         query = query or {}
@@ -32,6 +42,7 @@ class PicksService:
             "settings": settings.to_api(),
             "exposure": self.exposure(picks=picks, settings=settings),
             "lifecycle": list(PICK_STATUSES),
+            "storage": {"sourceOfTruth": "sqlite", "path": str(self.repository.path)},
             "policy": {
                 "separateFromModelBacktests": True,
                 "message": "These are user-tracked picks only. They do not alter model backtests or market readiness gates.",
@@ -42,7 +53,10 @@ class PicksService:
         now = _now()
         settings = self.bankroll_service.get_settings()
         research_only = _is_research_only(body)
-        stake_units = self.bankroll_service.cap_stake_units(_optional_float(body.get("stakeUnits") or body.get("stake_units")), research_only=research_only)
+        stake_units = self.bankroll_service.cap_stake_units(
+            _optional_float(body.get("stakeUnits") or body.get("stake_units")),
+            research_only=research_only,
+        )
         base = dict(body)
         base.update(
             {
@@ -56,14 +70,7 @@ class PicksService:
             }
         )
         pick = Pick.from_api(base)
-
-        def mutate(payload: dict[str, Any]) -> dict[str, Any]:
-            rows = [row for row in _payload_picks(payload) if row.get("id") != pick.id]
-            rows.append(pick.to_api())
-            rows.sort(key=lambda row: str(row.get("createdAt") or ""), reverse=True)
-            return {"version": PICKS_VERSION, "picks": rows}
-
-        self.store.update(mutate)
+        self.repository.upsert_pick(pick.to_api())
         return {"status": "ok", "pick": pick.to_api(), "exposure": self.exposure()}
 
     def update(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -71,40 +78,25 @@ class PicksService:
         if not pick_id:
             return {"status": "error", "code": "missing_pick_id", "error": "Pick id is required", "_status": 400}
         now = _now()
-        updated_pick: Pick | None = None
 
-        def mutate(payload: dict[str, Any]) -> dict[str, Any]:
-            nonlocal updated_pick
-            rows = _payload_picks(payload)
-            next_rows: list[dict[str, Any]] = []
-            found = False
-            for row in rows:
-                if row.get("id") != pick_id:
-                    next_rows.append(row)
-                    continue
-                found = True
-                merged = dict(row)
-                for key, value in body.items():
-                    if key != "id" and value is not None:
-                        merged[key] = value
-                if merged.get("status") not in PICK_STATUSES:
-                    merged["status"] = row.get("status") or "Watching"
-                stake_units = self.bankroll_service.cap_stake_units(_optional_float(merged.get("stakeUnits")), research_only=False)
-                merged["stakeUnits"] = stake_units
-                merged["stakeAmount"] = self.bankroll_service.stake_amount(stake_units)
-                merged["updatedAt"] = now
-                updated_pick = Pick.from_api(merged)
-                next_rows.append(updated_pick.to_api())
-            if not found:
-                raise KeyError(pick_id)
-            next_rows.sort(key=lambda row: str(row.get("createdAt") or ""), reverse=True)
-            return {"version": PICKS_VERSION, "picks": next_rows}
+        def mutate(row: dict[str, Any]) -> dict[str, Any]:
+            merged = dict(row)
+            for key, value in body.items():
+                if key != "id" and value is not None:
+                    merged[key] = value
+            if merged.get("status") not in PICK_STATUSES:
+                merged["status"] = row.get("status") or "Watching"
+            stake_units = self.bankroll_service.cap_stake_units(_optional_float(merged.get("stakeUnits")), research_only=False)
+            merged["stakeUnits"] = stake_units
+            merged["stakeAmount"] = self.bankroll_service.stake_amount(stake_units)
+            merged["updatedAt"] = now
+            return Pick.from_api(merged).to_api()
 
         try:
-            self.store.update(mutate)
-        except KeyError:
+            updated_payload = self.repository.update_pick(pick_id, mutate)
+        except PickNotFoundError:
             return {"status": "error", "code": "pick_not_found", "error": "Pick not found", "_status": 404}
-        return {"status": "ok", "pick": updated_pick.to_api() if updated_pick else {}, "exposure": self.exposure()}
+        return {"status": "ok", "pick": updated_payload, "exposure": self.exposure()}
 
     def exposure(self, picks: list[Pick] | None = None, settings: BankrollSettings | None = None) -> dict[str, Any]:
         settings = settings or self.bankroll_service.get_settings()
@@ -154,7 +146,7 @@ class PicksService:
         }
 
     def _read_picks(self) -> list[Pick]:
-        return [Pick.from_api(row) for row in _payload_picks(self.store.read())]
+        return [Pick.from_api(row) for row in self.repository.list_picks()]
 
     @staticmethod
     def _filter_picks(picks: list[Pick], query: dict[str, list[str]]) -> list[Pick]:
@@ -165,6 +157,22 @@ class PicksService:
         if date:
             picks = [pick for pick in picks if pick.date == date]
         return picks
+
+    def _migrate_legacy_json_if_needed(self) -> None:
+        if self.repository.count() > 0:
+            return
+        legacy_path = self.settings.data_dir / "user" / "my_picks.json"
+        if not legacy_path.exists():
+            return
+        try:
+            payload = json.loads(legacy_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        rows = _payload_picks(payload)
+        if not rows:
+            return
+        migrated = [Pick.from_api(row).to_api() for row in rows]
+        self.repository.replace_all(migrated)
 
 
 def _payload_picks(payload: dict[str, Any]) -> list[dict[str, Any]]:

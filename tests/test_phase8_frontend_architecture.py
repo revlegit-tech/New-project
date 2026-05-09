@@ -99,11 +99,14 @@ def test_phase8_visual_restores_classic_outlier_shell() -> None:
 
 def test_outlier_runtime_is_isolated_from_legacy_script_stack() -> None:
     index = read("index.html")
-    assert 'data-runtime-ui' in index
-    assert 'const outlier = params.get("view") === "outlier" || params.has("outlier")' in index
-    assert 'const runtimeScripts = outlier ? ["/outlier-ui.js"] : legacyScripts' in index
-    # Legacy scripts must be data in the conditional loader, not eager script tags that run behind Outlier.
-    assert '<script src="/app.js"></script>' not in index
-    assert '<script src="/stage3-betting-ui.js"></script>' not in index
-    assert '<script src="/trust-surface.js"></script>' not in index
-    assert '<script src="/outlier-ui.js"></script>' not in index
+    legacy = read("legacy.html")
+    assert 'data-runtime-ui' not in index
+    assert 'legacyScripts' not in index
+    assert '/assets/outlier-' in index
+    assert '/app.js' not in index
+    assert '/stage3-betting-ui.js' not in index
+    assert '/trust-surface.js' not in index
+    assert '/outlier-ui.js' not in index
+    assert '/app.js' in legacy
+    assert '/trust-surface.js' in legacy
+    assert '/outlier-ui.js' not in legacy

@@ -1,0 +1,3165 @@
+Binary files mlb_app/services/__pycache__/__init__.cpython-313.pyc and mlb_app/services/__pycache__/__init__.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/app_status_service.cpython-313.pyc and mlb_app/services/__pycache__/app_status_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/bankroll_service.cpython-313.pyc and mlb_app/services/__pycache__/bankroll_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/board_cache.cpython-313.pyc and mlb_app/services/__pycache__/board_cache.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/data_health_dashboard_service.cpython-313.pyc and mlb_app/services/__pycache__/data_health_dashboard_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/data_health_service.cpython-313.pyc and mlb_app/services/__pycache__/data_health_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/edge_board_service.cpython-313.pyc and mlb_app/services/__pycache__/edge_board_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/grading_state_service.cpython-313.pyc and mlb_app/services/__pycache__/grading_state_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/model_card_service.cpython-313.pyc and mlb_app/services/__pycache__/model_card_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/model_readiness_service.cpython-313.pyc and mlb_app/services/__pycache__/model_readiness_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/model_registry_service.cpython-313.pyc and mlb_app/services/__pycache__/model_registry_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/picks_service.cpython-313.pyc and mlb_app/services/__pycache__/picks_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/playerboard_service.cpython-313.pyc and mlb_app/services/__pycache__/playerboard_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/product_state_service.cpython-313.pyc and mlb_app/services/__pycache__/product_state_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/prop_detail_service.cpython-313.pyc and mlb_app/services/__pycache__/prop_detail_service.cpython-313.pyc differ
+Binary files mlb_app/services/__pycache__/workflow_health_service.cpython-313.pyc and mlb_app/services/__pycache__/workflow_health_service.cpython-313.pyc differ
+diff -ruN mlb_app/services/app_status_service.py mlb_app/services/app_status_service.py
+--- mlb_app/services/app_status_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/app_status_service.py	2026-05-07 11:52:19.483600915 +0000
+@@ -0,0 +1,119 @@
++from __future__ import annotations
++
++from datetime import datetime, timezone
++from typing import Any
++
++from mlb_app.services.grading_state_service import GradingStateService
++from mlb_app.services.model_registry_service import ModelRegistryService
++from mlb_app.services.playerboard_service import PlayerboardService
++from mlb_app.services.product_state_service import ProductStateService
++from mlb_app.services.workflow_health_service import WorkflowHealthService
++
++
++class AppStatusService:
++    def __init__(
++        self,
++        *,
++        playerboard_service: PlayerboardService | None = None,
++        grading_service: GradingStateService | None = None,
++        model_registry_service: ModelRegistryService | None = None,
++        workflow_service: WorkflowHealthService | None = None,
++        product_state_service: ProductStateService | None = None,
++    ) -> None:
++        self.grading_service = grading_service or GradingStateService()
++        self.product_state_service = product_state_service or ProductStateService()
++        self.model_registry_service = model_registry_service or ModelRegistryService()
++        self.workflow_service = workflow_service or WorkflowHealthService()
++        self.playerboard_service = playerboard_service or PlayerboardService(
++            grading_service=self.grading_service,
++            product_state_service=self.product_state_service,
++        )
++
++    def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
++        query = query or {}
++        season = int((query.get("season") or ["2026"])[0])
++        playerboard = self.playerboard_service.health_payload({"season": [str(season)]})
++        board_date = str(playerboard.get("latestAvailableDate") or playerboard.get("date") or "")
++        grading = self.grading_service.payload({"date": [board_date]} if board_date else {})
++        workflows = self.workflow_service.payload()
++        model_status = self.model_registry_service.status_payload()
++        product_state = self.product_state_service.payload(
++            production_eligible_markets=len(model_status.get("productionEligibleMarkets", [])),
++            grading_ok=bool(grading.get("ok")),
++        )
++
++        warnings: list[str] = []
++        if not playerboard.get("ok"):
++            warnings.append("Playerboard needs attention.")
++        if grading.get("state") != "graded":
++            warnings.append("Latest board date is not fully graded yet.")
++        if not workflows.get("ok"):
++            warnings.append("Workflow summaries need attention.")
++        if not model_status.get("productionEligibleMarkets"):
++            warnings.append("No market is currently eligible for confident production picks.")
++
++        workflow_summaries = workflows.get("summaries") or {}
++        daily_health = workflow_summaries.get("dailyHealth") or {}
++        daily_grading = workflow_summaries.get("dailyGrading") or {}
++        weekly_repair = workflow_summaries.get("weeklyRepair") or {}
++        grading_summary = grading.get("summary") or {}
++
++        return {
++            "status": "ok",
++            "ok": not warnings,
++            "season": season,
++            "checkedAt": datetime.now(timezone.utc).isoformat(),
++            "generatedAt": datetime.now(timezone.utc).isoformat(),
++            "warnings": warnings,
++            "productState": product_state.get("state", "research_mode"),
++            "productStateDetail": product_state,
++            "researchMode": bool(product_state.get("researchMode", True)),
++            "latestBoardDate": board_date,
++            "latestFullyGradedDate": grading.get("latestFullyGradedDate", ""),
++            "dataConfidence": playerboard.get("dataConfidence", "Missing"),
++            "modelPolicy": model_status.get("policy", {}),
++            "trainedMarkets": model_status.get("trainedMarkets", []),
++            "productionEligibleMarkets": model_status.get("productionEligibleMarkets", []),
++            "playerboard": {
++                "ok": bool(playerboard.get("ok")),
++                "date": playerboard.get("date") or playerboard.get("latestAvailableDate") or "",
++                "latestAvailableDate": playerboard.get("latestAvailableDate") or "",
++                "rowsLoaded": playerboard.get("rowsLoaded", 0),
++                "totalRowsInFile": playerboard.get("totalRowsInFile", 0),
++                "badShiftedRows": playerboard.get("badShiftedRows", 0),
++                "missingMarketDisplayRows": playerboard.get("missingMarketDisplayRows", 0),
++                "latestSnapshotAt": playerboard.get("latestSnapshotAt", ""),
++                "dataConfidence": playerboard.get("dataConfidence", "Missing"),
++            },
++            "grading": {
++                "ok": bool(grading.get("ok")),
++                "state": grading.get("state", "not_started"),
++                "date": grading.get("date", ""),
++                "latestFullyGradedDate": grading.get("latestFullyGradedDate", ""),
++                "backtestRowsForDate": grading_summary.get("backtestRowsForDate", 0),
++                "gradedBacktestRowsForDate": grading_summary.get("gradedBacktestRowsForDate", 0),
++                "mlRowsForDate": grading_summary.get("mlRowsForDate", 0),
++                "gradedMlRowsForDate": grading_summary.get("gradedMlRowsForDate", 0),
++            },
++            "workflows": {
++                "ok": bool(workflows.get("ok")),
++                "dailyHealth": {
++                    "ok": bool(daily_health.get("ok")),
++                    "date": daily_health.get("date", ""),
++                    "checkedAt": daily_health.get("checkedAt", ""),
++                    "exists": bool(daily_health.get("exists")),
++                },
++                "dailyGrading": {
++                    "ok": bool(daily_grading.get("ok")),
++                    "date": daily_grading.get("date", ""),
++                    "checkedAt": daily_grading.get("checkedAt", ""),
++                    "exists": bool(daily_grading.get("exists")),
++                },
++                "weeklyRepair": {
++                    "ok": bool(weekly_repair.get("ok")),
++                    "date": weekly_repair.get("date", ""),
++                    "checkedAt": weekly_repair.get("checkedAt", ""),
++                    "exists": bool(weekly_repair.get("exists")),
++                },
++            },
++        }
+diff -ruN mlb_app/services/bankroll_service.py mlb_app/services/bankroll_service.py
+--- mlb_app/services/bankroll_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/bankroll_service.py	2026-05-07 11:52:19.483691009 +0000
+@@ -0,0 +1,47 @@
++from __future__ import annotations
++
++from typing import Any
++
++from mlb_app.config import Settings, settings as default_settings
++from mlb_app.repositories.json_store import JsonStore
++from mlb_app.schemas.picks import BankrollSettings, STAKING_METHODS
++
++
++class BankrollService:
++    """User bankroll/risk settings with conservative defaults."""
++
++    def __init__(self, runtime_settings: Settings | None = None) -> None:
++        self.settings = runtime_settings or default_settings
++        self.store = JsonStore(self.settings.data_dir / "user" / "bankroll_settings.json", default={"settings": BankrollSettings().to_api()})
++
++    def payload(self) -> dict[str, Any]:
++        settings = self.get_settings()
++        return {
++            "status": "ok",
++            "settings": settings.to_api(),
++            "allowedStakingMethods": list(STAKING_METHODS),
++            "policy": {
++                "defaultMode": "conservative",
++                "message": "Stake sizing is capped by default. Research-only picks should stay at 0u until manually placed.",
++            },
++        }
++
++    def get_settings(self) -> BankrollSettings:
++        payload = self.store.read()
++        return BankrollSettings.from_payload(payload.get("settings") if isinstance(payload, dict) else {})
++
++    def update(self, body: dict[str, Any]) -> dict[str, Any]:
++        settings = BankrollSettings.from_payload(body)
++        self.store.write({"settings": settings.to_api()})
++        return self.payload()
++
++    def cap_stake_units(self, requested_units: float | None, *, research_only: bool = False) -> float:
++        settings = self.get_settings()
++        if research_only:
++            return 0.0
++        if requested_units is None:
++            requested_units = min(0.25, settings.max_units_per_bet)
++        return round(max(0.0, min(float(requested_units), settings.max_units_per_bet)), 2)
++
++    def stake_amount(self, stake_units: float) -> float:
++        return round(max(0.0, stake_units) * self.get_settings().default_unit_size, 2)
+diff -ruN mlb_app/services/board_cache.py mlb_app/services/board_cache.py
+--- mlb_app/services/board_cache.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/board_cache.py	2026-05-07 12:32:30.085372428 +0000
+@@ -0,0 +1,238 @@
++from __future__ import annotations
++
++import copy
++import threading
++import time
++from dataclasses import dataclass, field
++from pathlib import Path
++from typing import Any, Callable, Hashable, Iterable
++
++DependencyPath = str | Path
++BoardBuilder = Callable[[], dict[str, Any]]
++
++
++@dataclass(frozen=True)
++class FileSignature:
++    """Stable source-file fingerprint used for mtime-aware invalidation."""
++
++    path: str
++    exists: bool
++    mtime_ns: int | None
++    size: int | None
++
++    @classmethod
++    def from_path(cls, path: DependencyPath) -> "FileSignature":
++        target = Path(path).resolve()
++        try:
++            stat = target.stat()
++        except OSError:
++            return cls(path=str(target), exists=False, mtime_ns=None, size=None)
++        return cls(path=str(target), exists=True, mtime_ns=stat.st_mtime_ns, size=stat.st_size)
++
++
++@dataclass
++class BoardCacheEntry:
++    payload: dict[str, Any]
++    created_at: float
++    ttl_seconds: float
++    signatures: tuple[FileSignature, ...]
++    hits: int = 0
++    last_hit_at: float | None = None
++
++    def age_seconds(self, now: float | None = None) -> float:
++        return max(0.0, (now if now is not None else time.monotonic()) - self.created_at)
++
++    def ttl_remaining_seconds(self, now: float | None = None) -> float:
++        return max(0.0, self.ttl_seconds - self.age_seconds(now))
++
++
++@dataclass(frozen=True)
++class BoardCacheBuildResult:
++    """Result returned by get_or_build so services can expose cache truthfully."""
++
++    payload: dict[str, Any]
++    hit: bool
++    reason: str
++    key: Hashable
++    age_seconds: float
++    ttl_remaining_seconds: float
++    signatures: tuple[FileSignature, ...] = field(default_factory=tuple)
++
++
++class BoardCache:
++    """Thread-safe, TTL and mtime-aware cache for hot EdgeBoard payloads.
++
++    The cache is intentionally process-local. Under Gunicorn each worker owns its
++    own cache, which is fine for low-latency read paths because the dependency
++    signatures make worker-local entries self-invalidating when pipeline files
++    are updated on disk.
++    """
++
++    def __init__(self, *, ttl_seconds: float = 30.0, now: Callable[[], float] | None = None) -> None:
++        self.ttl_seconds = float(ttl_seconds)
++        self._now = now or time.monotonic
++        self._lock = threading.RLock()
++        self._key_locks: dict[Hashable, threading.RLock] = {}
++        self._entries: dict[Hashable, BoardCacheEntry] = {}
++        self._hits = 0
++        self._misses = 0
++        self._sets = 0
++        self._builds = 0
++        self._invalidations = 0
++
++    def get(self, key: Hashable, *, dependency_paths: Iterable[DependencyPath] = ()) -> BoardCacheBuildResult | None:
++        """Return a cached payload if TTL and dependency signatures are still valid."""
++
++        signatures = self._signatures(dependency_paths)
++        now = self._now()
++        with self._lock:
++            entry = self._entries.get(key)
++            if entry is None:
++                self._misses += 1
++                return None
++            if entry.age_seconds(now) > entry.ttl_seconds:
++                self._entries.pop(key, None)
++                self._misses += 1
++                self._invalidations += 1
++                return None
++            if entry.signatures != signatures:
++                self._entries.pop(key, None)
++                self._misses += 1
++                self._invalidations += 1
++                return None
++            entry.hits += 1
++            entry.last_hit_at = now
++            self._hits += 1
++            return BoardCacheBuildResult(
++                payload=copy.deepcopy(entry.payload),
++                hit=True,
++                reason="hit",
++                key=key,
++                age_seconds=entry.age_seconds(now),
++                ttl_remaining_seconds=entry.ttl_remaining_seconds(now),
++                signatures=entry.signatures,
++            )
++
++    def set(
++        self,
++        key: Hashable,
++        payload: dict[str, Any],
++        *,
++        dependency_paths: Iterable[DependencyPath] = (),
++        ttl_seconds: float | None = None,
++    ) -> BoardCacheBuildResult:
++        """Store a payload with the current source-file signatures."""
++
++        signatures = self._signatures(dependency_paths)
++        ttl = float(self.ttl_seconds if ttl_seconds is None else ttl_seconds)
++        now = self._now()
++        entry = BoardCacheEntry(
++            payload=copy.deepcopy(payload),
++            created_at=now,
++            ttl_seconds=ttl,
++            signatures=signatures,
++        )
++        with self._lock:
++            self._entries[key] = entry
++            self._sets += 1
++        return BoardCacheBuildResult(
++            payload=copy.deepcopy(payload),
++            hit=False,
++            reason="miss_build",
++            key=key,
++            age_seconds=0.0,
++            ttl_remaining_seconds=ttl,
++            signatures=signatures,
++        )
++
++    def get_or_build(
++        self,
++        key: Hashable,
++        builder: BoardBuilder,
++        *,
++        dependency_paths: Iterable[DependencyPath] = (),
++        ttl_seconds: float | None = None,
++    ) -> BoardCacheBuildResult:
++        """Return a valid cached payload or build/store exactly once per key."""
++
++        dependency_paths = tuple(dependency_paths)
++        cached = self.get(key, dependency_paths=dependency_paths)
++        if cached is not None:
++            return cached
++
++        key_lock = self._key_lock_for(key)
++        with key_lock:
++            # Another request may have built the same key while this request was
++            # waiting on the per-key lock. Re-check before doing expensive work.
++            cached = self.get(key, dependency_paths=dependency_paths)
++            if cached is not None:
++                return cached
++            payload = builder()
++            if not isinstance(payload, dict):
++                raise TypeError("BoardCache builder must return a dict payload")
++            with self._lock:
++                self._builds += 1
++            return self.set(key, payload, dependency_paths=dependency_paths, ttl_seconds=ttl_seconds)
++
++    def invalidate(self, key: Hashable | None = None) -> None:
++        """Clear one cache key, or the whole cache when key is omitted."""
++
++        with self._lock:
++            if key is None:
++                removed = len(self._entries)
++                self._entries.clear()
++            else:
++                removed = 1 if key in self._entries else 0
++                self._entries.pop(key, None)
++            self._invalidations += removed
++
++    def status(self) -> dict[str, Any]:
++        """Return dev/debug-safe cache state without embedding full payloads."""
++
++        now = self._now()
++        with self._lock:
++            entries = []
++            for key, entry in self._entries.items():
++                entries.append(
++                    {
++                        "key": repr(key),
++                        "ageSeconds": round(entry.age_seconds(now), 3),
++                        "ttlRemainingSeconds": round(entry.ttl_remaining_seconds(now), 3),
++                        "hitCount": entry.hits,
++                        "lastHitAgeSeconds": None
++                        if entry.last_hit_at is None
++                        else round(max(0.0, now - entry.last_hit_at), 3),
++                        "dependencyCount": len(entry.signatures),
++                        "dependencies": [
++                            {
++                                "path": signature.path,
++                                "exists": signature.exists,
++                                "mtimeNs": signature.mtime_ns,
++                                "size": signature.size,
++                            }
++                            for signature in entry.signatures
++                        ],
++                    }
++                )
++            return {
++                "ttlSeconds": self.ttl_seconds,
++                "entryCount": len(self._entries),
++                "hits": self._hits,
++                "misses": self._misses,
++                "sets": self._sets,
++                "builds": self._builds,
++                "invalidations": self._invalidations,
++                "entries": entries,
++            }
++
++    def _key_lock_for(self, key: Hashable) -> threading.RLock:
++        with self._lock:
++            lock = self._key_locks.get(key)
++            if lock is None:
++                lock = threading.RLock()
++                self._key_locks[key] = lock
++            return lock
++
++    @staticmethod
++    def _signatures(paths: Iterable[DependencyPath]) -> tuple[FileSignature, ...]:
++        return tuple(FileSignature.from_path(path) for path in sorted({str(Path(path).resolve()) for path in paths}))
+diff -ruN mlb_app/services/data_health_dashboard_service.py mlb_app/services/data_health_dashboard_service.py
+--- mlb_app/services/data_health_dashboard_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/data_health_dashboard_service.py	2026-05-07 11:52:19.483872873 +0000
+@@ -0,0 +1,523 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from typing import Any
++
++from mlb_app.services.data_health_service import DataHealthService
++from mlb_app.services.grading_state_service import GradingStateService
++from mlb_app.services.model_registry_service import ModelRegistryService
++from mlb_app.services.playerboard_service import PlayerboardService
++from mlb_app.services.product_state_service import ProductStateService
++from mlb_app.services.workflow_health_service import WorkflowHealthService
++
++Status = str
++
++
++@dataclass(frozen=True)
++class HealthCard:
++    key: str
++    label: str
++    status: Status
++    summary: str
++    detail: str
++    metric: str | int | float = "--"
++    timestamp: str = ""
++    warnings: tuple[str, ...] = ()
++    repairTarget: str = ""
++
++    def as_dict(self) -> dict[str, Any]:
++        return {
++            "key": self.key,
++            "label": self.label,
++            "status": self.status,
++            "summary": self.summary,
++            "detail": self.detail,
++            "metric": self.metric,
++            "timestamp": self.timestamp,
++            "warnings": list(self.warnings),
++            "repairTarget": self.repairTarget,
++        }
++
++
++class DataHealthDashboardService:
++    """Build a product-grade data confidence dashboard from lower-level health payloads."""
++
++    def __init__(
++        self,
++        *,
++        data_health_service: DataHealthService | None = None,
++        playerboard_service: PlayerboardService | None = None,
++        grading_service: GradingStateService | None = None,
++        workflow_service: WorkflowHealthService | None = None,
++        product_state_service: ProductStateService | None = None,
++        model_registry_service: ModelRegistryService | None = None,
++    ) -> None:
++        self.grading_service = grading_service or GradingStateService()
++        self.product_state_service = product_state_service or ProductStateService()
++        self.data_health_service = data_health_service or DataHealthService(
++            grading_service=self.grading_service,
++            product_state_service=self.product_state_service,
++        )
++        self.playerboard_service = playerboard_service or PlayerboardService(
++            grading_service=self.grading_service,
++            product_state_service=self.product_state_service,
++        )
++        self.workflow_service = workflow_service or WorkflowHealthService()
++        self.model_registry_service = model_registry_service or ModelRegistryService()
++
++    def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
++        query = query or {}
++        season_raw = str((query.get("season") or ["2026"])[0] or "2026")
++        date_label = str((query.get("date") or [datetime.now().strftime("%Y-%m-%d")])[0] or "")
++
++        data_health = self.data_health_service.payload({"date": [date_label]})
++        playerboard = self.playerboard_service.health_payload({"season": [season_raw], "date": [date_label]})
++        if (playerboard.get("rowsLoaded") or 0) <= 0 and playerboard.get("latestAvailableDate"):
++            playerboard = self.playerboard_service.health_payload(
++                {"season": [season_raw], "date": [str(playerboard["latestAvailableDate"])]}
++            )
++        grading = self.grading_service.payload({"date": [str(playerboard.get("date") or date_label)]})
++        workflows = self.workflow_service.payload()
++        model_status = self.model_registry_service.status_payload()
++        product_state = self.product_state_service.payload(
++            production_eligible_markets=len(model_status.get("productionEligibleMarkets", [])),
++            grading_ok=bool(grading.get("ok")),
++        )
++
++        cards = self._build_cards(data_health, playerboard, grading, workflows, model_status)
++        phases = self._build_workflow_phases(data_health, playerboard, grading, workflows, model_status)
++        warnings = self._combined_warnings(data_health, playerboard, grading, workflows, model_status)
++        overall_status = self._overall_status(cards)
++
++        return {
++            "status": "ok",
++            "ok": overall_status in {"Good", "Partial"},
++            "version": "data-health-dashboard-v1",
++            "season": int(season_raw) if season_raw.isdigit() else season_raw,
++            "date": date_label,
++            "generatedAt": datetime.now(timezone.utc).isoformat(),
++            "overallStatus": overall_status,
++            "dataConfidence": self._data_confidence(overall_status),
++            "productState": product_state,
++            "latestBoardDate": playerboard.get("date") or playerboard.get("latestAvailableDate") or "",
++            "latestFullyGradedDate": grading.get("latestFullyGradedDate", ""),
++            "summary": {
++                "good": sum(1 for card in cards if card.status == "Good"),
++                "partial": sum(1 for card in cards if card.status == "Partial"),
++                "stale": sum(1 for card in cards if card.status == "Stale"),
++                "missing": sum(1 for card in cards if card.status == "Missing"),
++                "failed": sum(1 for card in cards if card.status == "Failed"),
++                "warnings": len(warnings),
++            },
++            "cards": [card.as_dict() for card in cards],
++            "workflowPhases": phases,
++            "warnings": warnings,
++            "advancedLinks": [
++                {"label": "Pipeline runner", "target": "pipeline"},
++                {"label": "Daily workflow", "target": "daily-workflow"},
++                {"label": "Raw data health JSON", "target": "raw-health"},
++                {"label": "Grading repair", "target": "grading-repair"},
++            ],
++            "raw": {
++                "dataHealth": self._trim_data_health(data_health),
++                "playerboard": self._trim_playerboard(playerboard),
++                "grading": self._trim_grading(grading),
++                "workflows": self._trim_workflows(workflows),
++                "modelStatus": self._trim_model_status(model_status),
++            },
++        }
++
++    def _build_cards(
++        self,
++        data: dict[str, Any],
++        playerboard: dict[str, Any],
++        grading: dict[str, Any],
++        workflows: dict[str, Any],
++        model_status: dict[str, Any],
++    ) -> list[HealthCard]:
++        health = data.get("health") or {}
++        timestamps = data.get("timestamps") or {}
++        savant = data.get("savant") or {}
++        bvp = data.get("batterVsPitcher") or {}
++        markets_present = playerboard.get("marketsPresent") or {}
++        model_markets = model_status.get("markets") or []
++        production_markets = model_status.get("productionEligibleMarkets") or []
++        workflow_summaries = workflows.get("summaries") or {}
++
++        return [
++            HealthCard(
++                key="odds_freshness",
++                label="Odds freshness",
++                status=self._status_from_count(health.get("propCount"), good=1, partial=1),
++                summary=f"{health.get('propCount', 0)} props loaded",
++                detail="Latest player-prop and game-market source coverage for the selected slate.",
++                metric=health.get("propCount", 0),
++                timestamp=str(timestamps.get("latestOddsSnapshot") or timestamps.get("propsFile") or ""),
++                warnings=self._warnings_matching(data, ["PropLine", "odds", "snapshot"]),
++                repairTarget="pipeline",
++            ),
++            HealthCard(
++                key="playerboard_freshness",
++                label="Playerboard freshness",
++                status=self._bool_status(bool(playerboard.get("ok")), exists=bool(playerboard.get("exists"))),
++                summary=f"{playerboard.get('rowsLoaded', 0)} rows for {playerboard.get('date') or '--'}",
++                detail="Research board rows, schema alignment, market display labels, and shifted-row checks.",
++                metric=playerboard.get("rowsLoaded", 0),
++                timestamp=str(playerboard.get("latestSnapshotAt") or ""),
++                warnings=tuple(self._playerboard_warnings(playerboard)),
++                repairTarget="playerboard-repair",
++            ),
++            HealthCard(
++                key="schedule_coverage",
++                label="Schedule coverage",
++                status=self._status_from_count(health.get("mlbGames"), good=1, partial=1),
++                summary=f"{health.get('mlbGames', 0)} games, {health.get('finalGames', 0)} final",
++                detail="Game slate availability and final-game recognition for grading readiness.",
++                metric=health.get("mlbGames", 0),
++                warnings=self._warnings_matching(data, ["schedule", "game summary"]),
++                repairTarget="daily-workflow",
++            ),
++            HealthCard(
++                key="prop_coverage",
++                label="Prop coverage by market",
++                status=self._status_from_count(len(markets_present), good=3, partial=1),
++                summary=f"{len(markets_present)} markets present",
++                detail=self._market_detail(markets_present),
++                metric=len(markets_present),
++                warnings=tuple([] if markets_present else ["No playerboard markets are present for this slate."]),
++                repairTarget="pipeline",
++            ),
++            HealthCard(
++                key="weather_coverage",
++                label="Weather coverage",
++                status=self._status_from_count(health.get("weatherRows"), good=1, partial=1),
++                summary=f"{health.get('weatherRows', 0)} weather rows",
++                detail="Weather and park context that may affect totals, run environment, and player props.",
++                metric=health.get("weatherRows", 0),
++                warnings=self._warnings_matching(data, ["weather"]),
++                repairTarget="weather-sync",
++            ),
++            HealthCard(
++                key="pitcher_coverage",
++                label="Pitcher coverage",
++                status=self._status_from_count(health.get("pitcherLogRows"), good=25, partial=1),
++                summary=f"{health.get('pitcherLogRows', 0)} pitcher log rows",
++                detail="Probable-pitcher and pitcher-game-log coverage used by matchup and strikeout markets.",
++                metric=health.get("pitcherLogRows", 0),
++                warnings=self._warnings_matching(data, ["pitcher"]),
++                repairTarget="season-logs",
++            ),
++            HealthCard(
++                key="lineup_coverage",
++                label="Lineup coverage",
++                status="Partial" if health.get("mlbGames", 0) else "Missing",
++                summary="Lineup confirmation not automated",
++                detail="Lineup status is treated as a risk flag until confirmed-lineup ingestion is available.",
++                metric="Manual",
++                warnings=("Confirmed lineup coverage is not yet a trusted automated source.",),
++                repairTarget="lineups",
++            ),
++            HealthCard(
++                key="bvp_coverage",
++                label="BvP coverage",
++                status=self._coverage_from_payload(bvp),
++                summary=self._coverage_summary(bvp, "BvP rows"),
++                detail="Batter-vs-pitcher history coverage. Missing BvP reduces confidence but does not block research.",
++                metric=self._coverage_metric(bvp),
++                warnings=tuple([] if self._coverage_metric(bvp) else ["No BvP coverage detected for the selected slate."]),
++                repairTarget="bvp-import",
++            ),
++            HealthCard(
++                key="savant_coverage",
++                label="Savant coverage",
++                status=self._coverage_from_payload(savant),
++                summary=self._coverage_summary(savant, "Savant rows"),
++                detail="Savant quality-of-contact and advanced profile coverage for model/context explanation.",
++                metric=self._coverage_metric(savant),
++                warnings=tuple([] if self._coverage_metric(savant) else ["No Savant coverage detected for the selected slate."]),
++                repairTarget="savant-sync",
++            ),
++            HealthCard(
++                key="grading_status",
++                label="Grading status",
++                status=self._grading_status(grading),
++                summary=f"{grading.get('state', 'not_started')} · latest graded {grading.get('latestFullyGradedDate') or '--'}",
++                detail="Latest fully graded slate is kept separate from live odds/playerboard dates.",
++                metric=(grading.get("summary") or {}).get("gradedBacktestRowsForDate", 0),
++                timestamp=str(grading.get("checkedAt") or ""),
++                warnings=tuple(grading.get("warnings") or []),
++                repairTarget="grading-repair",
++            ),
++            HealthCard(
++                key="model_artifacts",
++                label="Model artifacts",
++                status=self._model_status(model_markets, production_markets),
++                summary=f"{len(production_markets)} production-eligible markets",
++                detail=f"{len(model_markets)} registry markets checked; missing artifacts stay research-only.",
++                metric=len(production_markets),
++                warnings=tuple(model_status.get("warnings") or []),
++                repairTarget="model-room",
++            ),
++            HealthCard(
++                key="workflow_summaries",
++                label="Workflow summaries",
++                status=self._workflow_status(workflows, workflow_summaries),
++                summary=self._workflow_summary(workflow_summaries),
++                detail="Morning, postgame, and weekly workflow summary files used for operational observability.",
++                metric=sum(1 for item in workflow_summaries.values() if item.get("exists")),
++                warnings=tuple(workflows.get("warnings") or []),
++                repairTarget="workflow-summaries",
++            ),
++        ]
++
++    def _build_workflow_phases(
++        self,
++        data: dict[str, Any],
++        playerboard: dict[str, Any],
++        grading: dict[str, Any],
++        workflows: dict[str, Any],
++        model_status: dict[str, Any],
++    ) -> list[dict[str, Any]]:
++        health = data.get("health") or {}
++        summaries = workflows.get("summaries") or {}
++        daily_health = summaries.get("dailyHealth") or {}
++        daily_grading = summaries.get("dailyGrading") or {}
++        weekly_repair = summaries.get("weeklyRepair") or {}
++        production_markets = model_status.get("productionEligibleMarkets") or []
++        trained_markets = model_status.get("trainedMarkets") or []
++
++        return [
++            self._phase("morning", "Morning / Pre-slate", [
++                ("Schedule", (health.get("mlbGames") or 0) > 0),
++                ("Odds", (health.get("propCount") or 0) > 0),
++                ("Weather", (health.get("weatherRows") or 0) > 0),
++                ("Playerboard", (playerboard.get("rowsLoaded") or 0) > 0),
++            ], daily_health),
++            self._phase("pre_lock", "Pre-lock", [
++                ("Latest odds snapshot", bool((data.get("timestamps") or {}).get("latestOddsSnapshot"))),
++                ("Best prices", (health.get("propCount") or 0) > 0),
++                ("Readiness gates", bool(model_status.get("markets"))),
++            ], daily_health),
++            self._phase("postgame", "Postgame", [
++                ("Finals", (health.get("finalGames") or 0) > 0),
++                ("Boxscores", (health.get("boxscoresSaved") or 0) > 0),
++                ("Grading", grading.get("state") == "graded"),
++            ], daily_grading),
++            self._phase("weekly", "Weekly", [
++                ("Retraining summary", bool(production_markets) or bool(trained_markets)),
++                ("Calibration/model cards", bool(model_status.get("markets"))),
++                ("Weekly repair summary", bool(weekly_repair.get("exists"))),
++            ], weekly_repair),
++        ]
++
++    @staticmethod
++    def _phase(key: str, label: str, checks: list[tuple[str, bool]], summary: dict[str, Any]) -> dict[str, Any]:
++        passed = sum(1 for _name, ok in checks if ok)
++        total = len(checks)
++        if passed == total:
++            status = "Good"
++        elif passed:
++            status = "Partial"
++        elif summary.get("exists") and not summary.get("ok", True):
++            status = "Failed"
++        else:
++            status = "Missing"
++        return {
++            "key": key,
++            "label": label,
++            "status": status,
++            "progress": {"passed": passed, "total": total},
++            "lastRunDate": summary.get("date", ""),
++            "checkedAt": summary.get("checkedAt", ""),
++            "checks": [{"label": name, "ok": ok} for name, ok in checks],
++            "warnings": list(summary.get("warnings") or []),
++            "errors": list(summary.get("errors") or []),
++        }
++
++    @staticmethod
++    def _status_from_count(value: Any, *, good: int, partial: int) -> Status:
++        try:
++            count = int(value or 0)
++        except (TypeError, ValueError):
++            count = 0
++        if count >= good:
++            return "Good"
++        if count >= partial:
++            return "Partial"
++        return "Missing"
++
++    @staticmethod
++    def _bool_status(ok: bool, *, exists: bool = True) -> Status:
++        if not exists:
++            return "Missing"
++        return "Good" if ok else "Failed"
++
++    @staticmethod
++    def _coverage_metric(payload: dict[str, Any]) -> int:
++        if not isinstance(payload, dict):
++            return 0
++        for key in ("rows", "rowCount", "count", "matchedRows", "coverageRows"):
++            try:
++                value = int(payload.get(key) or 0)
++            except (TypeError, ValueError):
++                value = 0
++            if value:
++                return value
++        return 0
++
++    def _coverage_from_payload(self, payload: dict[str, Any]) -> Status:
++        metric = self._coverage_metric(payload)
++        if metric > 50:
++            return "Good"
++        if metric > 0:
++            return "Partial"
++        return "Missing"
++
++    def _coverage_summary(self, payload: dict[str, Any], label: str) -> str:
++        metric = self._coverage_metric(payload)
++        if metric:
++            return f"{metric} {label}"
++        if isinstance(payload, dict) and payload.get("status"):
++            return str(payload.get("status"))
++        return f"0 {label}"
++
++    @staticmethod
++    def _grading_status(grading: dict[str, Any]) -> Status:
++        state = str(grading.get("state") or "not_started")
++        if state == "graded":
++            return "Good"
++        if state in {"partial", "waiting_for_finals", "boxscores_loaded", "grading_running"}:
++            return "Partial"
++        if state == "failed":
++            return "Failed"
++        return "Missing"
++
++    @staticmethod
++    def _model_status(markets: list[dict[str, Any]], production_markets: list[Any]) -> Status:
++        if production_markets:
++            return "Good"
++        if markets:
++            return "Partial"
++        return "Missing"
++
++    @staticmethod
++    def _workflow_status(workflows: dict[str, Any], summaries: dict[str, Any]) -> Status:
++        if workflows.get("ok") and any(item.get("exists") for item in summaries.values()):
++            return "Good"
++        if summaries:
++            return "Partial"
++        return "Missing"
++
++    @staticmethod
++    def _workflow_summary(summaries: dict[str, Any]) -> str:
++        if not summaries:
++            return "No summaries found"
++        existing = [key for key, item in summaries.items() if item.get("exists")]
++        if existing:
++            return f"{len(existing)} summary file(s) present"
++        return "Summary files not generated yet"
++
++    @staticmethod
++    def _market_detail(markets_present: dict[str, Any]) -> str:
++        if not markets_present:
++            return "No market rows are present in the current playerboard."
++        top = sorted(markets_present.items(), key=lambda item: int(item[1] or 0), reverse=True)[:5]
++        return ", ".join(f"{market}: {count}" for market, count in top)
++
++    @staticmethod
++    def _warnings_matching(payload: dict[str, Any], needles: list[str]) -> tuple[str, ...]:
++        warnings = [str(w) for w in payload.get("warnings", [])]
++        lower_needles = [needle.lower() for needle in needles]
++        matched = [warning for warning in warnings if any(needle in warning.lower() for needle in lower_needles)]
++        return tuple(matched[:3])
++
++    @staticmethod
++    def _playerboard_warnings(playerboard: dict[str, Any]) -> list[str]:
++        warnings: list[str] = []
++        if not playerboard.get("exists"):
++            warnings.append("Playerboard file does not exist yet.")
++        if not playerboard.get("schemaOk"):
++            warnings.append(f"Schema issue: {playerboard.get('schemaIssue') or 'unknown'}")
++        if (playerboard.get("rowsLoaded") or 0) <= 0:
++            warnings.append("No playerboard rows loaded for this date/filter.")
++        if (playerboard.get("badShiftedRows") or 0) > 0:
++            warnings.append(f"{playerboard.get('badShiftedRows')} shifted rows detected.")
++        if (playerboard.get("missingMarketDisplayRows") or 0) > 0:
++            warnings.append(f"{playerboard.get('missingMarketDisplayRows')} rows missing market display labels.")
++        return warnings[:4]
++
++    @staticmethod
++    def _combined_warnings(*payloads: dict[str, Any]) -> list[str]:
++        warnings: list[str] = []
++        for payload in payloads:
++            for warning in payload.get("warnings") or []:
++                text = str(warning)
++                if text not in warnings:
++                    warnings.append(text)
++            for error in payload.get("errors") or []:
++                text = str(error)
++                if text not in warnings:
++                    warnings.append(text)
++        return warnings[:20]
++
++    @staticmethod
++    def _overall_status(cards: list[HealthCard]) -> Status:
++        statuses = [card.status for card in cards]
++        if any(status == "Failed" for status in statuses):
++            return "Failed"
++        if any(status in {"Missing", "Stale"} for status in statuses):
++            return "Partial"
++        if any(status == "Partial" for status in statuses):
++            return "Partial"
++        return "Good"
++
++    @staticmethod
++    def _data_confidence(overall_status: Status) -> str:
++        return {"Good": "Good", "Partial": "Partial", "Stale": "Stale", "Missing": "Missing", "Failed": "Failed"}.get(overall_status, "Partial")
++
++    @staticmethod
++    def _trim_data_health(payload: dict[str, Any]) -> dict[str, Any]:
++        return {
++            "ok": payload.get("ok"),
++            "date": payload.get("date"),
++            "health": payload.get("health", {}),
++            "timestamps": payload.get("timestamps", {}),
++            "warnings": (payload.get("warnings") or [])[:10],
++        }
++
++    @staticmethod
++    def _trim_playerboard(payload: dict[str, Any]) -> dict[str, Any]:
++        return {
++            "ok": payload.get("ok"),
++            "exists": payload.get("exists"),
++            "date": payload.get("date"),
++            "latestAvailableDate": payload.get("latestAvailableDate"),
++            "rowsLoaded": payload.get("rowsLoaded"),
++            "marketsPresent": payload.get("marketsPresent", {}),
++            "dataConfidence": payload.get("dataConfidence"),
++        }
++
++    @staticmethod
++    def _trim_grading(payload: dict[str, Any]) -> dict[str, Any]:
++        return {
++            "ok": payload.get("ok"),
++            "state": payload.get("state"),
++            "date": payload.get("date"),
++            "latestFullyGradedDate": payload.get("latestFullyGradedDate"),
++            "summary": payload.get("summary", {}),
++            "warnings": (payload.get("warnings") or [])[:10],
++        }
++
++    @staticmethod
++    def _trim_workflows(payload: dict[str, Any]) -> dict[str, Any]:
++        return {"ok": payload.get("ok"), "summaries": payload.get("summaries", {}), "warnings": (payload.get("warnings") or [])[:10]}
++
++    @staticmethod
++    def _trim_model_status(payload: dict[str, Any]) -> dict[str, Any]:
++        return {
++            "status": payload.get("status"),
++            "trainedMarkets": payload.get("trainedMarkets", []),
++            "productionEligibleMarkets": payload.get("productionEligibleMarkets", []),
++            "policy": payload.get("policy", {}),
++        }
+diff -ruN mlb_app/services/data_health_service.py mlb_app/services/data_health_service.py
+--- mlb_app/services/data_health_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/data_health_service.py	2026-05-07 11:52:19.483981530 +0000
+@@ -0,0 +1,39 @@
++from __future__ import annotations
++
++from datetime import datetime
++from typing import Any
++
++from mlb_app.services.grading_state_service import GradingStateService
++from mlb_app.services.product_state_service import ProductStateService
++
++
++class DataHealthService:
++    def __init__(
++        self,
++        *,
++        grading_service: GradingStateService | None = None,
++        product_state_service: ProductStateService | None = None,
++    ) -> None:
++        self.grading_service = grading_service or GradingStateService()
++        self.product_state_service = product_state_service or ProductStateService()
++
++    def payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
++        from data_health import data_health_payload
++
++        date_label = str((query.get("date") or [datetime.now().strftime("%Y-%m-%d")])[0] or "")
++        payload = data_health_payload(date_label)
++        grading = self.grading_service.payload({"date": [date_label]})
++        product_state = self.product_state_service.payload(grading_ok=bool(grading.get("ok")))
++        if isinstance(payload, dict):
++            enriched = dict(payload)
++            enriched.setdefault("grading", grading)
++            enriched.setdefault("productState", product_state)
++            enriched.setdefault("latestFullyGradedDate", grading.get("latestFullyGradedDate", ""))
++            enriched.setdefault("trust", {
++                "mode": product_state["state"],
++                "banner": product_state["label"],
++                "message": product_state["message"],
++                "latestFullyGradedDate": grading.get("latestFullyGradedDate", ""),
++            })
++            return enriched
++        return payload
+diff -ruN mlb_app/services/edge_board_service.py mlb_app/services/edge_board_service.py
+--- mlb_app/services/edge_board_service.py	2026-05-07 12:34:23.796949537 +0000
++++ mlb_app/services/edge_board_service.py	2026-05-07 12:32:33.476842707 +0000
+@@ -1,11 +1,14 @@
+ from __future__ import annotations
+ 
+-from typing import Any
++from pathlib import Path
++from typing import Any, Hashable
+ 
++from mlb_app.services.board_cache import BoardCache, BoardCacheBuildResult
+ from mlb_app.services.model_card_service import ModelCardService
+ from mlb_app.services.playerboard_service import PlayerboardService
+ 
+ EDGE_BOARD_VERSION = "2026-05-edge-board-v1"
++DEFAULT_BOARD_CACHE = BoardCache(ttl_seconds=30.0)
+ 
+ 
+ class EdgeBoardService:
+@@ -22,12 +25,32 @@
+         *,
+         playerboard_service: PlayerboardService | None = None,
+         model_card_service: ModelCardService | None = None,
++        board_cache: BoardCache | None = None,
+     ) -> None:
+         self.playerboard_service = playerboard_service or PlayerboardService()
+         self.model_card_service = model_card_service or ModelCardService()
++        self.board_cache = board_cache or DEFAULT_BOARD_CACHE
+         self._cards: dict[str, dict[str, Any]] = {}
+ 
+     def payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
++        cache_key = _board_cache_key(query)
++        dependency_paths = _playerboard_dependency_paths(query)
++
++        # Explicit refresh/save requests are operator-intent paths. Do not serve
++        # them from cache, but store the fresh result for subsequent normal reads.
++        if _bypass_board_cache(query):
++            payload = self._build_payload(query)
++            result = self.board_cache.set(cache_key, payload, dependency_paths=dependency_paths)
++            return self._with_board_cache_metadata(result, served_from_cache=False, reason="bypass_refresh_or_save")
++
++        result = self.board_cache.get_or_build(
++            cache_key,
++            lambda: self._build_payload(query),
++            dependency_paths=dependency_paths,
++        )
++        return self._with_board_cache_metadata(result, served_from_cache=result.hit, reason=result.reason)
++
++    def _build_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
+         board = self.playerboard_service.board_payload(query)
+         raw_rows = _list_rows(board.get("top") or board.get("rows") or [])
+         self._cards = self._load_cards()
+@@ -56,6 +79,30 @@
+             "modelReadiness": board.get("modelReadiness", {}),
+         }
+ 
++    def _with_board_cache_metadata(
++        self,
++        result: BoardCacheBuildResult,
++        *,
++        served_from_cache: bool,
++        reason: str,
++    ) -> dict[str, Any]:
++        payload = dict(result.payload)
++        source = dict(payload.get("source") or {})
++        source["boardCache"] = {
++            "hit": served_from_cache,
++            "reason": reason,
++            "key": repr(result.key),
++            "ageSeconds": round(result.age_seconds, 3),
++            "ttlRemainingSeconds": round(result.ttl_remaining_seconds, 3),
++            "dependencyCount": len(result.signatures),
++        }
++        payload["source"] = source
++        payload["boardCache"] = source["boardCache"]
++        # Preserve the existing top-level cacheHit boolean while making the new
++        # architecture-boundary cache visible to the UI and logs.
++        payload["cacheHit"] = bool(payload.get("cacheHit")) or served_from_cache
++        return payload
++
+     def _load_cards(self) -> dict[str, dict[str, Any]]:
+         payload = self.model_card_service.payload({})
+         cards: dict[str, dict[str, Any]] = {}
+@@ -155,6 +202,43 @@
+         }
+ 
+ 
++def _board_cache_key(query: dict[str, list[str]]) -> Hashable:
++    season = _int_query(query, "season", 2026)
++    date_label = _query_value(query, "date")
++    market = _query_value(query, "market").lower()
++    limit = _int_query(query, "limit", 50)
++    return (EDGE_BOARD_VERSION, season, date_label, market, limit)
++
++
++def _playerboard_dependency_paths(query: dict[str, list[str]]) -> tuple[Path, ...]:
++    season = _int_query(query, "season", 2026)
++    try:
++        from playerboard import playerboard_file
++    except Exception:
++        return ()
++    return (Path(playerboard_file(season)),)
++
++
++def _bypass_board_cache(query: dict[str, list[str]]) -> bool:
++    return _truthy_query(query, "refresh") or _truthy_query(query, "save")
++
++
++def _query_value(query: dict[str, list[str]], key: str, default: str = "") -> str:
++    values = query.get(key) or [default]
++    return _clean(values[0] if values else default)
++
++
++def _int_query(query: dict[str, list[str]], key: str, default: int) -> int:
++    try:
++        return int(_query_value(query, key, str(default)) or default)
++    except (TypeError, ValueError):
++        return default
++
++
++def _truthy_query(query: dict[str, list[str]], key: str) -> bool:
++    return _query_value(query, key).lower() in {"1", "true", "yes", "on"}
++
++
+ def _list_rows(value: Any) -> list[dict[str, Any]]:
+     return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+ 
+diff -ruN mlb_app/services/grading_state_service.py mlb_app/services/grading_state_service.py
+--- mlb_app/services/grading_state_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/grading_state_service.py	2026-05-07 11:52:19.484269404 +0000
+@@ -0,0 +1,170 @@
++from __future__ import annotations
++
++import json
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any
++
++from mlb_app.config import Settings, settings as default_settings
++
++GRADING_STATES = {
++    "not_started",
++    "waiting_for_finals",
++    "boxscores_loaded",
++    "grading_running",
++    "graded",
++    "partial",
++    "failed",
++}
++
++
++@dataclass(frozen=True)
++class GradingState:
++    state: str
++    ok: bool
++    date: str = ""
++    latest_fully_graded_date: str = ""
++    checked_at: str = ""
++    file: str = ""
++    exists: bool = False
++    warnings: tuple[str, ...] = ()
++    errors: tuple[str, ...] = ()
++    summary: dict[str, int] | None = None
++
++    def as_dict(self) -> dict[str, Any]:
++        return {
++            "state": self.state,
++            "ok": self.ok,
++            "date": self.date,
++            "latestFullyGradedDate": self.latest_fully_graded_date,
++            "checkedAt": self.checked_at,
++            "file": self.file,
++            "exists": self.exists,
++            "warnings": list(self.warnings),
++            "errors": list(self.errors),
++            "summary": self.summary or {},
++        }
++
++
++class GradingStateService:
++    """Reads the daily grading summary and exposes bettor-friendly state.
++
++    This service deliberately separates today's board date from the latest fully
++    graded slate. That prevents ungraded rows from being mistaken for completed
++    win-rate or ROI history.
++    """
++
++    def __init__(self, settings: Settings = default_settings, *, data_dir: Path | None = None) -> None:
++        self.settings = settings
++        self.data_dir = data_dir or settings.data_dir
++
++    @property
++    def latest_summary_path(self) -> Path:
++        return self.data_dir / "health" / "latest_grading_summary.json"
++
++    def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
++        query = query or {}
++        requested_date = str((query.get("date") or [""])[0] or "")
++        state = self.read_state(requested_date=requested_date)
++        payload = state.as_dict()
++        payload["requestedDate"] = requested_date
++        return payload
++
++    def read_state(self, *, requested_date: str = "") -> GradingState:
++        path = self.latest_summary_path
++        if not path.exists():
++            return GradingState(
++                state="not_started",
++                ok=False,
++                file=str(path),
++                exists=False,
++                warnings=("No grading summary exists yet. Run Daily playerboard grading after final boxscores.",),
++                checked_at=datetime.now(timezone.utc).isoformat(),
++                summary={
++                    "backtestRowsForDate": 0,
++                    "gradedBacktestRowsForDate": 0,
++                    "mlRowsForDate": 0,
++                    "gradedMlRowsForDate": 0,
++                },
++            )
++
++        try:
++            raw = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
++        except Exception as error:  # noqa: BLE001 - safe boundary for health endpoint
++            return GradingState(
++                state="failed",
++                ok=False,
++                file=str(path),
++                exists=True,
++                checked_at=datetime.now(timezone.utc).isoformat(),
++                errors=(f"Could not read grading summary: {error}",),
++            )
++
++        counts = raw.get("counts") or {}
++        warnings = list(raw.get("warnings") or [])
++        errors = list(raw.get("errors") or [])
++        date = str(raw.get("date") or "")
++        checked_at = str(raw.get("checkedAt") or raw.get("checked_at") or "")
++
++        summary = {
++            "backtestRowsForDate": int(counts.get("backtestRowsForDate") or 0),
++            "gradedBacktestRowsForDate": int(counts.get("gradedBacktestRowsForDate") or 0),
++            "mlRowsForDate": int(counts.get("mlRowsForDate") or 0),
++            "gradedMlRowsForDate": int(counts.get("gradedMlRowsForDate") or 0),
++        }
++
++        if requested_date and date and requested_date != date:
++            warnings.append(f"Latest grading summary is for {date}, not requested date {requested_date}.")
++
++        state = self._infer_state(raw, summary, warnings, errors, requested_date=requested_date, summary_date=date)
++        latest_fully_graded = date if state == "graded" else str(raw.get("latestFullyGradedDate") or raw.get("latest_fully_graded_date") or "")
++        ok = state not in {"failed", "not_started"} and not errors
++
++        return GradingState(
++            state=state,
++            ok=ok,
++            date=date,
++            latest_fully_graded_date=latest_fully_graded,
++            checked_at=checked_at,
++            file=str(path),
++            exists=True,
++            warnings=tuple(warnings),
++            errors=tuple(errors),
++            summary=summary,
++        )
++
++    @staticmethod
++    def _infer_state(
++        raw: dict[str, Any],
++        summary: dict[str, int],
++        warnings: list[str],
++        errors: list[str],
++        *,
++        requested_date: str,
++        summary_date: str,
++    ) -> str:
++        explicit = str(raw.get("state") or raw.get("status") or "").strip().lower()
++        if explicit in GRADING_STATES:
++            return explicit
++        if errors or raw.get("ok") is False:
++            return "failed"
++        if requested_date and summary_date and requested_date != summary_date:
++            return "partial"
++
++        backtest_rows = summary["backtestRowsForDate"]
++        graded_backtest = summary["gradedBacktestRowsForDate"]
++        ml_rows = summary["mlRowsForDate"]
++        graded_ml = summary["gradedMlRowsForDate"]
++        total_rows = backtest_rows + ml_rows
++        total_graded = graded_backtest + graded_ml
++
++        if total_rows <= 0:
++            return "waiting_for_finals"
++        if total_graded <= 0:
++            return "waiting_for_finals"
++        if total_graded < total_rows:
++            return "partial"
++        if warnings:
++            return "partial"
++        return "graded"
+diff -ruN mlb_app/services/model_card_service.py mlb_app/services/model_card_service.py
+--- mlb_app/services/model_card_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/model_card_service.py	2026-05-07 11:52:19.484422823 +0000
+@@ -0,0 +1,366 @@
++from __future__ import annotations
++
++import json
++import math
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any
++
++from mlb_app.config import Settings, settings as default_settings
++from mlb_app.repositories.csv_store import CsvStore
++from mlb_app.repositories.model_store import normalize_market_key
++from mlb_app.services.grading_state_service import GradingStateService
++from mlb_app.services.model_readiness_service import ModelReadinessService
++from mlb_app.services.model_registry_service import DEFAULT_MARKETS, ModelRegistryService
++
++MODEL_CARD_VERSION = "2026-05-trust-card-v1"
++
++
++@dataclass(frozen=True)
++class BacktestMetrics:
++    graded: int = 0
++    wins: int = 0
++    losses: int = 0
++    pushes: int = 0
++    profit_units: float | None = None
++    roi_percent: float | None = None
++    win_rate_percent: float | None = None
++    brier_score: float | None = None
++    log_loss: float | None = None
++    avg_clv_percent: float | None = None
++    source: str = ""
++
++    def as_dict(self) -> dict[str, Any]:
++        return {
++            "graded": self.graded,
++            "wins": self.wins,
++            "losses": self.losses,
++            "pushes": self.pushes,
++            "profitUnits": round(self.profit_units, 2) if self.profit_units is not None else None,
++            "roiPercent": round(self.roi_percent, 2) if self.roi_percent is not None else None,
++            "winRatePercent": round(self.win_rate_percent, 2) if self.win_rate_percent is not None else None,
++            "brierScore": round(self.brier_score, 4) if self.brier_score is not None else None,
++            "logLoss": round(self.log_loss, 4) if self.log_loss is not None else None,
++            "avgClvPercent": round(self.avg_clv_percent, 2) if self.avg_clv_percent is not None else None,
++            "source": self.source,
++        }
++
++
++class ModelCardService:
++    """Builds bettor-facing model cards from registry, grading, and backtest data.
++
++    The card intentionally defaults to conservative status when data is missing.
++    Missing ROI or calibration is not an error; it is a trust signal shown to the UI.
++    """
++
++    def __init__(
++        self,
++        settings: Settings = default_settings,
++        *,
++        csv_store: CsvStore | None = None,
++        registry_service: ModelRegistryService | None = None,
++        readiness_service: ModelReadinessService | None = None,
++        grading_service: GradingStateService | None = None,
++    ) -> None:
++        self.settings = settings
++        self.csv_store = csv_store or CsvStore()
++        self.registry_service = registry_service or ModelRegistryService(settings, csv_store=self.csv_store)
++        self.readiness_service = readiness_service or ModelReadinessService(self.registry_service)
++        self.grading_service = grading_service or GradingStateService(settings, data_dir=settings.data_dir)
++
++    def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
++        query = query or {}
++        requested_market = _query_value(query, "market")
++        markets = [normalize_market_key(requested_market)] if requested_market else list(DEFAULT_MARKETS)
++        cards = [self.card_for_market(market) for market in markets]
++        return {
++            "status": "ok",
++            "version": MODEL_CARD_VERSION,
++            "markets": cards,
++            "summary": self.summary(cards),
++            "policy": {
++                "researchFirst": self.settings.research_mode_default,
++                "requiresMarketSpecificArtifact": True,
++                "requiresCalibrationForConfidentPick": True,
++                "requiresLatestGradedDateForConfidentPick": True,
++            },
++        }
++
++    def card_for_market(self, market: str) -> dict[str, Any]:
++        key = normalize_market_key(market)
++        status = self.registry_service.market_status(key)
++        grading = self.grading_service.payload({})
++        latest_graded_date = str(grading.get("latestFullyGradedDate") or "")
++        gate = self.readiness_service.gate_for_market(key, latest_graded_date=latest_graded_date).as_dict()
++        entry = self.registry_service.registry_entry(key)
++        backtest = self.backtest_metrics(key).as_dict()
++        calibration = self.calibration_payload(entry, backtest)
++        warnings = self.warnings_for(status, gate, backtest, calibration)
++        production_status = gate["readiness"]
++
++        return {
++            "market": key,
++            "marketName": _title(key),
++            "modelStatus": status.get("status") or "not_ready",
++            "productionStatus": production_status,
++            "readinessLabel": gate["label"],
++            "canShowConfidentPick": bool(gate["canShowConfidentPick"]),
++            "reason": gate.get("reason") or status.get("reason") or "",
++            "trainingRows": int(status.get("trainingRows") or 0),
++            "positiveRows": int(status.get("positiveRows") or 0),
++            "negativeRows": int(status.get("negativeRows") or 0),
++            "classCounts": status.get("classCounts") or {},
++            "trainedAt": str(status.get("trainedAt") or entry.get("trained_at") or ""),
++            "latestGradedDate": latest_graded_date,
++            "artifactExists": bool(status.get("artifactExists")),
++            "metadataExists": bool(status.get("metadataExists")),
++            "artifact": status.get("artifact") or "",
++            "calibrated": bool(status.get("calibrated")),
++            "calibration": calibration,
++            "backtest": backtest,
++            "trustWarnings": warnings,
++            "decisionPolicy": self.decision_policy(gate, backtest, warnings),
++        }
++
++    def backtest_metrics(self, market: str) -> BacktestMetrics:
++        source, rows = self._load_backtest_rows()
++        if not rows:
++            return BacktestMetrics(source=source)
++
++        key = normalize_market_key(market)
++        market_rows = [row for row in rows if _same_market(row, key)]
++        if not market_rows:
++            return BacktestMetrics(source=source)
++
++        summary_metrics = _summary_metrics(market_rows, source)
++        if summary_metrics is not None:
++            return summary_metrics
++
++        graded_rows = [row for row in market_rows if _is_graded(row)]
++        graded = len(graded_rows)
++        if graded == 0:
++            return BacktestMetrics(source=source)
++
++        wins = sum(1 for row in graded_rows if _result_value(row) == "win")
++        losses = sum(1 for row in graded_rows if _result_value(row) == "loss")
++        pushes = sum(1 for row in graded_rows if _result_value(row) == "push")
++        profit_values = [_float_or_none(_first(row, "profit", "profit_units", "profitUnits", "units")) for row in graded_rows]
++        profit_values = [value for value in profit_values if value is not None]
++        profit = sum(profit_values) if profit_values else None
++        roi = profit / graded * 100 if profit is not None and graded else _float_or_none(_first(graded_rows[-1], "roi", "roi_percent", "roiPercent"))
++        if roi is not None and abs(roi) <= 1.5:
++            roi *= 100
++        win_rate = wins / max(wins + losses, 1) * 100
++        brier = _average_metric(graded_rows, "brier", "brier_score", "brierScore")
++        log_loss = _average_metric(graded_rows, "log_loss", "logLoss")
++        clv = _average_metric(graded_rows, "clv", "clv_percent", "closing_line_value", "avgClvPercent")
++        if clv is not None and abs(clv) <= 1.5:
++            clv *= 100
++
++        return BacktestMetrics(
++            graded=graded,
++            wins=wins,
++            losses=losses,
++            pushes=pushes,
++            profit_units=profit,
++            roi_percent=roi,
++            win_rate_percent=win_rate,
++            brier_score=brier,
++            log_loss=log_loss,
++            avg_clv_percent=clv,
++            source=source,
++        )
++
++    def calibration_payload(self, entry: dict[str, Any], backtest: dict[str, Any]) -> dict[str, Any]:
++        buckets = entry.get("calibration_buckets") or entry.get("calibrationBuckets") or []
++        if not isinstance(buckets, list):
++            buckets = []
++        return {
++            "status": "calibrated" if entry.get("calibrated") else "uncalibrated",
++            "brierScore": backtest.get("brierScore"),
++            "logLoss": backtest.get("logLoss"),
++            "buckets": buckets,
++            "message": "Calibration metrics available." if entry.get("calibrated") else "Calibration is not yet verified; confidence labels stay conservative.",
++        }
++
++    def warnings_for(
++        self,
++        status: dict[str, Any],
++        gate: dict[str, Any],
++        backtest: dict[str, Any],
++        calibration: dict[str, Any],
++    ) -> list[str]:
++        warnings: list[str] = []
++        if not status.get("artifactExists"):
++            warnings.append("Missing market-specific model artifact.")
++        if not status.get("metadataExists"):
++            warnings.append("Missing feature metadata for this market.")
++        if int(status.get("trainingRows") or 0) < 100:
++            warnings.append("Training sample is small; treat output as research only.")
++        if not status.get("canTrain"):
++            warnings.append("Training data does not currently satisfy minimum two-class requirements.")
++        if not gate.get("latestGradedDate"):
++            warnings.append("No latest fully graded slate is available.")
++        if calibration.get("status") != "calibrated":
++            warnings.append("Probability calibration is not verified.")
++        roi = backtest.get("roiPercent")
++        if roi is None:
++            warnings.append("Market-level backtest ROI is unavailable.")
++        elif float(roi) < 0:
++            warnings.append("Recent market-level ROI is negative.")
++        return warnings
++
++    def decision_policy(self, gate: dict[str, Any], backtest: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
++        if gate.get("canShowConfidentPick") and not warnings:
++            primary = "Potential edge"
++        elif gate.get("readiness") in {"experimental", "production_candidate", "production"}:
++            primary = "Watchlist"
++        else:
++            primary = "No bet"
++        return {
++            "primaryLabel": primary,
++            "allowedLabels": ["No bet", "Watchlist", "Model lean"] if primary != "Potential edge" else ["No bet", "Watchlist", "Model lean", "Potential edge"],
++            "copy": "No confident pick language until artifact, grading, sample-size, and calibration gates pass.",
++        }
++
++    def summary(self, cards: list[dict[str, Any]]) -> dict[str, Any]:
++        production = [card for card in cards if card.get("canShowConfidentPick")]
++        missing = [card for card in cards if not card.get("artifactExists")]
++        return {
++            "totalMarkets": len(cards),
++            "productionEligibleMarkets": len(production),
++            "researchOnlyMarkets": len(cards) - len(production),
++            "missingArtifacts": len(missing),
++        }
++
++    def _load_backtest_rows(self) -> tuple[str, list[dict[str, str]]]:
++        for path in self._backtest_candidates():
++            rows = self.csv_store.read_rows(path)
++            if rows:
++                return str(path), rows
++        summary_json = self.settings.data_dir / "health" / "latest_backtest_summary.json"
++        if summary_json.exists():
++            try:
++                payload = json.loads(summary_json.read_text(encoding="utf-8"))
++            except json.JSONDecodeError:
++                return str(summary_json), []
++            markets = payload.get("markets") if isinstance(payload, dict) else None
++            if isinstance(markets, list):
++                return str(summary_json), [row for row in markets if isinstance(row, dict)]
++        return "", []
++
++    def _backtest_candidates(self) -> list[Path]:
++        data = self.settings.data_dir
++        return [
++            data / "backtests" / "playerboard_backtest_summary.csv",
++            data / "backtests" / "playerboard_backtest.csv",
++            data / "backtest" / "playerboard_backtest_summary.csv",
++            data / "backtest" / "playerboard_backtest.csv",
++            data / "playerboard_backtest_summary.csv",
++            data / "playerboard_backtest.csv",
++            data / "prop_model_backtest_summary.csv",
++            data / "prediction_history.csv",
++        ]
++
++
++def _query_value(query: dict[str, list[str]], name: str, default: str = "") -> str:
++    values = query.get(name) or []
++    return str(values[0]).strip() if values else default
++
++
++def _title(market: str) -> str:
++    return market.replace("_", " ").title()
++
++
++def _first(row: dict[str, Any], *keys: str) -> Any:
++    for key in keys:
++        if key in row and row[key] not in {"", None}:
++            return row[key]
++    return None
++
++
++def _float_or_none(value: Any) -> float | None:
++    if value in {None, ""}:
++        return None
++    try:
++        number = float(str(value).replace("%", "").strip())
++    except (TypeError, ValueError):
++        return None
++    return number if math.isfinite(number) else None
++
++
++def _average_metric(rows: list[dict[str, Any]], *keys: str) -> float | None:
++    values = [_float_or_none(_first(row, *keys)) for row in rows]
++    values = [value for value in values if value is not None]
++    return sum(values) / len(values) if values else None
++
++
++def _summary_metrics(rows: list[dict[str, Any]], source: str) -> BacktestMetrics | None:
++    for row in rows:
++        wins = _float_or_none(_first(row, "wins", "win"))
++        losses = _float_or_none(_first(row, "losses", "loss"))
++        graded = _float_or_none(_first(row, "graded", "graded_props", "gradedProps", "total", "count"))
++        if wins is None and losses is None and graded is None:
++            continue
++        wins_i = int(wins or 0)
++        losses_i = int(losses or 0)
++        pushes_i = int(_float_or_none(_first(row, "pushes", "push")) or 0)
++        graded_i = int(graded or wins_i + losses_i + pushes_i)
++        profit = _float_or_none(_first(row, "profit", "profit_units", "profitUnits", "units"))
++        roi = _float_or_none(_first(row, "roi", "roi_percent", "roiPercent"))
++        if roi is not None and abs(roi) <= 1.5:
++            roi *= 100
++        win_rate = _float_or_none(_first(row, "win_rate", "winRate", "win_rate_percent", "winRatePercent"))
++        if win_rate is None and wins_i + losses_i > 0:
++            win_rate = wins_i / (wins_i + losses_i) * 100
++        elif win_rate is not None and abs(win_rate) <= 1.5:
++            win_rate *= 100
++        clv = _float_or_none(_first(row, "clv", "clv_percent", "closing_line_value", "avgClvPercent"))
++        if clv is not None and abs(clv) <= 1.5:
++            clv *= 100
++        return BacktestMetrics(
++            graded=graded_i,
++            wins=wins_i,
++            losses=losses_i,
++            pushes=pushes_i,
++            profit_units=profit,
++            roi_percent=roi,
++            win_rate_percent=win_rate,
++            brier_score=_float_or_none(_first(row, "brier", "brier_score", "brierScore")),
++            log_loss=_float_or_none(_first(row, "log_loss", "logLoss")),
++            avg_clv_percent=clv,
++            source=source,
++        )
++    return None
++
++
++def _same_market(row: dict[str, Any], market: str) -> bool:
++    row_market = normalize_market_key(str(_first(row, "market", "market_key", "marketKey", "prop_market") or ""))
++    if row_market == market:
++        return True
++    # Older summaries may use display names such as "Batter hits".
++    display = normalize_market_key(str(_first(row, "name", "marketName", "Market") or ""))
++    return display == market
++
++
++def _is_graded(row: dict[str, Any]) -> bool:
++    result = _result_value(row)
++    if result in {"win", "loss", "push"}:
++        return True
++    graded = str(_first(row, "graded", "is_graded", "isGraded") or "").strip().lower()
++    return graded in {"1", "true", "yes", "y"}
++
++
++def _result_value(row: dict[str, Any]) -> str:
++    raw = str(_first(row, "result", "grade", "outcome", "status") or "").strip().lower()
++    if raw in {"w", "won", "win", "1", "true"}:
++        return "win"
++    if raw in {"l", "lost", "loss", "0", "false"}:
++        return "loss"
++    if raw in {"p", "push", "void", "cancelled", "canceled"}:
++        return "push"
++    wins = _float_or_none(_first(row, "wins", "win"))
++    losses = _float_or_none(_first(row, "losses", "loss"))
++    if wins is not None and losses is not None:
++        return "summary"
++    return raw
+diff -ruN mlb_app/services/model_readiness_service.py mlb_app/services/model_readiness_service.py
+--- mlb_app/services/model_readiness_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/model_readiness_service.py	2026-05-07 11:52:19.487830851 +0000
+@@ -0,0 +1,81 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any
++
++from mlb_app.services.model_registry_service import ModelRegistryService
++
++PRODUCTION_STATUSES = {"production_candidate", "production"}
++RESEARCH_STATUSES = {"disabled", "not_ready", "research_only", "experimental"}
++
++
++@dataclass(frozen=True)
++class MarketGate:
++    market: str
++    readiness: str
++    label: str
++    can_show_confident_pick: bool
++    reason: str
++    sample_size: int
++    calibrated: bool
++    latest_graded_date: str = ""
++
++    def as_dict(self) -> dict[str, Any]:
++        return {
++            "market": self.market,
++            "readiness": self.readiness,
++            "label": self.label,
++            "canShowConfidentPick": self.can_show_confident_pick,
++            "reason": self.reason,
++            "sampleSize": self.sample_size,
++            "calibrated": self.calibrated,
++            "latestGradedDate": self.latest_graded_date,
++        }
++
++
++class ModelReadinessService:
++    """Maps artifact/training status to product-facing readiness gates."""
++
++    def __init__(self, registry_service: ModelRegistryService | None = None) -> None:
++        self.registry_service = registry_service or ModelRegistryService()
++
++    def gate_for_market(self, market: str, *, latest_graded_date: str = "") -> MarketGate:
++        status = self.registry_service.market_status(market)
++        readiness = str(status.get("status") or "not_ready")
++        calibrated = bool(status.get("calibrated"))
++        training_rows = int(status.get("trainingRows") or 0)
++
++        if readiness == "disabled":
++            label = "Disabled"
++        elif readiness == "not_ready":
++            label = "No model"
++        elif readiness == "research_only":
++            label = "Research only"
++        elif readiness == "experimental":
++            label = "Experimental"
++        elif readiness == "production_candidate":
++            label = "Production candidate"
++        elif readiness == "production":
++            label = "Production"
++        else:
++            label = readiness.replace("_", " ").title()
++
++        can_show_confident = readiness in PRODUCTION_STATUSES and calibrated and bool(latest_graded_date)
++        return MarketGate(
++            market=str(status.get("market") or market),
++            readiness=readiness,
++            label=label,
++            can_show_confident_pick=can_show_confident,
++            reason=str(status.get("reason") or ""),
++            sample_size=training_rows,
++            calibrated=calibrated,
++            latest_graded_date=latest_graded_date,
++        )
++
++    def payload(self, markets: list[str] | tuple[str, ...], *, latest_graded_date: str = "") -> dict[str, Any]:
++        gates = [self.gate_for_market(market, latest_graded_date=latest_graded_date).as_dict() for market in markets]
++        return {
++            "markets": gates,
++            "productionEligibleMarkets": [row["market"] for row in gates if row["canShowConfidentPick"]],
++            "researchOnlyMarkets": [row["market"] for row in gates if not row["canShowConfidentPick"]],
++        }
+diff -ruN mlb_app/services/model_registry_service.py mlb_app/services/model_registry_service.py
+--- mlb_app/services/model_registry_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/model_registry_service.py	2026-05-07 11:52:19.488152558 +0000
+@@ -0,0 +1,152 @@
++from __future__ import annotations
++
++from collections import Counter
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any
++
++from mlb_app.config import Settings, settings as default_settings
++from mlb_app.repositories.csv_store import CsvStore
++from mlb_app.repositories.model_store import ModelStore, normalize_market_key
++
++DEFAULT_MARKETS: tuple[str, ...] = (
++    "pitcher_strikeouts",
++    "batter_hits",
++    "batter_total_bases",
++    "batter_home_runs",
++    "pitcher_hits_allowed",
++    "pitcher_earned_runs",
++)
++
++MIN_TRAINING_ROWS = 25
++
++
++@dataclass(frozen=True)
++class MarketTrainingStats:
++    total_rows: int
++    positive_rows: int
++    negative_rows: int
++    class_counts: dict[str, int]
++
++    @property
++    def has_two_classes(self) -> bool:
++        return self.positive_rows > 0 and self.negative_rows > 0
++
++    @property
++    def can_train(self) -> bool:
++        return self.total_rows >= MIN_TRAINING_ROWS and self.has_two_classes
++
++
++class ModelRegistryService:
++    """Single source of truth for production-facing market readiness.
++
++    Exact market artifacts are required. A generic prop model may still exist for
++    local experiments, but this service never reports a market as trained unless
++    the market-specific artifact exists.
++    """
++
++    def __init__(
++        self,
++        settings: Settings = default_settings,
++        *,
++        csv_store: CsvStore | None = None,
++        model_store: ModelStore | None = None,
++    ) -> None:
++        self.settings = settings
++        self.csv_store = csv_store or CsvStore()
++        self.model_store = model_store or ModelStore(settings.model_dir)
++
++    def training_stats(self, market: str) -> MarketTrainingStats:
++        key = normalize_market_key(market)
++        path = self.settings.data_dir / "training" / f"{key}_training.csv"
++        rows = self.csv_store.read_rows(path)
++        counts: Counter[str] = Counter()
++        for row in rows:
++            value = str(row.get("over", "")).strip()
++            if value in {"0", "1"}:
++                counts[value] += 1
++        return MarketTrainingStats(
++            total_rows=len(rows),
++            positive_rows=counts.get("1", 0),
++            negative_rows=counts.get("0", 0),
++            class_counts=dict(counts),
++        )
++
++    def registry_entry(self, market: str) -> dict[str, Any]:
++        registry = self.model_store.load_registry(self.settings.model_registry_path)
++        raw = registry.get(normalize_market_key(market), {})
++        return raw if isinstance(raw, dict) else {}
++
++    def artifact_path(self, market: str, entry: dict[str, Any]) -> Path:
++        artifact = str(entry.get("artifact") or "").strip()
++        if artifact:
++            path = Path(artifact)
++            return path if path.is_absolute() else (self.settings.root_dir / path).resolve()
++        return self.model_store.model_path_for_market(market).resolve()
++
++    def market_status(self, market: str) -> dict[str, Any]:
++        key = normalize_market_key(market)
++        entry = self.registry_entry(key)
++        stats = self.training_stats(key)
++        artifact_path = self.artifact_path(key, entry)
++        metadata_path = self.model_store.metadata_path_for_model(artifact_path)
++        artifact_exists = artifact_path.exists()
++        metadata_exists = metadata_path.exists()
++        registry_status = str(entry.get("status") or "research").strip().lower()
++        calibrated = bool(entry.get("calibrated", False))
++
++        if not artifact_exists:
++            readiness = "not_ready"
++            reason = "Missing market-specific model artifact"
++        elif not metadata_exists:
++            readiness = "not_ready"
++            reason = "Missing model feature metadata"
++        elif not stats.has_two_classes:
++            readiness = "research_only"
++            reason = "Training data has one class only"
++        elif stats.total_rows < MIN_TRAINING_ROWS:
++            readiness = "research_only"
++            reason = f"Fewer than {MIN_TRAINING_ROWS} training rows"
++        elif registry_status in {"disabled", "blocked"}:
++            readiness = "disabled"
++            reason = "Market disabled in model registry"
++        else:
++            readiness = registry_status if registry_status else "experimental"
++            reason = "Market-specific model artifact available"
++
++        return {
++            "market": key,
++            "trainingRows": stats.total_rows,
++            "classCounts": stats.class_counts,
++            "positiveRows": stats.positive_rows,
++            "negativeRows": stats.negative_rows,
++            "canTrain": stats.can_train,
++            "modelTrained": artifact_exists and metadata_exists,
++            "artifactExists": artifact_exists,
++            "metadataExists": metadata_exists,
++            "artifact": str(artifact_path),
++            "modelPath": str(artifact_path),
++            "metadataPath": str(metadata_path),
++            "status": readiness,
++            "reason": reason,
++            "trainedAt": str(entry.get("trained_at") or ""),
++            "calibrated": calibrated,
++            "productionEligible": readiness in {"production_candidate", "production"} and calibrated,
++        }
++
++    def status_payload(self, markets: tuple[str, ...] = DEFAULT_MARKETS) -> dict[str, Any]:
++        rows = [self.market_status(market) for market in markets]
++        return {
++            "status": "ok",
++            "mode": "research" if self.settings.research_mode_default else "production",
++            "markets": rows,
++            "readyMarkets": [row["market"] for row in rows if row["canTrain"]],
++            "notReadyMarkets": [row["market"] for row in rows if not row["canTrain"]],
++            "trainedMarkets": [row["market"] for row in rows if row["modelTrained"]],
++            "productionEligibleMarkets": [row["market"] for row in rows if row["productionEligible"]],
++            "policy": {
++                "requiresExactMarketArtifact": True,
++                "genericFallbackAllowed": self.settings.allow_generic_prop_model_fallback,
++                "minimumTrainingRows": MIN_TRAINING_ROWS,
++            },
++        }
+diff -ruN mlb_app/services/picks_service.py mlb_app/services/picks_service.py
+--- mlb_app/services/picks_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/picks_service.py	2026-05-07 11:52:19.488363068 +0000
+@@ -0,0 +1,226 @@
++from __future__ import annotations
++
++import hashlib
++from datetime import datetime, timezone
++from typing import Any
++
++from mlb_app.config import Settings, settings as default_settings
++from mlb_app.repositories.json_store import JsonStore
++from mlb_app.schemas.picks import ACTIVE_PICK_STATUSES, PICK_STATUSES, BankrollSettings, Pick, game_key
++from mlb_app.services.bankroll_service import BankrollService
++
++PICKS_VERSION = "2026-05-my-picks-v1"
++
++
++class PicksService:
++    """Separates user-tracked picks from model suggestions/backtests."""
++
++    def __init__(self, runtime_settings: Settings | None = None, *, bankroll_service: BankrollService | None = None) -> None:
++        self.settings = runtime_settings or default_settings
++        self.bankroll_service = bankroll_service or BankrollService(self.settings)
++        self.store = JsonStore(self.settings.data_dir / "user" / "my_picks.json", default={"version": PICKS_VERSION, "picks": []})
++
++    def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
++        query = query or {}
++        picks = self._filter_picks(self._read_picks(), query)
++        settings = self.bankroll_service.get_settings()
++        return {
++            "status": "ok",
++            "version": PICKS_VERSION,
++            "picks": [pick.to_api() for pick in picks],
++            "pickCount": len(picks),
++            "settings": settings.to_api(),
++            "exposure": self.exposure(picks=picks, settings=settings),
++            "lifecycle": list(PICK_STATUSES),
++            "policy": {
++                "separateFromModelBacktests": True,
++                "message": "These are user-tracked picks only. They do not alter model backtests or market readiness gates.",
++            },
++        }
++
++    def create(self, body: dict[str, Any]) -> dict[str, Any]:
++        now = _now()
++        settings = self.bankroll_service.get_settings()
++        research_only = _is_research_only(body)
++        stake_units = self.bankroll_service.cap_stake_units(_optional_float(body.get("stakeUnits") or body.get("stake_units")), research_only=research_only)
++        base = dict(body)
++        base.update(
++            {
++                "id": body.get("id") or _pick_id(body, now),
++                "createdAt": now,
++                "updatedAt": now,
++                "status": body.get("status") or ("Watching" if stake_units <= 0 else "Placed"),
++                "stakeUnits": stake_units,
++                "stakeAmount": self.bankroll_service.stake_amount(stake_units),
++                "warnings": _pick_warnings(body, stake_units=stake_units, settings=settings),
++            }
++        )
++        pick = Pick.from_api(base)
++
++        def mutate(payload: dict[str, Any]) -> dict[str, Any]:
++            rows = [row for row in _payload_picks(payload) if row.get("id") != pick.id]
++            rows.append(pick.to_api())
++            rows.sort(key=lambda row: str(row.get("createdAt") or ""), reverse=True)
++            return {"version": PICKS_VERSION, "picks": rows}
++
++        self.store.update(mutate)
++        return {"status": "ok", "pick": pick.to_api(), "exposure": self.exposure()}
++
++    def update(self, body: dict[str, Any]) -> dict[str, Any]:
++        pick_id = str(body.get("id") or "").strip()
++        if not pick_id:
++            return {"status": "error", "code": "missing_pick_id", "error": "Pick id is required", "_status": 400}
++        now = _now()
++        updated_pick: Pick | None = None
++
++        def mutate(payload: dict[str, Any]) -> dict[str, Any]:
++            nonlocal updated_pick
++            rows = _payload_picks(payload)
++            next_rows: list[dict[str, Any]] = []
++            found = False
++            for row in rows:
++                if row.get("id") != pick_id:
++                    next_rows.append(row)
++                    continue
++                found = True
++                merged = dict(row)
++                for key, value in body.items():
++                    if key != "id" and value is not None:
++                        merged[key] = value
++                if merged.get("status") not in PICK_STATUSES:
++                    merged["status"] = row.get("status") or "Watching"
++                stake_units = self.bankroll_service.cap_stake_units(_optional_float(merged.get("stakeUnits")), research_only=False)
++                merged["stakeUnits"] = stake_units
++                merged["stakeAmount"] = self.bankroll_service.stake_amount(stake_units)
++                merged["updatedAt"] = now
++                updated_pick = Pick.from_api(merged)
++                next_rows.append(updated_pick.to_api())
++            if not found:
++                raise KeyError(pick_id)
++            next_rows.sort(key=lambda row: str(row.get("createdAt") or ""), reverse=True)
++            return {"version": PICKS_VERSION, "picks": next_rows}
++
++        try:
++            self.store.update(mutate)
++        except KeyError:
++            return {"status": "error", "code": "pick_not_found", "error": "Pick not found", "_status": 404}
++        return {"status": "ok", "pick": updated_pick.to_api() if updated_pick else {}, "exposure": self.exposure()}
++
++    def exposure(self, picks: list[Pick] | None = None, settings: BankrollSettings | None = None) -> dict[str, Any]:
++        settings = settings or self.bankroll_service.get_settings()
++        picks = picks if picks is not None else self._read_picks()
++        active = [pick for pick in picks if pick.status in ACTIVE_PICK_STATUSES]
++        by_game: dict[str, float] = {}
++        by_player: dict[str, float] = {}
++        by_market: dict[str, float] = {}
++        warnings: list[str] = []
++        for pick in active:
++            units = max(0.0, float(pick.stake_units or 0.0))
++            by_game[game_key(pick.team, pick.opponent)] = round(by_game.get(game_key(pick.team, pick.opponent), 0.0) + units, 2)
++            by_player[pick.player or "Unknown player"] = round(by_player.get(pick.player or "Unknown player", 0.0) + units, 2)
++            by_market[pick.market or "unknown_market"] = round(by_market.get(pick.market or "unknown_market", 0.0) + units, 2)
++            if units > settings.max_units_per_bet:
++                warnings.append(f"{pick.player or pick.market} exceeds max units per bet.")
++            if _is_research_label(pick.readiness_label) and units > 0:
++                warnings.append(f"{pick.player or pick.market} is research-only but has stake exposure.")
++        if len(active) > settings.max_bets_per_slate:
++            warnings.append(f"Active picks exceed max bets per slate ({settings.max_bets_per_slate}).")
++        for game, units in by_game.items():
++            if units > settings.max_exposure_per_game_units:
++                warnings.append(f"Game exposure cap exceeded for {game}: {units:.2f}u.")
++        for player, units in by_player.items():
++            if units > settings.max_exposure_per_player_units:
++                warnings.append(f"Player exposure cap exceeded for {player}: {units:.2f}u.")
++        total_units = round(sum(max(0.0, float(pick.stake_units or 0.0)) for pick in active), 2)
++        settled = [pick for pick in picks if pick.status in {"Won", "Lost", "Pushed", "Void", "Cashout"}]
++        profit_units = round(sum(float(pick.profit_units or 0.0) for pick in settled), 2)
++        return {
++            "activePickCount": len(active),
++            "totalStakeUnits": total_units,
++            "totalStakeAmount": round(total_units * settings.default_unit_size, 2),
++            "byGameUnits": _sorted_exposure(by_game),
++            "byPlayerUnits": _sorted_exposure(by_player),
++            "byMarketUnits": _sorted_exposure(by_market),
++            "settledPickCount": len(settled),
++            "profitUnits": profit_units,
++            "profitAmount": round(profit_units * settings.default_unit_size, 2),
++            "warnings": _dedupe(warnings),
++            "caps": {
++                "maxUnitsPerBet": settings.max_units_per_bet,
++                "maxBetsPerSlate": settings.max_bets_per_slate,
++                "maxExposurePerGameUnits": settings.max_exposure_per_game_units,
++                "maxExposurePerPlayerUnits": settings.max_exposure_per_player_units,
++            },
++        }
++
++    def _read_picks(self) -> list[Pick]:
++        return [Pick.from_api(row) for row in _payload_picks(self.store.read())]
++
++    @staticmethod
++    def _filter_picks(picks: list[Pick], query: dict[str, list[str]]) -> list[Pick]:
++        status = str((query.get("status") or [""])[0] or "")
++        date = str((query.get("date") or [""])[0] or "")
++        if status:
++            picks = [pick for pick in picks if pick.status.lower() == status.lower()]
++        if date:
++            picks = [pick for pick in picks if pick.date == date]
++        return picks
++
++
++def _payload_picks(payload: dict[str, Any]) -> list[dict[str, Any]]:
++    rows = payload.get("picks", []) if isinstance(payload, dict) else []
++    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
++
++
++def _pick_id(body: dict[str, Any], now: str) -> str:
++    raw = "|".join(str(body.get(key) or "") for key in ("date", "player", "team", "opponent", "market", "line", "americanOdds", "book")) + f"|{now}"
++    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
++
++
++def _now() -> str:
++    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
++
++
++def _optional_float(value: Any) -> float | None:
++    try:
++        if value in {None, ""}:
++            return None
++        return float(value)
++    except (TypeError, ValueError):
++        return None
++
++
++def _is_research_label(label: str) -> bool:
++    return any(token in str(label or "").lower() for token in ("research", "not", "missing", "disabled", "no model"))
++
++
++def _is_research_only(body: dict[str, Any]) -> bool:
++    return "no bet" in str(body.get("decisionLabel") or "").lower() or "research" in str(body.get("suggestedStake") or "").lower() or _is_research_label(str(body.get("readinessLabel") or ""))
++
++
++def _pick_warnings(body: dict[str, Any], *, stake_units: float, settings: BankrollSettings) -> list[str]:
++    warnings: list[str] = []
++    if stake_units <= 0:
++        warnings.append("Saved as watchlist/research with 0u exposure.")
++    if stake_units > settings.max_units_per_bet:
++        warnings.append("Requested stake exceeded the max per-bet cap and was reduced.")
++    if _is_research_only(body) and stake_units > 0:
++        warnings.append("Research-only market should not carry stake exposure.")
++    if not str(body.get("latestGradedDate") or "").strip():
++        warnings.append("No latest fully graded slate is attached to this pick.")
++    return _dedupe(warnings)
++
++
++def _sorted_exposure(values: dict[str, float]) -> list[dict[str, Any]]:
++    return [{"key": key, "units": units} for key, units in sorted(values.items(), key=lambda item: (-item[1], item[0])) if units > 0]
++
++
++def _dedupe(values: list[str]) -> list[str]:
++    seen: set[str] = set()
++    result: list[str] = []
++    for value in values:
++        text = str(value).strip()
++        if text and text not in seen:
++            seen.add(text)
++            result.append(text)
++    return result
+diff -ruN mlb_app/services/playerboard_service.py mlb_app/services/playerboard_service.py
+--- mlb_app/services/playerboard_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/playerboard_service.py	2026-05-07 11:52:19.488510370 +0000
+@@ -0,0 +1,167 @@
++from __future__ import annotations
++
++from collections import Counter
++from typing import Any
++
++from mlb_app.services.grading_state_service import GradingStateService
++from mlb_app.services.model_readiness_service import ModelReadinessService
++from mlb_app.services.product_state_service import ProductStateService
++
++
++class PlayerboardService:
++    """Read-only playerboard API logic extracted from the legacy handler."""
++
++    def __init__(
++        self,
++        *,
++        grading_service: GradingStateService | None = None,
++        readiness_service: ModelReadinessService | None = None,
++        product_state_service: ProductStateService | None = None,
++    ) -> None:
++        self.grading_service = grading_service or GradingStateService()
++        self.readiness_service = readiness_service or ModelReadinessService()
++        self.product_state_service = product_state_service or ProductStateService()
++
++    def health_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
++        from playerboard import (
++            PLAYERBOARD_FIELDS,
++            clean,
++            normalize_market,
++            playerboard_file,
++            playerboard_row_looks_shifted,
++            playerboard_schema_issue,
++            read_csv_rows,
++        )
++
++        season = int((query.get("season") or ["2026"])[0])
++        requested_date = str((query.get("date") or [""])[0] or "")
++        market = str((query.get("market") or [""])[0] or "")
++        target_market = normalize_market(market) if market else ""
++
++        path = playerboard_file(season)
++        rows = read_csv_rows(path)
++        available_dates = sorted({clean(row.get("date")) for row in rows if clean(row.get("date"))})
++        latest_available_date = available_dates[-1] if available_dates else ""
++        date_label = requested_date or latest_available_date
++
++        filtered = []
++        for row in rows:
++            if date_label and clean(row.get("date")) != date_label:
++                continue
++            if target_market and normalize_market(row.get("market")) != target_market:
++                continue
++            filtered.append(row)
++
++        market_counts = Counter(normalize_market(row.get("market")) for row in filtered if clean(row.get("market")))
++        missing_market_display = [row for row in filtered if not clean(row.get("marketDisplay"))]
++        bad_shifted_rows = [row for row in filtered if playerboard_row_looks_shifted(row)]
++        snapshots = sorted({clean(row.get("snapshotAt")) for row in filtered if clean(row.get("snapshotAt"))})
++        latest_snapshot = snapshots[-1] if snapshots else ""
++        schema_issue = playerboard_schema_issue(path, PLAYERBOARD_FIELDS)
++        grading = self.grading_service.payload({"date": [date_label]} if date_label else {})
++        readiness = self.readiness_service.payload(tuple(sorted(market_counts)), latest_graded_date=grading.get("latestFullyGradedDate", ""))
++        product_state = self.product_state_service.payload(
++            production_eligible_markets=len(readiness.get("productionEligibleMarkets", [])),
++            grading_ok=bool(grading.get("ok")),
++        )
++
++        ok = bool(path.exists() and not schema_issue and len(filtered) > 0 and not bad_shifted_rows)
++        data_confidence = self._data_confidence(ok=ok, grading_state=str(grading.get("state") or ""), rows=len(filtered))
++
++        return {
++            "season": season,
++            "date": date_label,
++            "requestedDate": requested_date,
++            "latestAvailableDate": latest_available_date,
++            "availableDates": available_dates[-30:],
++            "usedLatestAvailableDate": bool(requested_date and requested_date != date_label and date_label == latest_available_date),
++            "market": market,
++            "file": str(path),
++            "exists": path.exists(),
++            "schemaVersion": "PLAYERBOARD_FIELDS_v2",
++            "schemaOk": path.exists() and not schema_issue,
++            "schemaIssue": schema_issue,
++            "expectedColumnCount": len(PLAYERBOARD_FIELDS),
++            "expectedColumns": PLAYERBOARD_FIELDS,
++            "rowsLoaded": len(filtered),
++            "totalRowsInFile": len(rows),
++            "marketsPresent": dict(sorted(market_counts.items())),
++            "missingMarketDisplayRows": len(missing_market_display),
++            "badShiftedRows": len(bad_shifted_rows),
++            "latestSnapshotAt": latest_snapshot,
++            "snapshots": snapshots[-10:],
++            "sampleBadRows": bad_shifted_rows[:5],
++            "sampleMissingMarketDisplayRows": missing_market_display[:5],
++            "ok": ok,
++            "productState": product_state,
++            "grading": grading,
++            "latestFullyGradedDate": grading.get("latestFullyGradedDate", ""),
++            "dataConfidence": data_confidence,
++            "slateStatus": self._slate_status(rows=len(filtered), latest_snapshot=latest_snapshot, grading_state=str(grading.get("state") or "")),
++            "modelReadiness": readiness,
++            "trust": {
++                "mode": product_state["state"],
++                "banner": product_state["label"],
++                "message": product_state["message"],
++                "decisionLabels": product_state["allowedDecisionLabels"],
++                "latestFullyGradedDate": grading.get("latestFullyGradedDate", ""),
++                "canShowConfidentPicks": bool(readiness.get("productionEligibleMarkets")),
++            },
++        }
++
++    def board_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
++        from playerboard import build_playerboard, load_saved_playerboard
++
++        season = int((query.get("season") or ["2026"])[0])
++        date_label = str((query.get("date") or [""])[0] or "")
++        market = str((query.get("market") or [""])[0] or "")
++        limit = int((query.get("limit") or ["50"])[0])
++        save = str((query.get("save") or ["0"])[0]).lower() in {"1", "true", "yes"}
++        refresh = str((query.get("refresh") or ["0"])[0]).lower() in {"1", "true", "yes"}
++        build_if_missing = str((query.get("buildIfMissing") or ["0"])[0]).lower() in {"1", "true", "yes"}
++
++        if not save and not refresh:
++            cached = load_saved_playerboard(season=season, date_label=date_label, market=market, limit=limit)
++            if cached.get("cacheHit") or not build_if_missing:
++                return self._attach_trust(cached, query)
++
++        payload = build_playerboard(season=season, date_label=date_label, market=market, limit=limit, save=save)
++        return self._attach_trust(payload, query)
++
++    def _attach_trust(self, payload: dict[str, Any], query: dict[str, list[str]]) -> dict[str, Any]:
++        if not isinstance(payload, dict):
++            return payload
++        health = self.health_payload(query)
++        enriched = dict(payload)
++        enriched.setdefault("productState", health.get("productState"))
++        enriched.setdefault("latestFullyGradedDate", health.get("latestFullyGradedDate", ""))
++        enriched.setdefault("dataConfidence", health.get("dataConfidence", "Missing"))
++        enriched.setdefault("modelReadiness", health.get("modelReadiness", {}))
++        enriched.setdefault("trust", health.get("trust", {}))
++        return enriched
++
++    @staticmethod
++    def _data_confidence(*, ok: bool, grading_state: str, rows: int) -> str:
++        if rows <= 0:
++            return "Missing"
++        if not ok:
++            return "Partial"
++        if grading_state in {"failed", "not_started"}:
++            return "Partial"
++        if grading_state in {"partial", "waiting_for_finals"}:
++            return "Partial"
++        return "Good"
++
++    @staticmethod
++    def _slate_status(*, rows: int, latest_snapshot: str, grading_state: str) -> dict[str, Any]:
++        if rows <= 0:
++            label = "No saved board"
++        elif grading_state == "graded":
++            label = "Board ready · latest graded slate available"
++        else:
++            label = "Today board: live odds / research mode"
++        return {
++            "label": label,
++            "latestOddsTimestamp": latest_snapshot,
++            "gradingState": grading_state,
++        }
+diff -ruN mlb_app/services/product_state_service.py mlb_app/services/product_state_service.py
+--- mlb_app/services/product_state_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/product_state_service.py	2026-05-07 11:52:19.488656106 +0000
+@@ -0,0 +1,79 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from typing import Any
++
++from mlb_app.config import Settings, settings as default_settings
++from mlb_app.schemas.common import ProductState
++
++
++@dataclass(frozen=True)
++class ProductStatePayload:
++    state: ProductState
++    label: str
++    severity: str
++    message: str
++    research_mode: bool
++    allowed_decision_labels: tuple[str, ...]
++
++    def as_dict(self) -> dict[str, Any]:
++        return {
++            "state": self.state.value,
++            "productState": self.state.value,
++            "label": self.label,
++            "severity": self.severity,
++            "message": self.message,
++            "researchMode": self.research_mode,
++            "allowedDecisionLabels": list(self.allowed_decision_labels),
++            "generatedAt": datetime.now(timezone.utc).isoformat(),
++        }
++
++
++class ProductStateService:
++    """Central product-state gate for bettor-facing trust language.
++
++    The default is intentionally conservative. Markets can become production
++    candidates later, but the overall product surface stays in Research Mode
++    until model readiness, grading freshness, and calibration gates are wired to
++    an explicit promotion workflow.
++    """
++
++    def __init__(self, settings: Settings = default_settings) -> None:
++        self.settings = settings
++
++    def current(self, *, production_eligible_markets: int = 0, grading_ok: bool = False) -> ProductStatePayload:
++        if self.settings.research_mode_default:
++            return ProductStatePayload(
++                state=ProductState.RESEARCH,
++                label="Research Mode",
++                severity="warning",
++                message=(
++                    "Model outputs are experimental. Use this board for research, "
++                    "not blind tailing or automated betting."
++                ),
++                research_mode=True,
++                allowed_decision_labels=("No bet", "Watchlist", "Model lean"),
++            )
++
++        if production_eligible_markets > 0 and grading_ok:
++            return ProductStatePayload(
++                state=ProductState.PRODUCTION_TRACKED,
++                label="Production Tracked",
++                severity="success",
++                message="Production markets have model cards, grading history, and calibration gates enabled.",
++                research_mode=False,
++                allowed_decision_labels=("No bet", "Watchlist", "Potential edge"),
++            )
++
++        return ProductStatePayload(
++            state=ProductState.EXPERIMENTAL,
++            label="Experimental Model",
++            severity="caution",
++            message="Some models are available, but market-level readiness gates are still experimental.",
++            research_mode=True,
++            allowed_decision_labels=("No bet", "Watchlist", "Model lean"),
++        )
++
++    def payload(self, **kwargs: Any) -> dict[str, Any]:
++        return self.current(**kwargs).as_dict()
+diff -ruN mlb_app/services/prop_detail_service.py mlb_app/services/prop_detail_service.py
+--- mlb_app/services/prop_detail_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/prop_detail_service.py	2026-05-07 11:52:19.488837588 +0000
+@@ -0,0 +1,372 @@
++from __future__ import annotations
++
++from typing import Any
++
++from mlb_app.services.edge_board_service import EdgeBoardService
++from mlb_app.services.model_card_service import ModelCardService
++from mlb_app.services.picks_service import PicksService
++
++PROP_DETAIL_VERSION = "2026-05-prop-detail-v1"
++
++
++class PropDetailService:
++    """Builds a bettor-facing drilldown for one edge-board prop.
++
++    The detail contract intentionally uses already-pregame fields from the edge
++    board/model card layer. It does not reach into postgame grading rows, so the
++    page can explain context without introducing prediction-time leakage.
++    """
++
++    def __init__(
++        self,
++        *,
++        edge_board_service: EdgeBoardService | None = None,
++        model_card_service: ModelCardService | None = None,
++        picks_service: PicksService | None = None,
++    ) -> None:
++        self.edge_board_service = edge_board_service or EdgeBoardService()
++        self.model_card_service = model_card_service or ModelCardService()
++        self.picks_service = picks_service or PicksService()
++
++    def payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
++        lookup = _lookup(query)
++        board_query = {
++            "season": [lookup.get("season") or "2026"],
++            "date": [lookup.get("date")],
++            "market": [lookup.get("market")],
++            "limit": [lookup.get("limit") or "500"],
++            "buildIfMissing": [lookup.get("buildIfMissing") or "1"],
++        }
++        board_query = {key: value for key, value in board_query.items() if value and value[0]}
++        board = self.edge_board_service.payload(board_query)
++        row = self._find_row(board.get("rows") or [], lookup)
++        if not row:
++            row = self._fallback_row(lookup)
++        market = _clean(row.get("market") or lookup.get("market"))
++        model_card = self.model_card_service.card_for_market(market) if market else {}
++        detail = self._build_detail(row, model_card, board, lookup)
++        return {"status": "ok", "version": PROP_DETAIL_VERSION, "detail": detail}
++
++    def _find_row(self, rows: list[Any], lookup: dict[str, str]) -> dict[str, Any]:
++        candidates = [row for row in rows if isinstance(row, dict)]
++        target_id = _clean(lookup.get("id"))
++        if target_id:
++            for row in candidates:
++                if _clean(row.get("id")) == target_id:
++                    return row
++        for row in candidates:
++            if _matches(row, lookup):
++                return row
++        return {}
++
++    @staticmethod
++    def _fallback_row(lookup: dict[str, str]) -> dict[str, Any]:
++        return {
++            "id": lookup.get("id") or "prop-detail-fallback",
++            "date": lookup.get("date"),
++            "player": lookup.get("player"),
++            "team": lookup.get("team"),
++            "opponent": lookup.get("opponent"),
++            "market": lookup.get("market"),
++            "marketDisplay": _title(lookup.get("market", "")),
++            "line": lookup.get("line"),
++            "americanOdds": lookup.get("americanOdds") or lookup.get("odds"),
++            "book": lookup.get("book") or "Best available",
++            "decisionLabel": lookup.get("decisionLabel") or "No bet",
++            "readinessLabel": lookup.get("readinessLabel") or "Research only",
++            "confidence": lookup.get("confidence") or "Research",
++        }
++
++    def _build_detail(self, row: dict[str, Any], model_card: dict[str, Any], board: dict[str, Any], lookup: dict[str, str]) -> dict[str, Any]:
++        probability = _float(_first(row, "modelProbabilityPercent", "finalProbabilityPercent", "probabilityPercent", "probability"))
++        odds = _first(row, "americanOdds", "odds", "price")
++        implied = _float(_first(row, "impliedProbabilityPercent", "bookImpliedProbabilityPercent", "impliedPercent"))
++        if implied is None:
++            implied = american_implied_probability(odds)
++        edge = _float(_first(row, "edgePercent", "finalEdgePercent", "modelEdgePercent", "edge"))
++        if edge is None and probability is not None and implied is not None:
++            edge = probability - implied
++        fair_odds = probability_to_american(probability)
++        warnings = _dedupe(list(row.get("trustWarnings") or []) + list(model_card.get("trustWarnings") or []))
++        missing = self._missing_context(row, probability, implied)
++        correlation = self._correlation_warnings(row)
++        tracking_payload = self._tracking_payload(row, model_card, probability, implied, edge)
++
++        return {
++            "id": _clean(row.get("id") or lookup.get("id")),
++            "overview": {
++                "date": _clean(row.get("date") or lookup.get("date") or board.get("date")),
++                "player": _clean(row.get("player")),
++                "team": _clean(row.get("team")),
++                "opponent": _clean(row.get("opponent")),
++                "matchup": _matchup(row),
++                "market": _clean(row.get("market")),
++                "marketDisplay": _clean(row.get("marketDisplay")) or _title(_clean(row.get("market"))),
++                "line": _clean(row.get("line")),
++                "americanOdds": _clean(odds),
++                "book": _clean(row.get("book")) or "Best available",
++                "gameTime": _clean(row.get("gameTime")),
++                "decisionLabel": _clean(row.get("decisionLabel")) or "No bet",
++                "readinessLabel": _clean(row.get("readinessLabel") or model_card.get("readinessLabel")) or "Research only",
++                "confidence": _clean(row.get("confidence")) or "Research",
++                "productState": board.get("productState") or {},
++                "dataConfidence": board.get("dataConfidence") or "Missing",
++            },
++            "priceComparison": {
++                "bestAvailable": {
++                    "book": _clean(row.get("book")) or "Best available",
++                    "americanOdds": _clean(odds) or "Not available",
++                    "impliedProbabilityPercent": _round(implied),
++                },
++                "noVigFairEstimate": {
++                    "modelProbabilityPercent": _round(probability),
++                    "fairAmericanOdds": fair_odds or "Not available",
++                    "edgePercent": _round(edge),
++                    "note": "Fair price is derived from model probability when available; no-vig market consensus requires multi-book opposite-side prices.",
++                },
++                "books": self._book_rows(row, odds, implied),
++            },
++            "modelExplanation": {
++                "market": model_card.get("market") or row.get("market"),
++                "modelStatus": model_card.get("modelStatus") or "not_ready",
++                "productionStatus": model_card.get("productionStatus") or "research_only",
++                "canShowConfidentPick": bool(model_card.get("canShowConfidentPick")),
++                "trainingRows": int(model_card.get("trainingRows") or row.get("trainingRows") or 0),
++                "positiveRows": int(model_card.get("positiveRows") or row.get("positiveRows") or 0),
++                "negativeRows": int(model_card.get("negativeRows") or row.get("negativeRows") or 0),
++                "latestGradedDate": _clean(model_card.get("latestGradedDate") or row.get("latestGradedDate") or board.get("latestFullyGradedDate")),
++                "calibrationStatus": _clean((model_card.get("calibration") or {}).get("status") or row.get("calibrationStatus")) or "uncalibrated",
++                "backtest": model_card.get("backtest") or {},
++                "decisionPolicy": model_card.get("decisionPolicy") or {},
++                "reasons": _detail_reasons(row, probability, implied, edge, model_card),
++            },
++            "playerContext": {
++                "seasonAverage": _context_value(row, "seasonAverage", "seasonAvg", "season_avg", "avg", "battingAverage"),
++                "last5": _context_value(row, "last5", "last5Average", "last5Avg", "recent5", "lastFive"),
++                "last10": _context_value(row, "last10", "last10Average", "last10Avg", "recent10", "lastTen"),
++                "last20": _context_value(row, "last20", "last20Average", "last20Avg", "recent20"),
++                "homeAwaySplit": _context_value(row, "homeAwaySplit", "homeAway", "splitHomeAway"),
++                "opponentSplit": _context_value(row, "opponentSplit", "vsOpponent", "bvp", "batterVsPitcher"),
++                "note": "Unavailable fields mean the current board row did not carry that split into the pregame detail contract.",
++            },
++            "gameContext": {
++                "park": _context_value(row, "park", "venue", "ballpark"),
++                "weather": _context_value(row, "weather", "weatherSummary", "weatherContext"),
++                "lineupStatus": _context_value(row, "lineupStatus", "lineup", "battingOrder"),
++                "probablePitcher": _context_value(row, "pitcher", "probablePitcher", "opposingPitcher"),
++                "teamTotal": _context_value(row, "teamTotal", "teamTotalRuns", "impliedTeamTotal"),
++                "startTime": _clean(row.get("gameTime")) or "Not available",
++            },
++            "riskContext": {
++                "sampleSize": int(model_card.get("trainingRows") or row.get("trainingRows") or 0),
++                "missingData": missing,
++                "trustWarnings": warnings,
++                "correlationWarnings": correlation,
++                "suggestedStake": _clean(row.get("suggestedStake")) or "Research only",
++                "exposure": self.picks_service.exposure(),
++            },
++            "tracking": {
++                "separateFromModelBacktests": True,
++                "defaultStatus": "Watching",
++                "defaultStakeUnits": 0,
++                "payload": tracking_payload,
++            },
++        }
++
++    @staticmethod
++    def _book_rows(row: dict[str, Any], odds: Any, implied: float | None) -> list[dict[str, Any]]:
++        raw_books = row.get("books") or row.get("bookPrices") or row.get("prices") or []
++        books: list[dict[str, Any]] = []
++        if isinstance(raw_books, list):
++            for item in raw_books:
++                if not isinstance(item, dict):
++                    continue
++                item_odds = _first(item, "americanOdds", "odds", "price")
++                books.append(
++                    {
++                        "book": _clean(_first(item, "book", "sportsbook", "bookmaker")) or "Book",
++                        "americanOdds": _clean(item_odds) or "Not available",
++                        "impliedProbabilityPercent": _round(american_implied_probability(item_odds)),
++                    }
++                )
++        if not books:
++            books.append(
++                {
++                    "book": _clean(row.get("book")) or "Best available",
++                    "americanOdds": _clean(odds) or "Not available",
++                    "impliedProbabilityPercent": _round(implied),
++                }
++            )
++        return books[:12]
++
++    @staticmethod
++    def _missing_context(row: dict[str, Any], probability: float | None, implied: float | None) -> list[str]:
++        checks = {
++            "model probability": probability,
++            "book implied probability": implied,
++            "game time": row.get("gameTime"),
++            "line": row.get("line"),
++            "book": row.get("book"),
++            "latest graded slate": row.get("latestGradedDate"),
++        }
++        return [label for label, value in checks.items() if value in {None, ""}]
++
++    @staticmethod
++    def _correlation_warnings(row: dict[str, Any]) -> list[str]:
++        warnings: list[str] = []
++        if row.get("player"):
++            warnings.append("Check exposure to the same player before placing correlated props.")
++        if row.get("team") and row.get("opponent"):
++            warnings.append("Check game-level exposure before stacking props from this matchup.")
++        return warnings
++
++    @staticmethod
++    def _tracking_payload(row: dict[str, Any], model_card: dict[str, Any], probability: float | None, implied: float | None, edge: float | None) -> dict[str, Any]:
++        return {
++            "date": _clean(row.get("date")),
++            "player": _clean(row.get("player")),
++            "market": _clean(row.get("market")),
++            "marketDisplay": _clean(row.get("marketDisplay")) or _title(_clean(row.get("market"))),
++            "team": _clean(row.get("team")),
++            "opponent": _clean(row.get("opponent")),
++            "line": _clean(row.get("line")),
++            "americanOdds": _clean(row.get("americanOdds")),
++            "book": _clean(row.get("book")) or "Best available",
++            "decisionLabel": _clean(row.get("decisionLabel")) or "No bet",
++            "readinessLabel": _clean(row.get("readinessLabel") or model_card.get("readinessLabel")) or "Research only",
++            "confidence": _clean(row.get("confidence")) or "Research",
++            "modelProbabilityPercent": _round(probability),
++            "impliedProbabilityPercent": _round(implied),
++            "edgePercent": _round(edge),
++            "latestGradedDate": _clean(row.get("latestGradedDate") or model_card.get("latestGradedDate")),
++            "suggestedStake": _clean(row.get("suggestedStake")) or "Research only",
++            "source": "prop_detail",
++            "status": "Watching",
++            "stakeUnits": 0,
++        }
++
++
++def _lookup(query: dict[str, list[str]]) -> dict[str, str]:
++    keys = [
++        "id",
++        "season",
++        "date",
++        "market",
++        "player",
++        "team",
++        "opponent",
++        "line",
++        "americanOdds",
++        "odds",
++        "book",
++        "decisionLabel",
++        "readinessLabel",
++        "confidence",
++        "limit",
++        "buildIfMissing",
++    ]
++    return {key: _query_value(query, key) for key in keys}
++
++
++def _query_value(query: dict[str, list[str]], name: str, default: str = "") -> str:
++    values = query.get(name) or []
++    return str(values[0]).strip() if values else default
++
++
++def _matches(row: dict[str, Any], lookup: dict[str, str]) -> bool:
++    for key in ("player", "team", "opponent", "market", "line"):
++        wanted = _clean(lookup.get(key)).lower()
++        if wanted and _clean(row.get(key)).lower() != wanted:
++            return False
++    return bool(_clean(lookup.get("player")) or _clean(lookup.get("market")))
++
++
++def _clean(value: Any) -> str:
++    return str(value or "").strip()
++
++
++def _first(row: dict[str, Any], *keys: str) -> Any:
++    for key in keys:
++        value = row.get(key)
++        if value not in {None, ""}:
++            return value
++    return ""
++
++
++def _float(value: Any) -> float | None:
++    try:
++        if value in {None, ""}:
++            return None
++        text = str(value).strip().replace("%", "")
++        return float(text)
++    except (TypeError, ValueError):
++        return None
++
++
++def _round(value: float | None) -> str:
++    return "" if value is None else f"{value:.2f}"
++
++
++def _title(value: str) -> str:
++    return _clean(value).replace("_", " ").title() or "Market"
++
++
++def _matchup(row: dict[str, Any]) -> str:
++    team = _clean(row.get("team"))
++    opponent = _clean(row.get("opponent"))
++    return " vs ".join(part for part in (team, opponent) if part) or "Matchup unavailable"
++
++
++def _context_value(row: dict[str, Any], *keys: str) -> str:
++    for key in keys:
++        value = row.get(key)
++        if value not in {None, ""}:
++            if isinstance(value, (dict, list)):
++                return "Available"
++            return str(value)
++    return "Not available"
++
++
++def american_implied_probability(value: Any) -> float | None:
++    try:
++        odds = int(str(value).strip())
++    except (TypeError, ValueError):
++        return None
++    if odds < 0:
++        return abs(odds) / (abs(odds) + 100) * 100
++    if odds > 0:
++        return 100 / (odds + 100) * 100
++    return None
++
++
++def probability_to_american(probability_percent: float | None) -> str:
++    if probability_percent is None or probability_percent <= 0 or probability_percent >= 100:
++        return ""
++    p = probability_percent / 100
++    if p >= 0.5:
++        return str(int(round(-(p / (1 - p)) * 100)))
++    return f"+{int(round(((1 - p) / p) * 100))}"
++
++
++def _detail_reasons(row: dict[str, Any], probability: float | None, implied: float | None, edge: float | None, model_card: dict[str, Any]) -> list[str]:
++    reasons: list[str] = []
++    if probability is not None and implied is not None:
++        reasons.append(f"Model probability {probability:.2f}% versus book-implied {implied:.2f}%.")
++    if edge is not None:
++        reasons.append(f"Estimated edge is {edge:.2f} percentage points before risk gates.")
++    rows = int(model_card.get("trainingRows") or row.get("trainingRows") or 0)
++    reasons.append(f"Market sample size: {rows:,} training rows." if rows else "No market-specific sample size is available.")
++    status = _clean(model_card.get("readinessLabel") or row.get("readinessLabel")) or "Research only"
++    reasons.append(f"Readiness gate: {status}.")
++    return reasons[:4]
++
++
++def _dedupe(values: list[Any]) -> list[str]:
++    seen: set[str] = set()
++    result: list[str] = []
++    for value in values:
++        text = _clean(value)
++        if text and text not in seen:
++            seen.add(text)
++            result.append(text)
++    return result
+diff -ruN mlb_app/services/time_validation.py mlb_app/services/time_validation.py
+--- mlb_app/services/time_validation.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/time_validation.py	2026-05-07 11:52:19.488998921 +0000
+@@ -0,0 +1,111 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import date, datetime, timedelta
++from typing import Any, Iterable, Sequence
++
++LEAKAGE_COLUMN_TOKENS: tuple[str, ...] = (
++    "actual",
++    "result",
++    "graded",
++    "grade_",
++    "postgame",
++    "boxscore",
++    "final_",
++    "close_",  # only allowed if the prediction timestamp is after close; fail by default
++    "settled",
++    "win_loss",
++    "profit",
++    "roi",
++)
++
++
++@dataclass(frozen=True)
++class ChronologicalSplit:
++    train_rows: list[dict[str, Any]]
++    validation_rows: list[dict[str, Any]]
++    train_start: date | None
++    train_end: date | None
++    validation_start: date | None
++    validation_end: date | None
++
++    def metadata(self) -> dict[str, Any]:
++        return {
++            "strategy": "chronological",
++            "trainRows": len(self.train_rows),
++            "validationRows": len(self.validation_rows),
++            "trainStart": self.train_start.isoformat() if self.train_start else "",
++            "trainEnd": self.train_end.isoformat() if self.train_end else "",
++            "validationStart": self.validation_start.isoformat() if self.validation_start else "",
++            "validationEnd": self.validation_end.isoformat() if self.validation_end else "",
++        }
++
++
++def parse_date_value(value: Any) -> date:
++    if isinstance(value, date) and not isinstance(value, datetime):
++        return value
++    if isinstance(value, datetime):
++        return value.date()
++    text = str(value or "").strip()
++    if not text:
++        raise ValueError("Missing date value")
++    return datetime.fromisoformat(text[:10]).date()
++
++
++def chronological_train_validation_split(
++    rows: Iterable[dict[str, Any]],
++    *,
++    date_column: str = "date",
++    validation_fraction: float = 0.2,
++    embargo_days: int = 0,
++) -> ChronologicalSplit:
++    dated_rows = [(parse_date_value(row.get(date_column)), row) for row in rows]
++    if not dated_rows:
++        return ChronologicalSplit([], [], None, None, None, None)
++    dated_rows.sort(key=lambda item: item[0])
++    unique_dates = sorted({item[0] for item in dated_rows})
++    if len(unique_dates) < 2:
++        raise ValueError("Chronological validation requires at least two distinct dates")
++    validation_date_count = max(1, int(round(len(unique_dates) * validation_fraction)))
++    validation_start = unique_dates[-validation_date_count]
++    train_cutoff = validation_start - timedelta(days=embargo_days)
++
++    train_rows = [row for row_date, row in dated_rows if row_date < train_cutoff]
++    validation_rows = [row for row_date, row in dated_rows if row_date >= validation_start]
++    if not train_rows or not validation_rows:
++        raise ValueError("Chronological split produced an empty train or validation set")
++
++    train_dates = [parse_date_value(row[date_column]) for row in train_rows]
++    validation_dates = [parse_date_value(row[date_column]) for row in validation_rows]
++    return ChronologicalSplit(
++        train_rows=train_rows,
++        validation_rows=validation_rows,
++        train_start=min(train_dates),
++        train_end=max(train_dates),
++        validation_start=min(validation_dates),
++        validation_end=max(validation_dates),
++    )
++
++
++def find_leakage_columns(
++    columns: Sequence[str],
++    *,
++    allowed_columns: set[str] | None = None,
++    denied_tokens: Sequence[str] = LEAKAGE_COLUMN_TOKENS,
++) -> list[str]:
++    allowed = {column.lower() for column in (allowed_columns or set())}
++    leaks: list[str] = []
++    for column in columns:
++        lowered = column.lower()
++        if lowered in allowed:
++            continue
++        if any(token in lowered for token in denied_tokens):
++            leaks.append(column)
++    return leaks
++
++
++def assert_no_postgame_leakage(columns: Sequence[str], *, allowed_columns: set[str] | None = None) -> None:
++    leaks = find_leakage_columns(columns, allowed_columns=allowed_columns)
++    if leaks:
++        joined = ", ".join(sorted(leaks))
++        raise ValueError(f"Potential postgame/leakage columns are not allowed at prediction time: {joined}")
+diff -ruN mlb_app/services/workflow_health_service.py mlb_app/services/workflow_health_service.py
+--- mlb_app/services/workflow_health_service.py	1970-01-01 00:00:00.000000000 +0000
++++ mlb_app/services/workflow_health_service.py	2026-05-07 11:52:19.489142257 +0000
+@@ -0,0 +1,66 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from typing import Any
++
++from mlb_app.config import Settings, settings as default_settings
++
++
++class WorkflowHealthService:
++    def __init__(self, settings: Settings = default_settings, *, data_dir: Path | None = None) -> None:
++        self.settings = settings
++        self.data_dir = data_dir or settings.data_dir
++
++    def payload(self) -> dict[str, Any]:
++        health_dir = self.data_dir / "health"
++        summary_files = {
++            "dailyHealth": health_dir / "latest_daily_health.json",
++            "dailyGrading": health_dir / "latest_grading_summary.json",
++            "weeklyRepair": health_dir / "latest_weekly_repair.json",
++        }
++        summaries: dict[str, Any] = {}
++        warnings: list[str] = []
++        errors: list[str] = []
++        for key, path in summary_files.items():
++            item = self._read_summary(key, path)
++            summaries[key] = item
++            warnings.extend(f"{key}: {warning}" for warning in item.get("warnings", []))
++            errors.extend(f"{key}: {error}" for error in item.get("errors", []))
++            if item.get("exists") and not item.get("ok"):
++                errors.append(f"{key}: latest summary is not OK.")
++        return {
++            "ok": not errors,
++            "healthDir": str(health_dir),
++            "summaries": summaries,
++            "warnings": warnings,
++            "errors": errors,
++        }
++
++    @staticmethod
++    def _read_summary(key: str, path: Path) -> dict[str, Any]:
++        item: dict[str, Any] = {
++            "key": key,
++            "exists": path.exists(),
++            "file": str(path),
++            "size": path.stat().st_size if path.exists() else 0,
++            "ok": False,
++            "date": "",
++            "checkedAt": "",
++            "warnings": [],
++            "errors": [],
++        }
++        if not path.exists():
++            item["warnings"].append(f"{path.name} does not exist yet.")
++            return item
++        try:
++            payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
++        except Exception as error:  # noqa: BLE001 - safe health boundary
++            item["errors"].append(f"could not read {path.name}: {error}")
++            return item
++        item["ok"] = bool(payload.get("ok", True))
++        item["date"] = str(payload.get("date", ""))
++        item["checkedAt"] = str(payload.get("checkedAt", payload.get("checked_at", "")))
++        item["warnings"] = list(payload.get("warnings") or [])
++        item["errors"] = list(payload.get("errors") or [])
++        return item
+--- /dev/null	2026-05-07 11:51:16.675512858 +0000
++++ tests/test_board_cache.py	2026-05-07 12:33:20.102252763 +0000
+@@ -0,0 +1,203 @@
++from __future__ import annotations
++
++import os
++from pathlib import Path
++
++from mlb_app.services.board_cache import BoardCache
++from mlb_app.services.edge_board_service import EdgeBoardService
++
++
++class Clock:
++    def __init__(self) -> None:
++        self.value = 1000.0
++
++    def __call__(self) -> float:
++        return self.value
++
++    def advance(self, seconds: float) -> None:
++        self.value += seconds
++
++
++class FakePlayerboardService:
++    def __init__(self) -> None:
++        self.calls = 0
++
++    def board_payload(self, query: dict[str, list[str]]) -> dict[str, object]:
++        self.calls += 1
++        return {
++            "season": 2026,
++            "date": "2026-05-07",
++            "cacheHit": False,
++            "propsLoaded": 1,
++            "cardsBuilt": 1,
++            "top": [
++                {
++                    "date": "2026-05-07",
++                    "player": "Example Batter",
++                    "team": "NYY",
++                    "opponent": "BOS",
++                    "market": "batter_hits",
++                    "line": "0.5",
++                    "americanOdds": "-110",
++                    "finalEdgePercent": "3.2",
++                    "finalProbabilityPercent": "58.1",
++                    "impliedProbabilityPercent": "52.4",
++                    "confidence": "Medium",
++                }
++            ],
++            "productState": {"state": "research_mode"},
++            "latestFullyGradedDate": "2026-05-06",
++            "dataConfidence": "Good",
++            "modelReadiness": {},
++            "trust": {},
++        }
++
++
++class FakeModelCardService:
++    def payload(self, query: dict[str, list[str]]) -> dict[str, object]:
++        return {
++            "markets": [
++                {
++                    "market": "batter_hits",
++                    "readinessLabel": "Research only",
++                    "productionStatus": "research_only",
++                    "canShowConfidentPick": False,
++                    "trainingRows": 25,
++                    "positiveRows": 12,
++                    "negativeRows": 13,
++                    "trustWarnings": ["Insufficient production evidence."],
++                    "calibration": {"status": "uncalibrated"},
++                }
++            ]
++        }
++
++    def card_for_market(self, market: str) -> dict[str, object]:
++        return {}
++
++
++def touch_with_new_mtime(path: Path, ns: int) -> None:
++    path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
++    os.utime(path, ns=(ns, ns))
++
++
++def test_board_cache_hits_within_ttl_when_dependency_is_unchanged(tmp_path: Path) -> None:
++    source = tmp_path / "playerboard.csv"
++    source.write_text("snapshotAt,season,date\nnow,2026,2026-05-07\n", encoding="utf-8")
++    clock = Clock()
++    cache = BoardCache(ttl_seconds=30, now=clock)
++    builds = {"count": 0}
++
++    def builder() -> dict[str, object]:
++        builds["count"] += 1
++        return {"rows": [{"player": "A"}]}
++
++    first = cache.get_or_build(("edge", 2026), builder, dependency_paths=(source,))
++    second = cache.get_or_build(("edge", 2026), builder, dependency_paths=(source,))
++
++    assert first.hit is False
++    assert second.hit is True
++    assert builds["count"] == 1
++    assert cache.status()["hits"] == 1
++
++
++def test_board_cache_invalidates_when_dependency_mtime_or_size_changes(tmp_path: Path) -> None:
++    source = tmp_path / "playerboard.csv"
++    source.write_text("snapshotAt,season,date\nnow,2026,2026-05-07\n", encoding="utf-8")
++    os.utime(source, ns=(1_000_000_000, 1_000_000_000))
++    clock = Clock()
++    cache = BoardCache(ttl_seconds=30, now=clock)
++    builds = {"count": 0}
++
++    def builder() -> dict[str, object]:
++        builds["count"] += 1
++        return {"generation": builds["count"]}
++
++    first = cache.get_or_build(("edge", 2026), builder, dependency_paths=(source,))
++    touch_with_new_mtime(source, 2_000_000_000)
++    second = cache.get_or_build(("edge", 2026), builder, dependency_paths=(source,))
++
++    assert first.payload["generation"] == 1
++    assert second.payload["generation"] == 2
++    assert second.hit is False
++    assert builds["count"] == 2
++    assert cache.status()["invalidations"] >= 1
++
++
++def test_board_cache_expires_after_ttl(tmp_path: Path) -> None:
++    source = tmp_path / "playerboard.csv"
++    source.write_text("snapshotAt,season,date\nnow,2026,2026-05-07\n", encoding="utf-8")
++    clock = Clock()
++    cache = BoardCache(ttl_seconds=10, now=clock)
++    builds = {"count": 0}
++
++    def builder() -> dict[str, object]:
++        builds["count"] += 1
++        return {"generation": builds["count"]}
++
++    cache.get_or_build(("edge", 2026), builder, dependency_paths=(source,))
++    clock.advance(11)
++    result = cache.get_or_build(("edge", 2026), builder, dependency_paths=(source,))
++
++    assert result.hit is False
++    assert result.payload["generation"] == 2
++
++
++def test_board_cache_returns_deepcopy_to_prevent_mutation_bleed(tmp_path: Path) -> None:
++    source = tmp_path / "playerboard.csv"
++    source.write_text("snapshotAt,season,date\nnow,2026,2026-05-07\n", encoding="utf-8")
++    cache = BoardCache(ttl_seconds=30)
++
++    result = cache.get_or_build(("edge", 2026), lambda: {"rows": [{"player": "A"}]}, dependency_paths=(source,))
++    result.payload["rows"][0]["player"] = "MUTATED"
++    second = cache.get_or_build(("edge", 2026), lambda: {"rows": []}, dependency_paths=(source,))
++
++    assert second.hit is True
++    assert second.payload["rows"][0]["player"] == "A"
++
++
++def test_edge_board_service_reuses_board_cache(monkeypatch, tmp_path: Path) -> None:
++    source = tmp_path / "playerboard.csv"
++    source.write_text("snapshotAt,season,date\nnow,2026,2026-05-07\n", encoding="utf-8")
++    fake_playerboard = FakePlayerboardService()
++    cache = BoardCache(ttl_seconds=30)
++    monkeypatch.setattr(
++        "mlb_app.services.edge_board_service._playerboard_dependency_paths",
++        lambda query: (source,),
++    )
++    service = EdgeBoardService(
++        playerboard_service=fake_playerboard,
++        model_card_service=FakeModelCardService(),
++        board_cache=cache,
++    )
++
++    first = service.payload({"season": ["2026"], "date": ["2026-05-07"], "limit": ["50"]})
++    second = service.payload({"season": ["2026"], "date": ["2026-05-07"], "limit": ["50"]})
++
++    assert first["boardCache"]["hit"] is False
++    assert second["boardCache"]["hit"] is True
++    assert second["cacheHit"] is True
++    assert fake_playerboard.calls == 1
++
++
++def test_edge_board_service_rebuilds_when_playerboard_csv_changes(monkeypatch, tmp_path: Path) -> None:
++    source = tmp_path / "playerboard.csv"
++    source.write_text("snapshotAt,season,date\nnow,2026,2026-05-07\n", encoding="utf-8")
++    os.utime(source, ns=(1_000_000_000, 1_000_000_000))
++    fake_playerboard = FakePlayerboardService()
++    cache = BoardCache(ttl_seconds=30)
++    monkeypatch.setattr(
++        "mlb_app.services.edge_board_service._playerboard_dependency_paths",
++        lambda query: (source,),
++    )
++    service = EdgeBoardService(
++        playerboard_service=fake_playerboard,
++        model_card_service=FakeModelCardService(),
++        board_cache=cache,
++    )
++
++    service.payload({"season": ["2026"], "date": ["2026-05-07"], "limit": ["50"]})
++    touch_with_new_mtime(source, 2_000_000_000)
++    payload = service.payload({"season": ["2026"], "date": ["2026-05-07"], "limit": ["50"]})
++
++    assert payload["boardCache"]["hit"] is False
++    assert fake_playerboard.calls == 2

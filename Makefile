@@ -1,4 +1,4 @@
-.PHONY: install-dev test test-contracts coverage lint format typecheck ci run serve serve-asgi run-modular refresh-slate validate-slate health smoke smoke-asgi smoke-live safe-export security test-ui browsers validate-contracts validate-retirement clean
+.PHONY: install-dev compile-locks verify-locks test test-contracts coverage lint format typecheck ci run serve serve-asgi run-modular refresh-slate validate-slate health smoke smoke-asgi smoke-live safe-export security test-ui browsers validate-contracts validate-retirement clean
 
 PORT ?= 8765
 HOST ?= 127.0.0.1
@@ -9,7 +9,15 @@ SAFE_EXPORT_MAX_MB ?= 25
 
 install-dev:
 	python -m pip install --upgrade pip
-	python -m pip install -r requirements.txt -r requirements-dev.txt
+	python -m pip install -r requirements/dev.lock.txt
+
+compile-locks:
+	uv pip compile requirements/base.in -o requirements/base.lock.txt
+	uv pip compile requirements/ml.in -o requirements/ml.lock.txt
+	uv pip compile requirements/dev.in -o requirements/dev.lock.txt
+
+verify-locks:
+	python -c "from pathlib import Path; missing=[str(p) for p in [Path('requirements/base.lock.txt'),Path('requirements/ml.lock.txt'),Path('requirements/dev.lock.txt')] if not p.exists()]; assert not missing, f'Missing lockfiles: {missing}'"
 
 browsers:
 	npm install
@@ -33,7 +41,7 @@ format:
 typecheck:
 	mypy mlb_app --config-file pyproject.toml
 
-ci: security lint typecheck test smoke validate-retirement
+ci: verify-locks security lint typecheck test smoke validate-retirement
 
 # Canonical local runtime: mlb_app only.
 run:
@@ -50,7 +58,7 @@ serve-asgi:
 
 # Phase 11: refresh the selected Outlier slate through the canonical daily pipeline.
 SLATE_DATE ?= $(shell python -c "from datetime import datetime; print(datetime.now().strftime('%Y-%m-%d'))")
-SEASON ?= 2026
+SEASON ?= $(shell python -c "from mlb_app.config import settings; print(settings.current_season)")
 
 refresh-slate:
 	python tools/run_daily_slate_pipeline.py --date $(SLATE_DATE) --season $(SEASON) --limit 500 --source-mode canonical
@@ -85,7 +93,7 @@ security:
 	python tools/security_preflight.py
 
 validate-contracts:
-	python tools/validate_data_contracts.py --root . --season 2026
+	python tools/validate_data_contracts.py --root . --season $(SEASON)
 
 validate-retirement:
 	python tools/validate_app_py_retirement.py --root .

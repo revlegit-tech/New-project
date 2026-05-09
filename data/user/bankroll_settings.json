@@ -1,0 +1,12 @@
+{
+  "settings": {
+    "bankroll": 1002.0,
+    "conservativeMode": true,
+    "defaultUnitSize": 10.0,
+    "maxBetsPerSlate": 12,
+    "maxExposurePerGameUnits": 1.5,
+    "maxExposurePerPlayerUnits": 0.75,
+    "maxUnitsPerBet": 0.5,
+    "stakingMethod": "flat"
+  }
+}

@@ -1,0 +1,8 @@
+# Canonical production runtime dependencies.
+fastapi
+uvicorn[standard]
+gunicorn
+anyio
+pydantic
+python-mlb-statsapi
+MLB-StatsAPI

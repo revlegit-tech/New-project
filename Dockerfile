@@ -5,10 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+COPY requirements/ ./requirements/
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir -r requirements.txt \
-    && python -m pip install --no-cache-dir "gunicorn>=22.0,<24.0"
+    && python -m pip install --no-cache-dir -r requirements/ml.lock.txt
 
 COPY . .
 
