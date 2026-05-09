@@ -24,7 +24,7 @@ def test_sqlite_database_runs_migrations_and_enables_wal(tmp_path: Path) -> None
 
     versions = db.migration_versions()
 
-    assert versions == ["0001_initial", "0002_picks", "0003_prediction_events"]
+    assert versions == ["0001_initial", "0002_picks", "0003_prediction_events", "0004_board_snapshot"]
     with sqlite3.connect(settings.state_db_path) as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
     assert journal_mode.lower() == "wal"

@@ -25,14 +25,21 @@ def call_wsgi(path: str, method: str = "GET", body: bytes = b"") -> tuple[str, l
     return captured["status"], captured["headers"], b"".join(chunks)
 
 
-def test_wsgi_app_status_returns_json() -> None:
+def test_wsgi_legacy_excludes_fastapi_owned_product_routes() -> None:
     status, headers, body = call_wsgi("/api/app/status")
-    assert status.startswith("200 ")
+    assert status.startswith("404 ")
     assert any(key.lower() == "content-type" and "application/json" in value for key, value in headers)
     assert any(key.lower() == "x-request-id" and value for key, value in headers)
     payload = json.loads(body.decode("utf-8"))
-    assert payload["status"] == "ok"
-    assert payload["productState"] == "research_mode"
+    assert payload["code"] == "not_found"
+
+
+def test_wsgi_legacy_no_longer_serves_sprint9c_migrated_routes() -> None:
+    status, headers, body = call_wsgi("/api/prop-ml/status")
+    assert status.startswith("404 ")
+    assert any(key.lower() == "content-type" and "application/json" in value for key, value in headers)
+    payload = json.loads(body.decode("utf-8"))
+    assert payload["code"] == "not_found"
 
 
 def test_wsgi_unknown_api_returns_json_404() -> None:

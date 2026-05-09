@@ -90,6 +90,8 @@ class AccessLogEvent:
     mutation: bool = False
     rate_limited: bool = False
     auth_mode: str | None = None
+    direct_client_ip: str | None = None
+    effective_client_ip: str | None = None
 
     def as_json(self) -> str:
         payload: dict[str, Any] = {
@@ -110,6 +112,10 @@ class AccessLogEvent:
             payload["rate_limited"] = True
         if self.auth_mode:
             payload["auth_mode"] = self.auth_mode
+        if self.direct_client_ip:
+            payload["directClientIp"] = self.direct_client_ip
+        if self.effective_client_ip:
+            payload["effectiveClientIp"] = self.effective_client_ip
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 

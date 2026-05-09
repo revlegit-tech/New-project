@@ -21,7 +21,7 @@ class DataHealthService:
         self.product_state_service = product_state_service or ProductStateService(settings=self.settings)
 
     def payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
-        from data_health import data_health_payload
+        from mlb_app.services.data_health_payloads import data_health_payload
 
         date_label = str((query.get("date") or [datetime.now().strftime("%Y-%m-%d")])[0] or "")
         payload = data_health_payload(date_label)

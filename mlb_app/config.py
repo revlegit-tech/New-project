@@ -27,6 +27,28 @@ def _int_from_env(name: str, fallback: int, source: Mapping[str, str] | None = N
         return fallback
 
 
+def _float_from_env(name: str, fallback: float, source: Mapping[str, str] | None = None) -> float:
+    raw = (source or os.environ).get(name, "")
+    try:
+        return float(str(raw).strip()) if str(raw).strip() else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _bool_from_env(name: str, fallback: bool, source: Mapping[str, str] | None = None) -> bool:
+    raw = (source or os.environ).get(name, "")
+    if str(raw).strip() == "":
+        return fallback
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _csv_tuple_from_env(name: str, fallback: tuple[str, ...], source: Mapping[str, str] | None = None) -> tuple[str, ...]:
+    raw = (source or os.environ).get(name, "")
+    if not str(raw).strip():
+        return fallback
+    return tuple(part.strip() for part in str(raw).replace("\n", ",").split(",") if part.strip())
+
+
 @dataclass(frozen=True)
 class Settings:
     """Runtime paths and safety flags for the modular backend.
@@ -45,6 +67,21 @@ class Settings:
     research_mode_default: bool = True
     current_season: int = active_mlb_season()
     db_path: Path | None = None
+    board_cache_ttl_seconds: float = 30.0
+    board_cache_max_keys: int = 256
+    blocking_work_max_concurrent: int = 24
+    blocking_work_timeout_seconds: float = 5.0
+    edge_board_timeout_seconds: float = 5.0
+    playerboard_timeout_seconds: float = 5.0
+    prop_detail_timeout_seconds: float = 2.0
+    model_snapshot_cache_ttl_seconds: float = 60.0
+    csp_report_only: bool = False
+    csp_allow_inline: bool = False
+    read_rate_limit_per_minute: int = 120
+    read_rate_limit_burst: int = 30
+    admin_rate_limit_per_minute: int = 10
+    rate_limit_max_buckets: int = 8192
+    trusted_proxy_cidrs: tuple[str, ...] = ("127.0.0.1/32", "::1/128")
 
     @property
     def state_db_path(self) -> Path:
@@ -74,6 +111,21 @@ class Settings:
             research_mode_default=research_mode not in {"0", "false", "no", "off"},
             current_season=season,
             db_path=db_path,
+            board_cache_ttl_seconds=_float_from_env("MLB_BOARD_CACHE_TTL_SECONDS", 30.0),
+            board_cache_max_keys=_int_from_env("MLB_BOARD_CACHE_MAX_KEYS", 256),
+            blocking_work_max_concurrent=_int_from_env("MLB_BLOCKING_WORK_MAX_CONCURRENT", 24),
+            blocking_work_timeout_seconds=_float_from_env("MLB_BLOCKING_WORK_TIMEOUT_SECONDS", 5.0),
+            edge_board_timeout_seconds=_float_from_env("MLB_EDGE_BOARD_TIMEOUT_SECONDS", 5.0),
+            playerboard_timeout_seconds=_float_from_env("MLB_PLAYERBOARD_TIMEOUT_SECONDS", 5.0),
+            prop_detail_timeout_seconds=_float_from_env("MLB_PROP_DETAIL_TIMEOUT_SECONDS", 2.0),
+            model_snapshot_cache_ttl_seconds=_float_from_env("MLB_MODEL_SNAPSHOT_CACHE_TTL_SECONDS", 60.0),
+            csp_report_only=_bool_from_env("MLB_CSP_REPORT_ONLY", False),
+            csp_allow_inline=_bool_from_env("MLB_CSP_ALLOW_INLINE", False),
+            read_rate_limit_per_minute=_int_from_env("MLB_READ_RATE_LIMIT_PER_MINUTE", 120),
+            read_rate_limit_burst=_int_from_env("MLB_READ_RATE_LIMIT_BURST", 30),
+            admin_rate_limit_per_minute=_int_from_env("MLB_ADMIN_RATE_LIMIT_PER_MINUTE", 10),
+            rate_limit_max_buckets=_int_from_env("MLB_RATE_LIMIT_MAX_BUCKETS", 8192),
+            trusted_proxy_cidrs=_csv_tuple_from_env("MLB_TRUSTED_PROXY_CIDRS", ("127.0.0.1/32", "::1/128")),
         )
 
     def season_from_query(self, query: dict[str, list[str]] | None = None, key: str = "season") -> int:

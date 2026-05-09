@@ -1,13 +1,28 @@
-# Phase 9 ASGI Migration Scaffold
+# ASGI Runtime Consolidation
 
-`mlb_app.wsgi:application` remains the canonical production runtime. Phase 9 adds
-`mlb_app.asgi:app` as a contract-matched sidecar runtime so we can compare FastAPI
-behavior without rewriting the service layer or changing frontend payloads.
+`mlb_app.asgi:app` is the canonical production runtime. It builds the native FastAPI app through `mlb_app.api.app:create_app`, installs an application-scoped `AppContainer`, and registers high-traffic product endpoints as native FastAPI routes.
 
-## Run
+## Production command
 
 ```bash
-make serve-asgi
+make serve
+```
+
+Equivalent command:
+
+```bash
+gunicorn mlb_app.asgi:app \
+  -k uvicorn.workers.UvicornWorker \
+  --workers ${GUNICORN_WORKERS:-4} \
+  --bind 0.0.0.0:${PORT:-8765} \
+  --timeout ${GUNICORN_TIMEOUT:-30} \
+  --access-logfile -
+```
+
+## Local ASGI command
+
+```bash
+make serve-asgi-local
 ```
 
 Equivalent command:
@@ -16,39 +31,18 @@ Equivalent command:
 uvicorn mlb_app.asgi:app --host 0.0.0.0 --port 8765
 ```
 
-## Design
-
-FastAPI routes are thin adapters:
-
-```text
-FastAPI route
-  -> anyio.to_thread.run_sync(existing sync router/service path)
-  -> existing JSON response contract
-```
-
-This keeps blocking CSV/JSON file I/O off the ASGI event loop while preserving the
-WSGI response shape.
-
-## Canonical runtime status
-
-Use this for production-style serving until ASGI parity is intentionally promoted:
+## Legacy compatibility command
 
 ```bash
-make serve
+make serve-wsgi-legacy
 ```
 
-That command still runs:
+This command exists only for compatibility diagnostics. It is not a production runtime. FastAPI-owned routes such as `/api/app/status`, `/api/edge-board`, `/api/playerboard`, `/api/prop-detail`, `/api/model-cards`, `/api/my-picks`, `/api/bankroll/settings`, `/api/exposure/summary`, and `/api/admin/propline/props/sync` are intentionally absent from the legacy router.
+
+## Route ownership gate
 
 ```bash
-gunicorn mlb_app.wsgi:application
+make validate-route-ownership
 ```
 
-## Promotion gate
-
-Do not make ASGI canonical until:
-
-- core endpoint response contracts match WSGI;
-- blocking repository I/O is offloaded or async-safe;
-- mutation security tests pass under ASGI;
-- frontend runtime loads unchanged;
-- route-level observability emits request IDs and structured logs.
+The gate fails if FastAPI-owned endpoints are reintroduced into `mlb_app.server.build_router()` or if native route names disappear from the ASGI app.

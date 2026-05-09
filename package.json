@@ -9,7 +9,10 @@
     "install:browsers": "playwright install --with-deps chromium",
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "postbuild": "node tools/postprocess_vite_assets.mjs",
+    "validate:csp": "python tools/validate_vite_csp.py",
+    "validate:vite-assets": "python tools/validate_vite_assets.py"
   },
   "devDependencies": {
     "@playwright/test": "^1.44.0",

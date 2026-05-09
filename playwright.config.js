@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 const { defineConfig, devices } = require('@playwright/test');
 
 module.exports = defineConfig({
@@ -14,7 +14,7 @@ module.exports = defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: 'python -m mlb_app.server 8765',
+        command: 'python -m uvicorn mlb_app.asgi:app --host 127.0.0.1 --port 8765',
         url: 'http://127.0.0.1:8765/api/app/status',
         reuseExistingServer: !process.env.CI,
         timeout: 15_000,

@@ -6,13 +6,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_phase20_ui_contract_present_after_rail_refresh():
-    source = (ROOT / "public" / "outlier-detail.js").read_text(encoding="utf-8")
-    assert "function gameContextCard(row)" in source
-    assert "function movement(value)" in source
-    assert "function weatherSummary(row)" in source
-    assert "Game Context" in source
-    assert "ML Move" in source
-    assert "__testHooks" in source
+    source = (ROOT / "frontend" / "src" / "outlier" / "detail-rail" / "DetailRail.ts").read_text(encoding="utf-8")
+    assert "DetailRailController" in source
+    assert "detailQuery" in source
+    assert "/api/prop-detail" in source
+    assert "Server drilldown" in source
 
 
 def test_phase20_audit_policy_marker_present_after_apply():

@@ -203,3 +203,11 @@ data/**/*.sqlite-wal
 data/**/*.sqlite-shm
 data/**/*.sqlite3-wal
 data/**/*.sqlite3-shm
+
+# Sprint 5 source-tree hygiene: never commit generated backups/scratch files.
+*.backup
+*.bak
+*.tmp
+*.phase*_backup*
+*_backup*
+*.header_mismatch_*.csv

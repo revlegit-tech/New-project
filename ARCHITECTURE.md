@@ -1,3 +1,25 @@
+
+## Runtime decision: ASGI is canonical
+
+Production runtime is now a single ASGI/FastAPI truth:
+
+```text
+mlb_app.asgi:app
+  -> mlb_app.api.app:create_app
+  -> AppContainer
+  -> services
+  -> repositories
+  -> indexed snapshots / state stores
+```
+
+Gunicorn must use Uvicorn workers for production:
+
+```bash
+gunicorn --config config/gunicorn.asgi.conf.py -k uvicorn.workers.UvicornWorker mlb_app.asgi:app
+```
+
+The WSGI entrypoint is explicitly legacy compatibility only. High-traffic product endpoints and admin mutations are FastAPI-owned and are intentionally not registered in the legacy router. See `docs/architecture/routes.md`.
+
 # MLB App Architecture
 
 ## Production boundary
@@ -9,15 +31,16 @@ Dependency direction rule:
 - Allowed: root-level scripts and tools import from `mlb_app`.
 - Forbidden: `mlb_app` imports from root-level operational scripts.
 
-Sprint 2 moved playerboard schema, repository, and builder ownership under `mlb_app/contracts`, `mlb_app/repositories`, and `mlb_app/services`. Sprint 4 introduces `mlb_app.api` as the native FastAPI route layer while retaining a legacy fallback gateway for routes that have not yet been migrated.
+Sprint 2 moved playerboard schema, repository, and builder ownership under `mlb_app/contracts`, `mlb_app/repositories`, and `mlb_app/services`. Sprint 4 introduces `mlb_app.api` as the native FastAPI route layer while retaining a legacy fallback gateway for routes that have not yet been migrated. Sprint 7 adds enforced-CSP readiness, read/admin rate limits, and trusted-proxy client IP derivation. Sprint 8 keeps the production Outlier UI source under `frontend/src` with Vite-built assets in `public/assets`.
 
 ## Runtime modes
 
 | Mode | Entrypoint | Status | Purpose |
 | --- | --- | --- | --- |
-| Production-style WSGI | `mlb_app.wsgi:application` via Gunicorn | Canonical | Bounded worker runtime for deployment-like operation. |
-| Local development | `python -m mlb_app.server` / `make run` | Supported | Fast local feedback with the same `mlb_app` runtime boundary. |
-| ASGI native API | `mlb_app.asgi:app` / `make serve-asgi` | Supported migration target | Native FastAPI routes for high-traffic product endpoints with a legacy fallback gateway for unmigrated routes. |
+| Production ASGI | `mlb_app.asgi:app` via Gunicorn + Uvicorn worker | Canonical | Single production truth for FastAPI/AppContainer routes. |
+| Local ASGI | `mlb_app.asgi:app` / `make serve-asgi-local` | Supported | Developer FastAPI runtime without Gunicorn. |
+| Local legacy dev server | `python -m mlb_app.server` / `make run` | Compatibility only | Static serving and temporary legacy fallback diagnostics. |
+| WSGI legacy | `mlb_app.wsgi:application` / `make serve-wsgi-legacy` | Compatibility only | Not production; FastAPI-owned routes are intentionally absent. |
 | Root scripts | `playerboard.py`, collectors, trainers, repair utilities | Operational / legacy | CLI wrappers, collectors, diagnostics, migrations, or historical utilities only. |
 
 ## Source tree policy
@@ -38,14 +61,14 @@ requirements/             # layered inputs and deterministic lockfiles
 
 ## Native FastAPI route layer
 
-Sprint 4 route ownership lives under `mlb_app/api/`:
+Sprint 0–2 route ownership lives under `mlb_app/api/`:
 
 ```text
 mlb_app/api/
-  app.py                 # FastAPI app factory, native router registration, legacy fallback
+  app.py                 # FastAPI app factory, native router registration, legacy fallback guard
   dependencies.py        # container/service dependency providers
   middleware.py          # request metadata/access logging and security headers
-  models.py              # Pydantic response models that preserve existing JSON contracts
+  models.py              # Strict Pydantic response models for native contracts
   routes/
     status.py
     edge_board.py
@@ -56,7 +79,7 @@ mlb_app/api/
     health.py
 ```
 
-Native routes must use injected services from `AppContainer`; they should not instantiate service graphs per request. Blocking CSV/model-file reads remain isolated behind service/repository calls and are invoked from async routes with `asyncio.to_thread()` until the data source is fully DB-backed or cached.
+Native routes must use injected services from `AppContainer`; they should not instantiate service graphs per request. Blocking CSV/model-file reads remain isolated behind service/repository calls and are invoked from async routes with `asyncio.to_thread()` until the bounded runner/snapshot sprint lands.
 
 ## Mutable state policy
 

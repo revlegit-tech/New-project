@@ -54,7 +54,10 @@ jobs:
       - name: Run smoke tests
         run: |
           python -m py_compile playerboard.py mlb_app/server.py tools/phase23_daily_refresh_qa.py
-          python -m pytest tests/test_api_contracts.py tests/test_modular_router.py tests/test_wsgi_smoke.py tests/test_asgi_migration.py tests/test_static_file_guard.py tests/test_cache_store.py tests/test_security_export.py tests/test_trust_surface_static_safety.py tests/test_request_observability.py
+          python -m pytest tests/test_api_contracts.py tests/test_modular_router.py tests/test_wsgi_smoke.py tests/test_asgi_migration.py tests/test_static_file_guard.py tests/test_cache_store.py tests/test_security_export.py tests/test_trust_surface_static_safety.py tests/test_request_observability.py tests/test_sprint5_6_contracts.py
+          python tools/validate_import_boundaries.py --root .
+          python tools/validate_backup_files.py --root .
+          python tools/validate_native_di.py --root .
 
       - name: Build health summary
         shell: bash

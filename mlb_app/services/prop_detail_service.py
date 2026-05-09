@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from mlb_app.config import settings as default_settings
-from mlb_app.services.edge_board_service import EdgeBoardService
+from mlb_app.services.playerboard_read_service import PlayerboardReadService, prop_key_for_row
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.picks_service import PicksService
 
@@ -11,50 +11,145 @@ PROP_DETAIL_VERSION = "2026-05-prop-detail-v1"
 
 
 class PropDetailService:
-    """Builds a bettor-facing drilldown for one edge-board prop.
+    """Builds a bettor-facing drilldown for one playerboard prop.
 
-    The detail contract intentionally uses already-pregame fields from the edge
-    board/model card layer. It does not reach into postgame grading rows, so the
-    page can explain context without introducing prediction-time leakage.
+    Sprint 9A keeps the detail rail on the snapshot read model. The service
+    intentionally depends on ``PlayerboardReadService`` directly and never calls
+    the board aggregation payload path, so opening a detail rail cannot trigger
+    a full board build or a legacy row scan.
     """
 
     def __init__(
         self,
         *,
-        edge_board_service: EdgeBoardService | None = None,
-        model_card_service: ModelCardService | None = None,
-        picks_service: PicksService | None = None,
+        read_service: PlayerboardReadService,
+        model_card_service: ModelCardService,
+        picks_service: PicksService,
     ) -> None:
-        self.edge_board_service = edge_board_service or EdgeBoardService()
-        self.model_card_service = model_card_service or ModelCardService()
-        self.picks_service = picks_service or PicksService()
+        self.read_service = read_service
+        self.model_card_service = model_card_service
+        self.picks_service = picks_service
 
     def payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
         lookup = _lookup(query)
-        board_query = {
-            "season": [lookup.get("season") or str(default_settings.current_season)],
-            "date": [lookup.get("date")],
-            "market": [lookup.get("market")],
-            "limit": [lookup.get("limit") or "500"],
-            "buildIfMissing": [lookup.get("buildIfMissing") or "1"],
-        }
-        board_query = {key: value for key, value in board_query.items() if value and value[0]}
-        board = self.edge_board_service.payload(board_query)
-        row = self._find_row(board.get("rows") or [], lookup)
+        board = self._targeted_snapshot_context(query, lookup)
+        row = dict(board.get("row") or {})
         if not row:
             row = self._fallback_row(lookup)
         market = _clean(row.get("market") or lookup.get("market"))
         model_card = self._model_card_from_row_or_service(row, market)
+        row = self._enrich_snapshot_row(row, model_card=model_card, lookup=lookup)
         detail = self._build_detail(row, model_card, board, lookup)
         return {
             "status": "ok",
+            "schemaVersion": "prop-detail.v2",
             "version": PROP_DETAIL_VERSION,
             "detail": detail,
             "source": {
-                "boardCache": board.get("boardCache") or (board.get("source") or {}).get("boardCache") or {},
+                "boardCache": board.get("boardCache") or {},
+                "lookupMode": board.get("lookupMode") or "not_found",
+                "snapshot": board.get("snapshot") or {},
+                "freshness": board.get("freshness") or {},
                 "modelCardSource": model_card.get("source") or "service_fallback",
             },
         }
+
+    def _targeted_snapshot_context(self, query: dict[str, list[str]], lookup: dict[str, str]) -> dict[str, Any]:
+        snapshot = self._snapshot_for_query(query, lookup)
+        health = snapshot.health.to_dict()
+        row: dict[str, Any] = {}
+        lookup_mode = "not_found"
+        prop_key = _prop_key_from_lookup(lookup)
+
+        if prop_key:
+            lookup_mode = "prop_key"
+            row = snapshot.row_for_prop_key(prop_key)
+
+        if not row:
+            row = self._find_row(list(snapshot.rows), lookup)
+            lookup_mode = "field_match" if row else ("prop_key_miss" if prop_key else "not_found")
+
+        return {
+            "season": snapshot.season,
+            "date": snapshot.date or lookup.get("date"),
+            "row": row,
+            "lookupMode": lookup_mode,
+            "snapshot": snapshot.source_meta(),
+            "freshness": health.get("freshness", {}),
+            "productState": dict(snapshot.product_state),
+            "dataConfidence": health.get("dataConfidence", "Missing"),
+            "latestFullyGradedDate": health.get("latestFullyGradedDate", ""),
+            "boardCache": {
+                "hit": bool(snapshot.cache_hit),
+                "reason": "playerboard_snapshot",
+                "key": "playerboard_read_service",
+                "dependencyCount": 1 if snapshot.file_signature.exists else 0,
+            },
+        }
+
+    def _snapshot_for_query(self, query: dict[str, list[str]], lookup: dict[str, str]):
+        snapshot_for_query = getattr(self.read_service, "snapshot_for_query", None)
+        if callable(snapshot_for_query):
+            return snapshot_for_query(query)
+
+        settings = getattr(self.read_service, "settings", default_settings)
+        season_from_query = getattr(settings, "season_from_query", None)
+        if callable(season_from_query):
+            season = season_from_query(query)
+        else:
+            season = _int(lookup.get("season"), default_settings.current_season)
+        return self.read_service.get_snapshot(
+            season=season,
+            date_label=lookup.get("date", ""),
+            market=lookup.get("market", ""),
+        )
+
+    def _enrich_snapshot_row(self, row: dict[str, Any], *, model_card: dict[str, Any], lookup: dict[str, str]) -> dict[str, Any]:
+        enriched = dict(row)
+        market = _clean(enriched.get("market") or lookup.get("market"))
+        if market:
+            enriched["market"] = market
+        prop_key = _clean(enriched.get("propKey") or lookup.get("propKey"))
+        if not prop_key and enriched:
+            prop_key = prop_key_for_row(enriched)
+        if prop_key:
+            enriched["propKey"] = prop_key
+        enriched.setdefault("id", _clean(lookup.get("id")) or prop_key or "prop-detail-fallback")
+        enriched.setdefault("date", _clean(lookup.get("date")))
+        enriched.setdefault("marketDisplay", _title(market))
+        enriched.setdefault("player", _clean(lookup.get("player")))
+        enriched.setdefault("team", _clean(lookup.get("team")))
+        enriched.setdefault("opponent", _clean(lookup.get("opponent")))
+        enriched.setdefault("line", _clean(lookup.get("line")))
+        enriched.setdefault("rawLabel", _clean(lookup.get("rawLabel")))
+        enriched.setdefault("americanOdds", _clean(lookup.get("americanOdds") or lookup.get("odds")))
+        enriched.setdefault("book", _clean(lookup.get("book")) or "Best available")
+        enriched.setdefault("readinessLabel", _clean(model_card.get("readinessLabel") or model_card.get("productionStatus")) or "Research only")
+        enriched.setdefault("productionStatus", _clean(model_card.get("productionStatus")) or "research_only")
+        enriched.setdefault("canShowConfidentPick", bool(model_card.get("canShowConfidentPick")))
+        enriched.setdefault("trainingRows", int(model_card.get("trainingRows") or 0))
+        enriched.setdefault("positiveRows", int(model_card.get("positiveRows") or 0))
+        enriched.setdefault("negativeRows", int(model_card.get("negativeRows") or 0))
+        enriched.setdefault("latestGradedDate", _clean(model_card.get("latestGradedDate")))
+        enriched.setdefault("calibrationStatus", _clean((model_card.get("calibration") or {}).get("status")) or "uncalibrated")
+        return enriched
+
+    def _find_row(self, rows: list[Any], lookup: dict[str, str]) -> dict[str, Any]:
+        candidates = [row for row in rows if isinstance(row, dict)]
+        target_id = _clean(lookup.get("id"))
+        if target_id:
+            for row in candidates:
+                if _clean(row.get("id")) == target_id or _clean(row.get("propKey")) == target_id:
+                    return dict(row)
+        prop_key = _clean(lookup.get("propKey"))
+        if prop_key:
+            for row in candidates:
+                if _clean(row.get("propKey")) == prop_key:
+                    return dict(row)
+        for row in candidates:
+            if _matches(row, lookup):
+                return dict(row)
+        return {}
 
     def _model_card_from_row_or_service(self, row: dict[str, Any], market: str) -> dict[str, Any]:
         embedded = row.get("modelCard")
@@ -70,26 +165,16 @@ class PropDetailService:
             card.setdefault("latestGradedDate", row.get("latestGradedDate"))
             card.setdefault("calibration", {"status": row.get("calibrationStatus") or "uncalibrated"})
             card.setdefault("trustWarnings", row.get("trustWarnings") or [])
-            card.setdefault("source", "edge_board_row")
+            card.setdefault("source", "playerboard_snapshot_row")
             return card
         return self.model_card_service.card_for_market(market) if market else {}
 
-    def _find_row(self, rows: list[Any], lookup: dict[str, str]) -> dict[str, Any]:
-        candidates = [row for row in rows if isinstance(row, dict)]
-        target_id = _clean(lookup.get("id"))
-        if target_id:
-            for row in candidates:
-                if _clean(row.get("id")) == target_id:
-                    return row
-        for row in candidates:
-            if _matches(row, lookup):
-                return row
-        return {}
 
     @staticmethod
     def _fallback_row(lookup: dict[str, str]) -> dict[str, Any]:
         return {
-            "id": lookup.get("id") or "prop-detail-fallback",
+            "id": lookup.get("id") or lookup.get("propKey") or "prop-detail-fallback",
+            "propKey": lookup.get("propKey"),
             "date": lookup.get("date"),
             "player": lookup.get("player"),
             "team": lookup.get("team"),
@@ -121,7 +206,8 @@ class PropDetailService:
         tracking_payload = self._tracking_payload(row, model_card, probability, implied, edge)
 
         return {
-            "id": _clean(row.get("id") or lookup.get("id")),
+            "id": _clean(row.get("id") or lookup.get("id") or row.get("propKey") or lookup.get("propKey")),
+            "propKey": _clean(row.get("propKey") or lookup.get("propKey")),
             "overview": {
                 "date": _clean(row.get("date") or lookup.get("date") or board.get("date")),
                 "player": _clean(row.get("player")),
@@ -269,6 +355,7 @@ class PropDetailService:
     @staticmethod
     def _tracking_payload(row: dict[str, Any], model_card: dict[str, Any], probability: float | None, implied: float | None, edge: float | None) -> dict[str, Any]:
         return {
+            "propKey": _clean(row.get("propKey")),
             "date": _clean(row.get("date")),
             "player": _clean(row.get("player")),
             "market": _clean(row.get("market")),
@@ -297,6 +384,7 @@ class PropDetailService:
 def _lookup(query: dict[str, list[str]]) -> dict[str, str]:
     keys = [
         "id",
+        "propKey",
         "season",
         "date",
         "market",
@@ -321,6 +409,17 @@ def _lookup(query: dict[str, list[str]]) -> dict[str, str]:
 def _query_value(query: dict[str, list[str]], name: str, default: str = "") -> str:
     values = query.get(name) or []
     return str(values[0]).strip() if values else default
+
+
+def _prop_key_from_lookup(lookup: dict[str, str]) -> str:
+    return _clean(lookup.get("propKey") or lookup.get("id"))
+
+
+def _int(value: Any, default: int) -> int:
+    try:
+        return int(str(value).strip()) if str(value).strip() else default
+    except (TypeError, ValueError):
+        return default
 
 
 def _matches(row: dict[str, Any], lookup: dict[str, str]) -> bool:
@@ -403,7 +502,7 @@ def _trend_profile(row: dict[str, Any], lookup: dict[str, str], board: dict[str,
 
     if not profile or not recent_games:
         try:
-            from player_hit_rates import hit_profile_for_row, parse_date
+            from mlb_app.domain.player_hit_rates import hit_profile_for_row, parse_date
             season = int(_clean(row.get("season") or lookup.get("season") or board.get("season") or str(default_settings.current_season)))
             target_date = parse_date(row.get("date") or lookup.get("date") or board.get("date"))
             computed = hit_profile_for_row(row, season, target_date)

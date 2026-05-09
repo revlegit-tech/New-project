@@ -1,17 +1,19 @@
 from __future__ import annotations
 import re
+import time
 
 import csv
 from pathlib import Path
 from typing import Any, Hashable
 
 from mlb_app.config import settings as default_settings
+from mlb_app.observability.metrics import MetricsRegistry
 from mlb_app.services.board_cache import BoardCache, BoardCacheBuildResult
 from mlb_app.services.model_card_service import ModelCardService
+from mlb_app.services.playerboard_read_service import prop_key_for_row
 from mlb_app.services.playerboard_service import PlayerboardService
 
 EDGE_BOARD_VERSION = "2026-05-edge-board-v1"
-DEFAULT_BOARD_CACHE = BoardCache(ttl_seconds=30.0)
 
 
 class EdgeBoardService:
@@ -29,10 +31,16 @@ class EdgeBoardService:
         playerboard_service: PlayerboardService | None = None,
         model_card_service: ModelCardService | None = None,
         board_cache: BoardCache | None = None,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         self.playerboard_service = playerboard_service or PlayerboardService()
         self.model_card_service = model_card_service or ModelCardService()
-        self.board_cache = board_cache or DEFAULT_BOARD_CACHE
+        self.metrics = metrics
+        self.board_cache = board_cache or BoardCache(
+            ttl_seconds=default_settings.board_cache_ttl_seconds,
+            max_keys=default_settings.board_cache_max_keys,
+            metrics=metrics,
+        )
         self._cards: dict[str, dict[str, Any]] = {}
 
     def payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
@@ -42,16 +50,23 @@ class EdgeBoardService:
         # Explicit refresh/save requests are operator-intent paths. Do not serve
         # them from cache, but store the fresh result for subsequent normal reads.
         if _bypass_board_cache(query):
-            payload = self._build_payload(query)
+            payload = self._timed_build_payload(query)
             result = self.board_cache.set(cache_key, payload, dependency_paths=dependency_paths)
             return self._with_board_cache_metadata(result, served_from_cache=False, reason="bypass_refresh_or_save")
 
         result = self.board_cache.get_or_build(
             cache_key,
-            lambda: self._build_payload(query),
+            lambda: self._timed_build_payload(query),
             dependency_paths=dependency_paths,
         )
         return self._with_board_cache_metadata(result, served_from_cache=result.hit, reason=result.reason)
+
+    def _timed_build_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        started_at = time.perf_counter()
+        payload = self._build_payload(query)
+        if self.metrics is not None:
+            self.metrics.observe("board_build_duration_ms", round((time.perf_counter() - started_at) * 1000.0, 3), labels={"layer": "edge_board"})
+        return payload
 
     def _build_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
         board = self.playerboard_service.board_payload(query)
@@ -65,6 +80,7 @@ class EdgeBoardService:
 
         return {
             "status": "ok",
+            "schemaVersion": board.get("schemaVersion"),
             "version": EDGE_BOARD_VERSION,
             "season": board.get("season"),
             "date": board.get("date") or board.get("latestAvailableDate"),
@@ -90,7 +106,47 @@ class EdgeBoardService:
             "latestFullyGradedDate": board.get("latestFullyGradedDate", ""),
             "dataConfidence": board.get("dataConfidence", "Missing"),
             "modelReadiness": board.get("modelReadiness", {}),
+            "freshness": board.get("freshness", {}),
+            "meta": {
+                "snapshotSignature": ((board.get("sourceMeta") or {}).get("snapshotSignature")),
+                "source": board.get("source"),
+            },
         }
+
+    def row_for_detail(self, query: dict[str, list[str]]) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Return one enriched row for prop detail without building the full board."""
+
+        if not hasattr(self.playerboard_service, "snapshot_for_query"):
+            return {}, {"lookupMode": "unavailable"}
+        snapshot = self.playerboard_service.snapshot_for_query(query)
+        prop_key = _query_value(query, "propKey") or _query_value(query, "id")
+        row: dict[str, Any] = {}
+        lookup_mode = "prop_key"
+        if prop_key:
+            row = snapshot.row_for_prop_key(prop_key)
+        if not row:
+            lookup_mode = "fallback_match"
+            row = _find_snapshot_row(list(snapshot.rows), query)
+        if not row:
+            health = snapshot.health.to_dict()
+            return {}, {
+                "lookupMode": lookup_mode,
+                "snapshot": snapshot.source_meta(),
+                "freshness": health.get("freshness", {}),
+            }
+        health = snapshot.health.to_dict()
+        self._cards = self._load_cards()
+        enriched = self._enrich_row(row, 1, {
+            "productState": dict(snapshot.product_state),
+            "dataConfidence": health.get("dataConfidence", "Missing"),
+            "latestFullyGradedDate": health.get("latestFullyGradedDate", ""),
+        })
+        return enriched, {
+            "lookupMode": lookup_mode,
+            "snapshot": snapshot.source_meta(),
+            "freshness": health.get("freshness", {}),
+        }
+
     def _with_board_cache_metadata(
         self,
         result: BoardCacheBuildResult,
@@ -150,6 +206,7 @@ class EdgeBoardService:
         enriched.update(
             {
                 "id": _row_id(row, rank),
+                "propKey": prop_key_for_row(row),
                 "rank": rank,
                 "player": _clean(_first(row, "player", "playerName", "name")),
                 "team": _clean(row.get("team")),
@@ -747,3 +804,17 @@ def _phase18_v7_merge_game_context(row: dict[str, Any], index: dict[tuple[str, s
         merged["game_context_source"] = "phase18_game_context_join"
     return merged
 
+
+
+def _find_snapshot_row(rows: list[dict[str, Any]], query: dict[str, list[str]]) -> dict[str, Any]:
+    wanted = {
+        "player": _query_value(query, "player").lower(),
+        "team": _query_value(query, "team").lower(),
+        "opponent": _query_value(query, "opponent").lower(),
+        "market": _query_value(query, "market").lower(),
+        "line": _query_value(query, "line").lower(),
+    }
+    for row in rows:
+        if all(not expected or _clean(row.get(key)).lower() == expected for key, expected in wanted.items()):
+            return dict(row)
+    return {}
