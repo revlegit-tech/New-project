@@ -316,10 +316,10 @@ def season_adjustment(market: str, line: float, batter: dict[str, Any], pitcher:
         if market in {"team_total_runs", "game_total_runs", "first_five_total_runs", "first_inning_total_runs"}:
             if team_rpg >= 5.0 or opp_allowed >= 5.0:
                 amount += 0.012
-                add("Cached scoring environment", 0.012, f"Team offense/opponent prevention supports runs")
+                add("Cached scoring environment", 0.012, "Team offense/opponent prevention supports runs")
             elif team_rpg and team_rpg <= 3.6 and opp_allowed and opp_allowed <= 3.8:
                 amount -= 0.012
-                add("Cached scoring environment", -0.012, f"Run environment looks suppressed")
+                add("Cached scoring environment", -0.012, "Run environment looks suppressed")
 
     return amount, adjustments
 

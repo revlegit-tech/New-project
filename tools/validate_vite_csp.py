@@ -70,7 +70,7 @@ class CspHtmlParser(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self._script_stack and data.strip():
             line, column, script_type, nonce = self._script_stack[-1]
-            detail = f"inline executable <script> block"
+            detail = "inline executable <script> block"
             if script_type:
                 detail += f" with type={script_type!r}"
             if nonce:

@@ -19,7 +19,7 @@ export default defineConfig({
     target: "es2020",
     rollupOptions: {
       input: {
-        index: resolve(__dirname, "frontend/index.html"),
+        outlier: resolve(__dirname, "frontend/index.html"),
         legacy: resolve(__dirname, "frontend/legacy.html"),
       },
       output: {

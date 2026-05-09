@@ -286,8 +286,8 @@ def prop_identity(row: dict[str, Any]) -> str:
 def possible_prop_files(date_label: str) -> list[Path]:
     patterns = [
         f"*{date_label}*.csv",
-        f"*props*.csv",
-        f"*propline*.csv",
+        "*props*.csv",
+        "*propline*.csv",
     ]
 
     out = []
@@ -666,7 +666,7 @@ def build_movement(season: int = 2026) -> dict[str, Any]:
         grouped.setdefault(key, []).append(row)
 
     rows = []
-    for key, items in grouped.items():
+    for items in grouped.values():
         ordered = sorted(items, key=lambda x: clean(x.get("snapshotAt")))
         first = ordered[0]
         latest = ordered[-1]
