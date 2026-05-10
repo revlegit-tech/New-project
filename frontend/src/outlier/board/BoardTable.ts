@@ -55,6 +55,9 @@ class BoardTableController {
 
   constructor(private readonly host: HTMLElement) {
     this.host.classList.add("is-virtualized");
+    this.host.tabIndex = 0;
+    this.host.setAttribute("role", "region");
+    this.host.setAttribute("aria-label", "Scrollable outlier board");
     this.host.addEventListener("scroll", this.onScroll, { passive: true });
   }
 
@@ -64,6 +67,7 @@ class BoardTableController {
     this.freshnessFallback = options.freshnessFallback;
     this.rowHeight = options.rowHeight ?? DEFAULT_BOARD_ROW_HEIGHT;
     this.overscanRows = options.overscanRows ?? DEFAULT_BOARD_OVERSCAN_ROWS;
+    this.host.style.setProperty("--ob-row-height", `${this.rowHeight}px`);
 
     if (!this.rows.length) {
       this.table = null;
@@ -77,6 +81,7 @@ class BoardTableController {
     if (options.resetScroll) this.host.scrollTop = 0;
     this.ensureSelectedRowVisible();
     this.paint();
+    this.focusSelectedRow();
     return this.result();
   }
 
@@ -139,6 +144,13 @@ class BoardTableController {
       this.paint();
     });
   };
+
+  private focusSelectedRow(): void {
+    if (this.selectedIndex < 0) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement) return;
+    this.tbody?.querySelector<HTMLElement>(`[data-row-index="${this.selectedIndex}"]`)?.focus({ preventScroll: true });
+  }
 
   private result(): BoardTableRenderResult {
     return {

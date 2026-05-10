@@ -27,6 +27,11 @@ const rows = [
     impliedProbability: 0.57,
     finalEdgePercent: 11.2,
     readinessLabel: 'Production ready',
+    trust: {
+      readiness: { label: 'Production ready', status: 'production', tone: 'good', canShowConfidentPick: true },
+      actionability: { label: 'Potential edge', status: 'actionable', suggestedStake: '0.25u capped', stakeUnits: 0.25 },
+    },
+    freshness: { label: 'Fresh', status: 'fresh', tone: 'good' },
   },
   {
     id: 'row-ohtani-ks',
@@ -43,6 +48,11 @@ const rows = [
     impliedProbability: 0.49,
     finalEdgePercent: 5.1,
     readinessLabel: 'Research only',
+    trust: {
+      readiness: { label: 'Research only', status: 'research_only', tone: 'watch', canShowConfidentPick: false },
+      actionability: { label: 'Watchlist', status: 'watchlist', suggestedStake: 'Research only', stakeUnits: 0 },
+    },
+    freshness: { label: 'Aging', status: 'aging', tone: 'watch' },
   },
 ];
 
@@ -96,7 +106,11 @@ test('board renders a virtualized DOM window for large slates', async ({ page })
   const renderedRows = await page.locator('#boardHost tbody tr[data-row-index]').count();
   expect(renderedRows).toBeGreaterThan(0);
   expect(renderedRows).toBeLessThan(120);
-  await page.locator('#boardHost').evaluate((node) => { node.scrollTop = 58 * 500; node.dispatchEvent(new Event('scroll')); });
+  await page.locator('#boardHost').evaluate((node) => {
+    const rowHeight = Number.parseFloat(getComputedStyle(node).getPropertyValue('--ob-row-height')) || 52;
+    node.scrollTop = rowHeight * 500;
+    node.dispatchEvent(new Event('scroll'));
+  });
   await expect(page.locator('#boardHost')).toContainText('Virtual Player 500');
 });
 
@@ -106,6 +120,8 @@ test('Outlier board loads, filters rows, and opens detail rail', async ({ page }
   await expect(page.locator('#outlierApp')).toBeVisible();
   await expect(page.locator('#boardHost')).toContainText('Aaron Judge');
   await expect(page.locator('#boardHost')).toContainText('Shohei Ohtani');
+  await expect(page.locator('#boardHost')).toContainText('Potential edge');
+  await expect(page.locator('#boardHost')).toContainText('Fresh');
 
   await page.locator('#playerFilter').fill('Judge');
   await expect(page.locator('#boardHost')).toContainText('Aaron Judge');

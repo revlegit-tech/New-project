@@ -2,7 +2,7 @@ import { jsonFetch } from "../../shared/api/client";
 import { clear, h } from "../../shared/components/dom";
 import { formatOdds, number, percent, signedPercent, text } from "../../shared/formatting";
 import { marketLabel } from "../../shared/markets/markets";
-import { freshnessSeverity } from "../trust";
+import { freshnessSeverity, rowActionability, rowFreshness, rowReadiness, rowTrustCopy } from "../trust";
 import {
   edgeValue,
   matchup,
@@ -15,7 +15,6 @@ import {
   rowOdds,
   rowPlayer,
   rowPropKey,
-  trustCopy,
 } from "../board/utils";
 
 export interface DetailRailContext {
@@ -87,6 +86,9 @@ export class DetailRailController {
     const rail = this.hostProvider();
     if (!rail) return;
     const severity = freshnessSeverity(context.status);
+    const readiness = rowReadiness(row);
+    const freshness = rowFreshness(row, severity.label);
+    const actionability = rowActionability(row);
     clear(rail, [
       h("article", { className: "ob-rail-card" }, [
         h("p", { className: "ob-kicker", text: "Detail rail" }),
@@ -101,8 +103,8 @@ export class DetailRailController {
       ]),
       h("article", { className: "ob-rail-card" }, [
         h("h3", { text: "Trust context" }),
-        h("p", { text: trustCopy(row) }),
-        h("div", { className: "ob-stat-grid" }, [stat("Readiness", readiness(row)), stat("Freshness", severity.label), stat("Implied", percent(rowImpliedProbability(row))), stat("Request", text(context.requestId, "latest"))]),
+        h("p", { text: rowTrustCopy(row) }),
+        h("div", { className: "ob-stat-grid" }, [stat("Readiness", readiness.label), stat("Freshness", freshness.label), stat("Action", actionability.label), stat("Implied", percent(rowImpliedProbability(row))), stat("Request", text(context.requestId, "latest"))]),
       ]),
       renderServerDetail(state),
       h("article", { className: "ob-rail-card" }, [

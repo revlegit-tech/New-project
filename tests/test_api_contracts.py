@@ -85,6 +85,12 @@ def test_edge_board_contract() -> None:
     assert "summary" in payload
     assert "filters" in payload
     assert "trust" in payload
+    if payload["rows"]:
+        first = payload["rows"][0]
+        assert "trust" in first
+        assert "readiness" in first["trust"]
+        assert "actionability" in first["trust"]
+        assert "freshness" in first
 
 
 def test_prop_detail_contract() -> None:

@@ -29,6 +29,7 @@ class FakePlayerboardService:
             "latestFullyGradedDate": "2026-05-06",
             "dataConfidence": "Partial",
             "trust": {"banner": "Research Mode", "mode": "research_mode"},
+            "freshness": {"status": "fresh", "ageSeconds": 120, "snapshotBuiltAt": "2026-05-07T15:00:00Z"},
             "productState": {"state": "research_mode"},
         }
 
@@ -70,4 +71,9 @@ def test_edge_board_enriches_playerboard_rows_with_trust_context() -> None:
     assert row["trainingRows"] == 190
     assert row["latestGradedDate"] == "2026-05-06"
     assert row["suggestedStake"] == "Research only"
+    assert row["trust"]["propIdentity"]["player"] == "Aaron Judge"
+    assert row["trust"]["modelEdge"]["edgePercent"] == 4.2
+    assert row["trust"]["readiness"]["label"] == "Research only"
+    assert row["trust"]["actionability"]["status"] == "watchlist"
+    assert row["freshness"]["status"] == "fresh"
     assert row["reasons"]
