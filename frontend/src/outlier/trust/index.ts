@@ -4,20 +4,21 @@ export interface FreshnessSeverity {
   copy: string;
 }
 
-export function rowFreshnessLabel(row: any, fallback = "Research") {
-  const source = row?.freshness?.status || row?.freshnessStatus || row?.dataFreshness || fallback;
-  return String(source || fallback);
-}
-
-export function rowFreshnessTone(row: any) {
-  const raw = rowFreshnessLabel(row, "").toLowerCase();
-  if (raw.includes("fresh")) return "is-good";
-  if (raw.includes("missing") || raw.includes("stale") || raw.includes("degraded")) return "is-risk";
-  return "is-watch";
-}
+export {
+  badgeToneClass,
+  rowActionability,
+  rowFreshness,
+  rowModelEdge,
+  rowPropIdentity,
+  rowReadiness,
+  rowTrustCopy,
+} from "./rowTrust";
 
 export function freshnessSeverity(payload: any): FreshnessSeverity {
-  const raw = String(payload?.staleDataSeverity || payload?.dataFreshness?.severity || payload?.dataConfidence || "").toLowerCase();
+  const raw = String(payload?.tone || payload?.staleDataSeverity || payload?.dataFreshness?.severity || payload?.dataConfidence || payload?.freshness?.status || payload?.status || "").toLowerCase();
+  const age = Number(payload?.ageSeconds);
+  if (Number.isFinite(age) && age > 900) return { tone: "stale", label: "Stale", copy: "Do not trust for live betting." };
+  if (Number.isFinite(age) && age > 300) return { tone: "aging", label: "Aging", copy: "Usable for research; verify lines." };
   if (raw.includes("stale") || raw.includes("red") || raw.includes("missing")) return { tone: "stale", label: "Stale", copy: "Do not trust for live betting." };
   if (raw.includes("aging") || raw.includes("partial") || raw.includes("warn") || raw.includes("amber")) return { tone: "aging", label: "Aging", copy: "Usable for research; verify lines." };
   if (raw.includes("good") || raw.includes("fresh") || raw.includes("green")) return { tone: "fresh", label: "Fresh", copy: "Within configured freshness window." };

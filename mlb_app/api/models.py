@@ -86,6 +86,8 @@ class EdgeBoardRow(StrictPayload):
     reasons: list[str] = Field(default_factory=list)
     suggestedStake: str | None = None
     modelCard: dict[str, Any] = Field(default_factory=dict)
+    trust: dict[str, Any] = Field(default_factory=dict)
+    freshness: dict[str, Any] = Field(default_factory=dict)
     isAltMarket: bool | str | None = None
 
 

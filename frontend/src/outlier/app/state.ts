@@ -1,4 +1,5 @@
 import { todayIso } from "../../shared/formatting";
+import { DensityMode } from "./density";
 
 export function createInitialOutlierState() {
   return {
@@ -9,9 +10,11 @@ export function createInitialOutlierState() {
     query: "",
     side: "",
     date: todayIso(),
-    density: "standard",
+    density: "compact" as DensityMode,
     loading: false,
     status: null as any,
+    boardFreshness: null as any,
+    boardTrust: null as any,
     exposure: null as any,
     requestId: "",
   };

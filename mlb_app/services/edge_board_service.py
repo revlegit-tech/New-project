@@ -200,6 +200,7 @@ class EdgeBoardService:
         latest_graded = _clean(card.get("latestGradedDate") or board.get("latestFullyGradedDate"))
         warnings = list(card.get("trustWarnings") or [])
         book = _clean(_first(row, "book", "sportsbook", "bestBook", "bookmaker", "sourceBook"))
+        freshness = _row_freshness(row, board)
 
         enriched = dict(row)
         game_context = _game_context_for_row(row)
@@ -241,6 +242,19 @@ class EdgeBoardService:
                     "productionStatus": card.get("productionStatus") or "research_only",
                     "canShowConfidentPick": bool(card.get("canShowConfidentPick")),
                 },
+                "trust": _row_trust(
+                    row=row,
+                    market=market,
+                    readiness=readiness,
+                    card=card,
+                    edge=edge,
+                    probability=probability,
+                    implied=implied,
+                    decision_label=decision_label,
+                    warnings=warnings,
+                    book=book or "Best available",
+                ),
+                "freshness": freshness,
             }
         )
         # PHASE18_V4_CONTEXT_JOIN_START
@@ -487,6 +501,141 @@ def _suggested_stake(label: str, confident: bool) -> str:
     if label in {"Watchlist", "Model lean"}:
         return "Research only"
     return "0u"
+
+
+def _row_trust(
+    *,
+    row: dict[str, Any],
+    market: str,
+    readiness: str,
+    card: dict[str, Any],
+    edge: float | None,
+    probability: float | None,
+    implied: float | None,
+    decision_label: str,
+    warnings: list[Any],
+    book: str,
+) -> dict[str, Any]:
+    confident = bool(card.get("canShowConfidentPick"))
+    production_status = _clean(card.get("productionStatus") or "research_only")
+    action_status = _actionability_status(decision_label, confident, edge)
+    return {
+        "propIdentity": {
+            "player": _clean(_first(row, "player", "playerName", "name")),
+            "team": _clean(row.get("team")),
+            "opponent": _clean(row.get("opponent")),
+            "market": market,
+            "line": _clean(row.get("line")),
+            "side": _clean(_first(row, "side", "rawLabel", "pickSide")) or "Over",
+            "book": book,
+        },
+        "modelEdge": {
+            "edgePercent": _round_float(edge),
+            "modelProbabilityPercent": _round_float(probability),
+            "impliedProbabilityPercent": _round_float(implied),
+            "tone": "positive" if edge and edge > 0 else "negative" if edge and edge < 0 else "neutral",
+        },
+        "readiness": {
+            "label": readiness,
+            "status": production_status,
+            "tone": _readiness_tone(readiness, production_status, confident),
+            "canShowConfidentPick": confident,
+            "warnings": [_clean(item) for item in warnings[:6] if _clean(item)],
+        },
+        "actionability": {
+            "label": _actionability_label(action_status, decision_label),
+            "status": action_status,
+            "suggestedStake": _suggested_stake(decision_label, confident),
+            "stakeUnits": 0.25 if action_status == "actionable" else 0,
+            "reason": _actionability_reason(action_status),
+        },
+    }
+
+
+def _row_freshness(row: dict[str, Any], board: dict[str, Any]) -> dict[str, Any]:
+    freshness = board.get("freshness") if isinstance(board.get("freshness"), dict) else {}
+    status = _freshness_status(freshness, board)
+    return {
+        "label": _freshness_label(status),
+        "status": status,
+        "tone": "good" if status == "fresh" else "risk" if status in {"stale", "missing"} else "watch",
+        "ageSeconds": freshness.get("ageSeconds"),
+        "source": _clean(freshness.get("snapshotBuiltAt") or freshness.get("source") or board.get("date") or row.get("date")),
+    }
+
+
+def _round_float(value: float | None) -> float | None:
+    return None if value is None else round(value, 2)
+
+
+def _readiness_tone(label: str, status: str, confident: bool) -> str:
+    raw = f"{label} {status}".lower()
+    if confident or "production ready" in raw or "production_ready" in raw:
+        return "good"
+    if "missing" in raw or "no model" in raw or "blocked" in raw or "stale" in raw:
+        return "risk"
+    return "watch"
+
+
+def _actionability_status(label: str, confident: bool, edge: float | None) -> str:
+    raw = label.lower()
+    if "no bet" in raw or (edge is not None and edge <= 0):
+        return "blocked"
+    if confident and ("potential edge" in raw or (edge is not None and edge >= 2)):
+        return "actionable"
+    if raw in {"watchlist", "model lean"} or (edge is not None and edge > 0):
+        return "watchlist"
+    return "research_only"
+
+
+def _actionability_label(status: str, decision_label: str) -> str:
+    if status in {"actionable", "watchlist", "blocked"} and decision_label:
+        return decision_label
+    if status == "actionable":
+        return "Actionable"
+    if status == "watchlist":
+        return "Watchlist"
+    if status == "blocked":
+        return "No bet"
+    return "Research only"
+
+
+def _actionability_reason(status: str) -> str:
+    if status == "actionable":
+        return "Model edge and readiness gates clear the conservative action threshold."
+    if status == "watchlist":
+        return "Positive edge is visible, but readiness or stake policy keeps this research-first."
+    if status == "blocked":
+        return "The row does not clear the model edge threshold."
+    return "Research-only until data and model gates are satisfied."
+
+
+def _freshness_status(freshness: dict[str, Any], board: dict[str, Any]) -> str:
+    raw = _clean(freshness.get("status") or board.get("dataConfidence")).lower()
+    age = freshness.get("ageSeconds")
+    if raw in {"missing", "failed", "unavailable"}:
+        return "missing"
+    if isinstance(age, (int, float)):
+        if age > 900:
+            return "stale"
+        if age > 300:
+            return "aging"
+    if raw in {"stale", "red"}:
+        return "stale"
+    if raw in {"fresh", "good", "ok"}:
+        return "fresh"
+    if raw in {"partial", "degraded", "aging", "warning", "warn"}:
+        return "aging"
+    return "unknown"
+
+
+def _freshness_label(status: str) -> str:
+    return {
+        "fresh": "Fresh",
+        "aging": "Aging",
+        "stale": "Stale",
+        "missing": "Missing",
+    }.get(status, "Unknown")
 
 
 def _reasons(

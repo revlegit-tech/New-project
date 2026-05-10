@@ -4,6 +4,7 @@ import { jsonFetch } from "../shared/api/client";
 import { MARKET_SELECT_OPTIONS, MARKETS } from "../shared/markets/markets";
 import { number, text, todayIso } from "../shared/formatting";
 import { h, clear } from "../shared/components/dom";
+import { applyDensity, densityRowHeight, normalizeDensity } from "./app/density";
 import { createInitialOutlierState } from "./app/state";
 import { registerKeyboardShortcuts } from "./app/keyboard";
 import { renderBoardTable } from "./board";
@@ -19,7 +20,7 @@ let lastBoardSource = "EdgeBoard";
 
 const detailContext = () => ({
   date: appState.date,
-  status: appState.status,
+  status: appState.boardFreshness || appState.status,
   exposure: appState.exposure,
   requestId: appState.requestId,
   savePickLabel: SAVE_PICK_LABEL,
@@ -31,6 +32,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 async function boot() {
   document.body.classList.add("outlier-production");
+  applyDensity(appState.density);
   renderShell();
   bindEvents();
   await Promise.allSettled([loadStatus(), loadExposure()]);
@@ -81,6 +83,7 @@ function renderFilters() {
     h("input", { id: "playerFilter", className: "ob-input", value: "", attrs: { type: "search", placeholder: "Search player, team, opponent", "aria-label": "Search board" } }),
     h("select", { id: "sideFilter", className: "ob-select", attrs: { "aria-label": "Side filter" } }, [option("", "Over / Under"), option("over", "Over"), option("under", "Under")]),
     h("input", { id: "dateFilter", className: "ob-input", value: appState.date, attrs: { type: "date", "aria-label": "Slate date" } }),
+    renderDensityToggle(),
   ]);
 }
 
@@ -88,6 +91,11 @@ function bindEvents() {
   document.body.addEventListener("click", async (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    const density = target.closest("[data-density]");
+    if (density) {
+      setDensity(density.getAttribute("data-density"));
+      return;
+    }
     const row = target.closest("[data-row-index]");
     if (row) {
       selectRow(Number(row.getAttribute("data-row-index")));
@@ -172,6 +180,8 @@ async function loadBoard() {
     const { payload, requestId } = await jsonFetch<any>(`/api/edge-board?${params.toString()}`);
     appState.rows = normalizeRows(payload);
     appState.requestId = requestId || payload?.meta?.requestId || appState.requestId;
+    appState.boardFreshness = payload?.freshness || null;
+    appState.boardTrust = payload?.trust || null;
     appState.selectedIndex = -1;
     lastBoardSource = payload?.source?.label || payload?.source?.path || "EdgeBoard";
     applyFilters();
@@ -196,21 +206,22 @@ function applyFilters() {
   const q = appState.query.trim().toLowerCase();
   appState.filteredRows = appState.rows.filter((row: OutlierBoardRow) => {
     const marketOk = !appState.market || rowMarketKey(row) === appState.market;
-    const sideText = String(row.side || row.rawLabel || "").toLowerCase();
+    const sideText = String(row.trust?.propIdentity?.side || row.side || row.rawLabel || "").toLowerCase();
     const sideOk = !appState.side || sideText.includes(appState.side) || (!sideText && appState.side === "over");
-    const haystack = [row.player, row.playerName, row.team, row.opponent, row.marketDisplay, row.market].map((part) => String(part || "").toLowerCase()).join(" ");
+    const haystack = [row.trust?.propIdentity?.player, row.player, row.playerName, row.trust?.propIdentity?.team, row.team, row.trust?.propIdentity?.opponent, row.opponent, row.marketDisplay, row.trust?.propIdentity?.market, row.market].map((part) => String(part || "").toLowerCase()).join(" ");
     return marketOk && sideOk && (!q || haystack.includes(q));
   });
   if (appState.selectedIndex >= appState.filteredRows.length) appState.selectedIndex = -1;
 }
 
 function renderBoard(options: { resetScroll?: boolean } = {}) {
-  const severity = freshnessSeverity(appState.status);
+  const severity = freshnessSeverity(appState.boardFreshness || appState.status);
   const result = renderBoardTable({
     host: document.getElementById("boardHost"),
     rows: appState.filteredRows,
     selectedIndex: appState.selectedIndex,
     freshnessFallback: severity.label,
+    rowHeight: densityRowHeight(appState.density),
     resetScroll: options.resetScroll,
   });
   const windowCopy = result.rowCount > result.renderedCount ? ` · rendering rows ${result.startIndex + 1}-${result.endIndex} of ${result.rowCount}` : "";
@@ -246,6 +257,12 @@ function focusSearch() {
   document.getElementById("playerFilter")?.focus();
 }
 
+function setDensity(value: unknown) {
+  appState.density = applyDensity(normalizeDensity(value));
+  updateDensityControls();
+  renderBoard();
+}
+
 async function saveSelectedPick() {
   const row = detailRail.selectedRow() || appState.filteredRows[appState.selectedIndex];
   const status = document.getElementById("savePickStatus");
@@ -255,11 +272,11 @@ async function saveSelectedPick() {
     const body = {
       date: appState.date,
       player: rowPlayer(row),
-      team: text(row.team, ""),
-      opponent: text(row.opponent || row.home, ""),
-      market: text(row.market || row.baseMarket, "unknown_market"),
+      team: text(row.trust?.propIdentity?.team ?? row.team, ""),
+      opponent: text(row.trust?.propIdentity?.opponent ?? row.opponent ?? row.home, ""),
+      market: text(row.trust?.propIdentity?.market ?? row.market ?? row.baseMarket, "unknown_market"),
       marketDisplay: text(row.marketDisplay || rowMarketKey(row), "Prop"),
-      line: row.line ?? row.propLine ?? null,
+      line: row.trust?.propIdentity?.line ?? row.line ?? row.propLine ?? null,
       americanOdds: row.americanOdds ?? row.odds ?? null,
       decisionLabel: "Watchlist",
       readinessLabel: "Research only",
@@ -298,6 +315,23 @@ function renderTrustSurface(payload: any, requestId: string) {
 
 function trustSkeleton(label: string) { return trustCard(label, "Checking", "Loading trust signal…", "aging"); }
 function trustCard(label: string, value: unknown, copy: unknown, tone: string) { return h("article", { className: `ob-trust-card is-${tone}` }, [h("span", { text: label }), h("strong", { text: value }), h("em", { text: copy })]); }
+function renderDensityToggle() {
+  return h("div", { className: "ob-density-toggle", attrs: { role: "group", "aria-label": "Board density" } }, [
+    densityButton("compact", "Compact"),
+    densityButton("research", "Research"),
+  ]);
+}
+function densityButton(value: "compact" | "research", label: string) {
+  const active = appState.density === value;
+  return h("button", { className: active ? "is-active" : "", type: "button", text: label, dataset: { density: value }, attrs: { "aria-pressed": active ? "true" : "false" } });
+}
+function updateDensityControls() {
+  document.querySelectorAll<HTMLElement>("[data-density]").forEach((node) => {
+    const active = node.dataset.density === appState.density;
+    node.classList.toggle("is-active", active);
+    node.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
 function renderLoading() { clear(document.getElementById("boardHost"), [h("div", { className: "ob-empty" }, [h("strong", { text: "Loading board" }), h("span", { text: "Fetching EdgeBoard rows and trust metadata." })])]); }
 function option(value: string, label: string) { const node = h("option", { text: label }); node.value = value; return node; }
 function setMeta(copy: string) { const meta = document.getElementById("boardMeta"); if (meta) meta.textContent = copy; }
