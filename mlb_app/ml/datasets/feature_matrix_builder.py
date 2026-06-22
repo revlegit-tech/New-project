@@ -4,7 +4,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from mlb_app.ml.market_config import feature_fields_for_market, get_market_config
-from mlb_app.ml.datasets.leakage_guard import assert_feature_columns_safe
+from mlb_app.ml.datasets.leakage_guard import FEATURE_PREFIX, assert_feature_columns_safe, is_feature_column
 
 DEFAULT_EXCLUDED_COLUMNS: frozenset[str] = frozenset(
     {
@@ -40,13 +40,9 @@ def build_feature_matrix(
         excluded.update(str(column) for column in exclude_columns)
 
     if feature_names is None:
-        selected = [
-            str(column)
-            for column in frame.columns
-            if str(column) not in excluded and not str(column).lower().startswith("target_")
-        ]
+        selected = [str(column) for column in frame.columns if str(column) not in excluded and is_feature_column(str(column))]
     else:
-        selected = [str(column) for column in feature_names]
+        selected = [_resolve_feature_column(str(column), frame.columns) for column in feature_names]
 
     assert_feature_columns_safe(selected)
     matrix = frame.reindex(columns=selected)
@@ -67,7 +63,11 @@ def feature_names_for_market(
         selected = configured
     else:
         available = {str(column) for column in available_columns}
-        selected = [name for name in configured if name in available]
+        selected = [
+            name
+            for name in configured
+            if name in available or f"{FEATURE_PREFIX}{name}" in available
+        ]
     assert_feature_columns_safe(selected)
     return selected
 
@@ -86,6 +86,19 @@ def build_market_feature_matrix(
     if require_configured_features and not selected:
         raise ValueError(f"No configured feature columns are present for market {market!r}.")
     return build_feature_matrix(frame, feature_names=selected, numeric_only=numeric_only)
+
+
+def _resolve_feature_column(name: str, available_columns: Iterable[str]) -> str:
+    text = str(name or "").strip()
+    if not text:
+        return text
+    available = {str(column) for column in available_columns}
+    if is_feature_column(text):
+        return text
+    prefixed = f"{FEATURE_PREFIX}{text}"
+    if prefixed in available:
+        return prefixed
+    return prefixed
 
 
 def _pandas() -> Any:

@@ -484,6 +484,7 @@ class PlayerPropTrainingBuildResponse(StrictResponse):
     label_status_counts: dict[str, int] = Field(default_factory=dict)
     feature_columns: list[str] = Field(default_factory=list)
     target_columns: list[str] = Field(default_factory=list)
+    metadata_columns: list[str] = Field(default_factory=list)
     leakage_check_passed: bool = True
     blocked_feature_fields_found: list[str] = Field(default_factory=list)
     output_paths: dict[str, str] = Field(default_factory=dict)
@@ -499,6 +500,9 @@ class PlayerPropTrainingPreviewResponse(StrictResponse):
     label_schema_version: str = ""
     date: str = ""
     row_count: int = 0
+    feature_columns: list[str] = Field(default_factory=list)
+    target_columns: list[str] = Field(default_factory=list)
+    metadata_columns: list[str] = Field(default_factory=list)
     rows: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 

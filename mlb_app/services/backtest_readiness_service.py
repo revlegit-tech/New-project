@@ -261,7 +261,17 @@ def _boolish(value: Any) -> bool | None:
 
 
 def _market(row: Mapping[str, Any]) -> str:
-    return str(row.get("market") or row.get("market_key") or row.get("marketKey") or "unknown").strip() or "unknown"
+    return (
+        str(
+            row.get("feature_market")
+            or row.get("meta_market")
+            or row.get("market")
+            or row.get("market_key")
+            or row.get("marketKey")
+            or "unknown"
+        ).strip()
+        or "unknown"
+    )
 
 
 def _dedupe(values: Sequence[str]) -> list[str]:

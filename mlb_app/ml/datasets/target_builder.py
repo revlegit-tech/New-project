@@ -5,15 +5,11 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mlb_app.ml.market_config import MarketModelConfig, get_market_config, normalize_market
+from mlb_app.ml.datasets.leakage_guard import TARGET_PREFIX
 
 TARGET_CANDIDATES: tuple[str, ...] = (
     "target_hit",
     "target_result",
-    "target",
-    "label",
-    "over",
-    "hit",
-    "result",
 )
 
 POSITIVE_VALUES = {"1", "true", "yes", "y", "over", "hit", "win", "won", "graded_win"}
@@ -53,6 +49,8 @@ def build_binary_target(rows: Sequence[Mapping[str, Any]] | Any, *, target_colum
     selected = target_column or _first_existing_column(frame, TARGET_CANDIDATES)
     if not selected:
         raise ValueError(f"No binary target column found. Tried: {', '.join(TARGET_CANDIDATES)}")
+    if not str(selected).startswith(TARGET_PREFIX):
+        raise ValueError("Training targets must come from target_* columns.")
 
     target = frame[selected].map(normalize_binary_target)
     valid = target.notna()
