@@ -6,11 +6,18 @@ from mlb_app.config import Settings, settings as default_settings
 from mlb_app.repositories.bankroll_repository import BankrollRepository
 from mlb_app.repositories.board_row_repository import BoardRowRepository
 from mlb_app.repositories.board_snapshot_repository import BoardSnapshotRepository
+from mlb_app.repositories.collector_run_repository import CollectorRunRepository
+from mlb_app.repositories.data_health_repository import DataHealthRepository
 from mlb_app.repositories.db import SQLiteDatabase
+from mlb_app.repositories.edge_board_snapshot_repository import EdgeBoardSnapshotRepository
 from mlb_app.repositories.picks_repository import PicksRepository
+from mlb_app.repositories.playerboard_snapshot_repository import PlayerboardSnapshotRepository
 from mlb_app.repositories.playerboard_repository import PlayerboardRepository
+from mlb_app.repositories.prop_repository import PropRepository
 from mlb_app.observability.metrics import MetricsRegistry, default_registry
 from mlb_app.repositories.prediction_events_repository import PredictionEventsRepository
+from mlb_app.repositories.research_report_repository import ResearchReportRepository
+from mlb_app.repositories.warehouse_db import WarehouseDatabase
 from mlb_app.services.alert_service import AlertService
 from mlb_app.services.app_status_service import AppStatusService
 from mlb_app.services.bankroll_service import BankrollService
@@ -48,6 +55,7 @@ class AppContainer:
 
     settings: Settings = default_settings
     db: SQLiteDatabase = field(init=False)
+    warehouse_db: WarehouseDatabase = field(init=False)
     board_cache: BoardCache = field(init=False)
     blocking_work_limiter: BlockingWorkLimiter = field(init=False)
     read_rate_limiter: TokenBucketRateLimiter = field(init=False)
@@ -59,6 +67,12 @@ class AppContainer:
     picks_repository: PicksRepository = field(init=False)
     bankroll_repository: BankrollRepository = field(init=False)
     prediction_events_repository: PredictionEventsRepository = field(init=False)
+    collector_run_repository: CollectorRunRepository = field(init=False)
+    playerboard_snapshot_db_repository: PlayerboardSnapshotRepository = field(init=False)
+    edge_board_snapshot_db_repository: EdgeBoardSnapshotRepository = field(init=False)
+    prop_repository: PropRepository = field(init=False)
+    data_health_repository: DataHealthRepository = field(init=False)
+    research_report_repository: ResearchReportRepository = field(init=False)
 
     grading_service: GradingStateService = field(init=False)
     data_health_service: DataHealthService = field(init=False)
@@ -84,6 +98,7 @@ class AppContainer:
     def __post_init__(self) -> None:
         self.db = SQLiteDatabase(self.settings.state_db_path)
         self.db.initialize()
+        self.warehouse_db = WarehouseDatabase.from_settings(self.settings)
         self.board_cache = BoardCache(
             ttl_seconds=self.settings.board_cache_ttl_seconds,
             max_keys=self.settings.board_cache_max_keys,
@@ -105,6 +120,18 @@ class AppContainer:
         self.picks_repository = PicksRepository(self.settings, db=self.db)
         self.bankroll_repository = BankrollRepository(self.settings, db=self.db)
         self.prediction_events_repository = PredictionEventsRepository(self.settings, db=self.db)
+        self.collector_run_repository = CollectorRunRepository(self.warehouse_db)
+        self.playerboard_snapshot_db_repository = PlayerboardSnapshotRepository(
+            self.warehouse_db,
+            settings=self.settings,
+        )
+        self.edge_board_snapshot_db_repository = EdgeBoardSnapshotRepository(
+            self.warehouse_db,
+            settings=self.settings,
+        )
+        self.prop_repository = PropRepository(self.warehouse_db)
+        self.data_health_repository = DataHealthRepository(self.warehouse_db)
+        self.research_report_repository = ResearchReportRepository(self.warehouse_db)
 
         self.grading_service = GradingStateService(settings=self.settings)
         self.product_state_service = ProductStateService(settings=self.settings)
@@ -113,7 +140,10 @@ class AppContainer:
             product_state_service=self.product_state_service,
             settings=self.settings,
         )
-        self.data_status_service = DataStatusService(settings=self.settings)
+        self.data_status_service = DataStatusService(
+            settings=self.settings,
+            data_health_repository=self.data_health_repository,
+        )
         self.model_registry_service = ModelRegistryService(settings=self.settings)
         self.model_readiness_service = ModelReadinessService(self.model_registry_service)
         self.workflow_health_service = WorkflowHealthService(settings=self.settings)
@@ -133,6 +163,7 @@ class AppContainer:
         self.playerboard_read_service = PlayerboardReadService(
             repository=self.playerboard_repository,
             snapshot_repository=self.board_snapshot_repository,
+            db_snapshot_repository=self.playerboard_snapshot_db_repository,
             grading_service=self.grading_service,
             readiness_service=self.model_readiness_service,
             product_state_service=self.product_state_service,
@@ -159,10 +190,15 @@ class AppContainer:
         self.edge_board_service = EdgeBoardService(
             playerboard_service=self.playerboard_service,
             model_card_service=self.model_card_service,
+            snapshot_repository=self.edge_board_snapshot_db_repository,
             board_cache=self.board_cache,
             metrics=self.metrics,
+            settings=self.settings,
         )
-        self.edge_report_service = EdgeReportService(edge_board_service=self.edge_board_service)
+        self.edge_report_service = EdgeReportService(
+            edge_board_service=self.edge_board_service,
+            report_repository=self.research_report_repository,
+        )
         self.data_health_dashboard_service = DataHealthDashboardService(
             data_health_service=self.data_health_service,
             playerboard_service=self.playerboard_service,

@@ -12,6 +12,7 @@ from mlb_app.config import Settings, settings as default_settings
 from mlb_app.contracts.playerboard_schema import PLAYERBOARD_FIELDS, PLAYERBOARD_SCHEMA_VERSION, normalize_market_value
 from mlb_app.observability.metrics import MetricsRegistry
 from mlb_app.repositories.board_snapshot_repository import BoardSnapshotRepository
+from mlb_app.repositories.playerboard_snapshot_repository import PlayerboardSnapshotRepository
 from mlb_app.repositories.playerboard_repository import PlayerboardReadResult, PlayerboardRepository
 from mlb_app.services.board_cache import FileSignature
 from mlb_app.services.grading_state_service import GradingStateService
@@ -114,6 +115,7 @@ class PlayerboardReadService:
         *,
         repository: PlayerboardRepository | None = None,
         snapshot_repository: BoardSnapshotRepository | None = None,
+        db_snapshot_repository: PlayerboardSnapshotRepository | None = None,
         grading_service: GradingStateService | None = None,
         readiness_service: ModelReadinessService | None = None,
         product_state_service: ProductStateService | None = None,
@@ -123,6 +125,7 @@ class PlayerboardReadService:
         self.settings = settings
         self.repository = repository or PlayerboardRepository(settings=settings)
         self.snapshot_repository = snapshot_repository
+        self.db_snapshot_repository = db_snapshot_repository
         self.grading_service = grading_service or GradingStateService(settings=settings)
         self.readiness_service = readiness_service or ModelReadinessService()
         self.product_state_service = product_state_service or ProductStateService(settings=settings)
@@ -185,7 +188,22 @@ class PlayerboardReadService:
 
 
     def _read_result(self, *, season: int, date_label: str, market: str, prop_key: str = "") -> PlayerboardReadResult:
-        """Read from SQLite active snapshots first, then CSV as cold-start fallback."""
+        """Read from warehouse DB, then SQLite active snapshots, then CSV fallback."""
+
+        if self.db_snapshot_repository is not None and self.settings.db_enabled:
+            try:
+                db_result = self.db_snapshot_repository.read_latest_playerboard(
+                    season=season,
+                    date_label=date_label,
+                    market=market,
+                    prop_key=prop_key,
+                )
+                if db_result is not None:
+                    return db_result
+            except Exception:
+                # The historical warehouse must not break the live board. CSV
+                # and existing SQLite serving snapshots remain the recovery path.
+                pass
 
         if self.snapshot_repository is not None:
             db_result = self.snapshot_repository.read_active_playerboard(

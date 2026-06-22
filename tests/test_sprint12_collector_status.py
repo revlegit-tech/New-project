@@ -360,6 +360,7 @@ def test_data_status_endpoint_uses_strict_response_shape(tmp_path: Path) -> None
         "generated_at",
         "latest_collector_manifest",
         "source_freshness",
+        "database",
         "expected_files",
         "missing_files",
         "warnings",
@@ -367,4 +368,6 @@ def test_data_status_endpoint_uses_strict_response_shape(tmp_path: Path) -> None
     }
     assert payload["schemaVersion"] == "data-status.v1"
     assert payload["status"] == "fresh"
+    assert payload["database"]["enabled"] is False
+    assert payload["database"]["csv_fallback"]["status"] == "primary_csv"
     assert "traceback" not in payload["latest_collector_manifest"]

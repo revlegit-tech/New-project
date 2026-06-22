@@ -42,6 +42,15 @@ def _bool_from_env(name: str, fallback: bool, source: Mapping[str, str] | None =
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_value(*names: str, source: Mapping[str, str] | None = None, fallback: str = "") -> str:
+    env = source or os.environ
+    for name in names:
+        raw = env.get(name, "")
+        if str(raw).strip():
+            return str(raw).strip()
+    return fallback
+
+
 def _csv_tuple_from_env(name: str, fallback: tuple[str, ...], source: Mapping[str, str] | None = None) -> tuple[str, ...]:
     raw = (source or os.environ).get(name, "")
     if not str(raw).strip():
@@ -67,6 +76,11 @@ class Settings:
     research_mode_default: bool = True
     current_season: int = active_mlb_season()
     db_path: Path | None = None
+    database_url: str = ""
+    database_pool_size: int = 5
+    database_echo: bool = False
+    db_enabled: bool = False
+    db_fallback_to_csv: bool = True
     board_cache_ttl_seconds: float = 30.0
     board_cache_max_keys: int = 256
     blocking_work_max_concurrent: int = 24
@@ -101,6 +115,7 @@ class Settings:
         research_mode = os.environ.get("MLB_RESEARCH_MODE_DEFAULT", "1").strip().lower()
         season = _int_from_env("MLB_CURRENT_SEASON", active_mlb_season())
         db_path = Path(os.environ.get("MLB_APP_DB_PATH", data_dir / "mlb_app_state.sqlite3")).resolve()
+        database_url = _env_value("DATABASE_URL", "MLB_DATABASE_URL")
         return cls(
             root_dir=root,
             public_dir=(root / "public").resolve(),
@@ -111,6 +126,11 @@ class Settings:
             research_mode_default=research_mode not in {"0", "false", "no", "off"},
             current_season=season,
             db_path=db_path,
+            database_url=database_url,
+            database_pool_size=_int_from_env("DATABASE_POOL_SIZE", _int_from_env("MLB_DATABASE_POOL_SIZE", 5)),
+            database_echo=_bool_from_env("DATABASE_ECHO", _bool_from_env("MLB_DATABASE_ECHO", False)),
+            db_enabled=_bool_from_env("DB_ENABLED", _bool_from_env("MLB_DB_ENABLED", False)),
+            db_fallback_to_csv=_bool_from_env("DB_FALLBACK_TO_CSV", _bool_from_env("MLB_DB_FALLBACK_TO_CSV", True)),
             board_cache_ttl_seconds=_float_from_env("MLB_BOARD_CACHE_TTL_SECONDS", 30.0),
             board_cache_max_keys=_int_from_env("MLB_BOARD_CACHE_MAX_KEYS", 256),
             blocking_work_max_concurrent=_int_from_env("MLB_BLOCKING_WORK_MAX_CONCURRENT", 24),

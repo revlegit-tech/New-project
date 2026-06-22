@@ -6,8 +6,9 @@ import csv
 from pathlib import Path
 from typing import Any, Hashable
 
-from mlb_app.config import settings as default_settings
+from mlb_app.config import Settings, settings as default_settings
 from mlb_app.observability.metrics import MetricsRegistry
+from mlb_app.repositories.edge_board_snapshot_repository import EdgeBoardSnapshotRepository
 from mlb_app.services.board_cache import BoardCache, BoardCacheBuildResult
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.playerboard_read_service import prop_key_for_row
@@ -30,11 +31,15 @@ class EdgeBoardService:
         *,
         playerboard_service: PlayerboardService | None = None,
         model_card_service: ModelCardService | None = None,
+        snapshot_repository: EdgeBoardSnapshotRepository | None = None,
         board_cache: BoardCache | None = None,
         metrics: MetricsRegistry | None = None,
+        settings: Settings = default_settings,
     ) -> None:
+        self.settings = settings
         self.playerboard_service = playerboard_service or PlayerboardService()
         self.model_card_service = model_card_service or ModelCardService()
+        self.snapshot_repository = snapshot_repository
         self.metrics = metrics
         self.board_cache = board_cache or BoardCache(
             ttl_seconds=default_settings.board_cache_ttl_seconds,
@@ -69,6 +74,11 @@ class EdgeBoardService:
         return payload
 
     def _build_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        if not _bypass_board_cache(query):
+            db_payload = self._payload_from_database(query)
+            if db_payload is not None:
+                return db_payload
+
         board = self.playerboard_service.board_payload(query)
         raw_rows = _list_rows(board.get("top") or board.get("rows") or [])
         game_context_index = _phase18_v7_game_context_index(query, board)
@@ -110,6 +120,68 @@ class EdgeBoardService:
             "meta": {
                 "snapshotSignature": ((board.get("sourceMeta") or {}).get("snapshotSignature")),
                 "source": board.get("source"),
+            },
+        }
+
+    def _payload_from_database(self, query: dict[str, list[str]]) -> dict[str, Any] | None:
+        if self.snapshot_repository is None or not self.settings.db_enabled:
+            return None
+        try:
+            season = self.settings.season_from_query(query)
+            date_label = _query_value(query, "date")
+            market = _query_value(query, "market")
+            limit = _int_query(query, "limit", 50)
+            rows, meta = self.snapshot_repository.latest_rows(
+                season=season,
+                date_label=date_label,
+                market=market,
+            )
+        except Exception:
+            return None
+        if not rows:
+            return None
+        selected_rows = rows[:limit]
+        snapshot_at = _clean(meta.get("snapshotAt"))
+        return {
+            "status": "ok",
+            "schemaVersion": "edge-board.snapshot.v1",
+            "version": EDGE_BOARD_VERSION,
+            "season": season,
+            "date": _clean(meta.get("date")) or date_label,
+            "cacheHit": True,
+            "rows": selected_rows,
+            "rowCount": len(selected_rows),
+            "source": {
+                "cardsBuilt": len(selected_rows),
+                "propsLoaded": len(selected_rows),
+                "message": "Loaded latest saved EdgeBoard snapshot from database.",
+                "saved": {
+                    "source": "edge_board_snapshots",
+                    "snapshotAt": snapshot_at,
+                    "rowsLoaded": len(selected_rows),
+                    "file": _clean(meta.get("sourcePath")),
+                },
+                "database": {
+                    "table": "edge_board_snapshots",
+                    "snapshotAt": snapshot_at,
+                    "snapshotIds": meta.get("snapshotIds", []),
+                },
+            },
+            "filters": self._filter_options(selected_rows),
+            "summary": self._summary(selected_rows),
+            "trust": {},
+            "productState": None,
+            "latestFullyGradedDate": "",
+            "dataConfidence": "Good",
+            "modelReadiness": {},
+            "freshness": {
+                "status": "fresh" if snapshot_at else "degraded",
+                "snapshotBuiltAt": snapshot_at,
+                "source": "database",
+            },
+            "meta": {
+                "source": "database",
+                "snapshotSignature": f"edge_board_snapshots:{snapshot_at}",
             },
         }
 

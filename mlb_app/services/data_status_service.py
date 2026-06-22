@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from mlb_app.config import Settings, settings as default_settings
+from mlb_app.repositories.data_health_repository import DataHealthRepository
+from mlb_app.repositories.warehouse_db import WarehouseDatabase
 from mlb_app.services.collector_manifest_service import CollectorManifestService
 
 DEFAULT_STALE_AFTER_SECONDS = 36 * 60 * 60
@@ -43,6 +45,7 @@ class DataStatusService:
         self,
         *,
         settings: Settings = default_settings,
+        data_health_repository: DataHealthRepository | None = None,
         now_provider: Callable[[], datetime] | None = None,
         stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
     ) -> None:
@@ -51,6 +54,7 @@ class DataStatusService:
         self._now_provider = now_provider
         self.stale_after_seconds = int(stale_after_seconds)
         self.manifests = CollectorManifestService(settings=settings)
+        self.data_health_repository = data_health_repository or DataHealthRepository(WarehouseDatabase.from_settings(settings))
 
     def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
         query = query or {}
@@ -75,6 +79,11 @@ class DataStatusService:
             missing = ", ".join(latest_manifest.get("artifact_critical_files_missing") or [])
             warnings.append(f"Latest collector manifest is missing artifact-critical paths: {missing}.")
 
+        database_status = self._database_status(season)
+        if database_status["enabled"] and not database_status["reachable"]:
+            suffix = " CSV fallback is enabled." if database_status["csv_fallback"]["enabled"] else ""
+            warnings.append(f"Warehouse database is enabled but unreachable.{suffix}")
+
         warnings.extend(f"Missing expected file: {path}" for path in missing_files)
         data_health_score = self._score(source_freshness, missing_files)
         status = self._overall_status(source_freshness, missing_files, warnings)
@@ -85,10 +94,50 @@ class DataStatusService:
             "generated_at": generated_at.isoformat(),
             "latest_collector_manifest": latest_manifest,
             "source_freshness": source_freshness,
+            "database": database_status,
             "expected_files": expected_files,
             "missing_files": missing_files,
             "warnings": _dedupe(warnings)[:40],
             "data_health_score": data_health_score,
+        }
+
+    def _database_status(self, season: int) -> dict[str, Any]:
+        try:
+            raw = self.data_health_repository.database_status(season=season)
+        except Exception as error:
+            raw = {
+                "enabled": self.settings.db_enabled,
+                "reachable": False,
+                "dialect": "",
+                "reason": "error",
+                "error": f"{type(error).__name__}: {error}",
+                "latestDbSnapshotDate": "",
+                "rowCounts": {},
+                "tables": {},
+            }
+        enabled = bool(raw.get("enabled"))
+        reachable = bool(raw.get("reachable"))
+        latest_date = str(raw.get("latestDbSnapshotDate") or "")
+        fallback_enabled = bool(self.settings.db_fallback_to_csv)
+        return {
+            "enabled": enabled,
+            "reachable": reachable,
+            "dialect": str(raw.get("dialect") or ""),
+            "reason": str(raw.get("reason") or ""),
+            "error": str(raw.get("error") or ""),
+            "latest_db_snapshot_date": latest_date,
+            "row_counts": raw.get("rowCounts") if isinstance(raw.get("rowCounts"), dict) else {},
+            "tables": raw.get("tables") if isinstance(raw.get("tables"), dict) else {},
+            "csv_fallback": {
+                "enabled": fallback_enabled,
+                "active": bool((not enabled) or (not reachable) or (not latest_date)),
+                "status": _csv_fallback_status(
+                    enabled=enabled,
+                    reachable=reachable,
+                    latest_date=latest_date,
+                    fallback_enabled=fallback_enabled,
+                ),
+            },
         }
 
     def _inspect_source(self, spec: SourceSpec, *, generated_at: datetime) -> dict[str, Any]:
@@ -258,6 +307,18 @@ def _increment_market_count(counts: dict[str, int], row: dict[str, Any]) -> None
     market = str(row.get("market") or row.get("market_key") or row.get("marketKey") or "").strip()
     if market:
         counts[market] = counts.get(market, 0) + 1
+
+
+def _csv_fallback_status(*, enabled: bool, reachable: bool, latest_date: str, fallback_enabled: bool) -> str:
+    if not fallback_enabled:
+        return "disabled"
+    if not enabled:
+        return "primary_csv"
+    if not reachable:
+        return "active_db_unreachable"
+    if not latest_date:
+        return "active_db_empty"
+    return "standby"
 
 
 def _matching_files(root: Path, patterns: tuple[str, ...]) -> list[Path]:

@@ -272,6 +272,7 @@ class DataStatusResponse(StrictResponse):
     generated_at: str
     latest_collector_manifest: CollectorManifestPayload | None = None
     source_freshness: dict[str, DataSourceFreshnessPayload] = Field(default_factory=dict)
+    database: dict[str, Any] = Field(default_factory=dict)
     expected_files: list[str] = Field(default_factory=list)
     missing_files: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

@@ -4,6 +4,7 @@ from collections import Counter
 from typing import Any
 
 from mlb_app.config import settings as default_settings
+from mlb_app.repositories.research_report_repository import ResearchReportRepository
 from mlb_app.services.edge_board_service import EdgeBoardService
 
 EDGE_REPORT_VERSION = "2026-06-edge-report-v1"
@@ -19,11 +20,20 @@ class EdgeReportService:
     freshness, model-readiness, and actionability contracts.
     """
 
-    def __init__(self, *, edge_board_service: EdgeBoardService | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        edge_board_service: EdgeBoardService | None = None,
+        report_repository: ResearchReportRepository | None = None,
+    ) -> None:
         self.edge_board_service = edge_board_service or EdgeBoardService()
+        self.report_repository = report_repository
 
     def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
         report_query = _normalise_query(query or {})
+        saved_report = self._payload_from_database(report_query)
+        if saved_report is not None:
+            return saved_report
         board = self.edge_board_service.payload(report_query)
         rows = [_decorate_row(row) for row in _list_rows(board.get("rows"))]
         ranked = sorted(rows, key=lambda item: item["score"], reverse=True)
@@ -114,6 +124,16 @@ class EdgeReportService:
                 "researchOnly": True,
             },
         }
+
+    def _payload_from_database(self, query: dict[str, list[str]]) -> dict[str, Any] | None:
+        if self.report_repository is None:
+            return None
+        try:
+            season = _int((query.get("season") or [default_settings.current_season])[0], default_settings.current_season)
+            date_label = _clean((query.get("date") or [""])[0])
+            return self.report_repository.latest_payload(season=season, date_label=date_label)
+        except Exception:
+            return None
 
 
 def _normalise_query(query: dict[str, list[str]]) -> dict[str, list[str]]:
