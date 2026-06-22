@@ -4,8 +4,11 @@ import csv
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
+from mlb_app.api.app import create_app
 from mlb_app.config import Settings
+from mlb_app.container import AppContainer
 from mlb_app.contracts.playerboard_schema import (
     PLAYERBOARD_FIELDS,
     PLAYERBOARD_SCHEMA_VERSION,
@@ -239,3 +242,15 @@ def test_playerboard_service_returns_normalized_schema_metadata(tmp_path: Path) 
     assert payload["schemaOk"] is True
     assert payload["rowsLoaded"] == 1
     assert payload["marketsPresent"] == {"batter_hits_alt": 1}
+
+
+def test_playerboard_endpoint_returns_empty_saved_dict_without_snapshot(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    client = TestClient(create_app(container=AppContainer(settings=settings)), client=("127.0.0.1", 50000))
+
+    response = client.get("/api/playerboard?season=2026&limit=5")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rows"] == []
+    assert payload["saved"] == {}

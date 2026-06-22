@@ -65,6 +65,15 @@ data/warehouse/odds_snapshots/
 data/warehouse/raw/
 data/warehouse/summaries/
 data/warehouse/external/
+data/warehouse/ml_features/*
+data/warehouse/ml_labels/*
+data/warehouse/ml_training/*
+data/warehouse/historical_game_odds/*
+data/external/
+data/external/mlb_odds_dataset.json
+data/reference/mlb_venue_coordinates.csv
+github_artifacts/
+github_artifacts_extracted/
 data/warehouse/season_logs/batter_game_logs_*.csv
 data/warehouse/season_logs/pitcher_game_logs_*.csv
 data/warehouse/season_logs/team_game_logs_*.csv
@@ -180,6 +189,12 @@ node_modules/
 playwright-report/
 test-results/
 reports/
+.pytest_tmp/
+public/assets/
+public/.vite/
+*.sqlite
+*.sqlite3
+*.db
 
 # Generated backup/header-mismatch artifacts must not be committed.
 data/playerboard/*.header_mismatch_*.csv
@@ -211,3 +226,8 @@ data/**/*.sqlite3-shm
 *.phase*_backup*
 *_backup*
 *.header_mismatch_*.csv
+
+data/backups/
+data/edge_board/
+data/health/
+data/cloud/summaries/games_*.json

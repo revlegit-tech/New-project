@@ -80,7 +80,12 @@ def create_app(
 
 
 def _install_legacy_api_gateway(app: FastAPI, legacy_dispatch: LegacyDispatch) -> None:
-    @app.api_route("/api/{api_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], name="legacy_api_gateway")
+    @app.api_route(
+        "/api/{api_path:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        name="legacy_api_gateway",
+        include_in_schema=False,
+    )
     async def legacy_api_gateway(api_path: str, request: Request) -> Response:
         path = f"/api/{api_path}"
         headers = _headers_from_request(request)
@@ -118,7 +123,12 @@ def _install_legacy_api_gateway(app: FastAPI, legacy_dispatch: LegacyDispatch) -
 
 
 def _install_static_gateway(app: FastAPI, static_handler: StaticHandler) -> None:
-    @app.api_route("/{static_path:path}", methods=["GET", "HEAD"], name="static_gateway")
+    @app.api_route(
+        "/{static_path:path}",
+        methods=["GET", "HEAD"],
+        name="static_gateway",
+        include_in_schema=False,
+    )
     async def static_gateway(static_path: str, request: Request) -> Response:
         path = "/" if not static_path else f"/{static_path}"
         request_id = str(getattr(request.state, "request_id", "") or request.headers.get("x-request-id") or "")

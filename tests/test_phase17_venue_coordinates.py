@@ -4,7 +4,7 @@ import csv
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-COORDS = ROOT / "data" / "reference" / "mlb_venue_coordinates.csv"
+COORDS = ROOT / "tests" / "fixtures" / "mlb_venue_coordinates.csv"
 
 
 def test_coordinate_file_has_all_current_mlb_venues():

@@ -98,7 +98,7 @@ class PlayerboardService:
                 "rowsLoaded": len(rows),
                 "file": str(snapshot.path),
                 "snapshotSignature": snapshot.source_meta().get("snapshotSignature"),
-            } if rows else None,
+            } if rows else {},
             "top": rows,
             "rows": rows,
             "source": "playerboard_snapshot",

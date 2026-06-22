@@ -54,3 +54,21 @@ def test_openapi_uses_strict_native_contract_schemas() -> None:
     components = schema["components"]["schemas"]
     for name in ["EdgeBoardRow", "ModelCardItem", "PickItem", "ExposureSummaryPayload", "PropDetailPayload"]:
         assert components[name]["additionalProperties"] is False
+
+
+def test_openapi_operation_ids_are_unique() -> None:
+    with TestClient(app) as client:
+        schema = client.get("/openapi.json").json()
+
+    operation_ids = [
+        operation["operationId"]
+        for path_item in schema["paths"].values()
+        for operation in path_item.values()
+        if isinstance(operation, dict) and "operationId" in operation
+    ]
+
+    assert len(operation_ids) == len(set(operation_ids))
+    assert "/api/{api_path}" not in schema["paths"]
+    assert "/api/{api_path:path}" not in schema["paths"]
+    assert "/{static_path}" not in schema["paths"]
+    assert "/{static_path:path}" not in schema["paths"]

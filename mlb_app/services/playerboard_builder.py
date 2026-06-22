@@ -828,6 +828,61 @@ def first_value(row: dict[str, Any], names: list[str]) -> str:
     return ""
 
 
+_PLAYER_DESCRIPTION_SUFFIXES = (
+    "Strikeouts Thrown",
+    "Pitcher Strikeouts",
+    "Hits Allowed",
+    "Earned Runs",
+    "Stolen Bases",
+    "Total Bases",
+    "Home Runs",
+    "Strikeouts",
+    "Doubles",
+    "Singles",
+    "Walks",
+    "RBIs",
+    "Runs",
+    "Hits",
+)
+
+
+def _looks_like_player_name(value: str) -> bool:
+    tokens = re.findall(r"[A-Za-z][A-Za-z'.-]*", value)
+    return len(tokens) >= 2
+
+
+def _strip_descriptive_player_suffix(value: Any) -> str:
+    text = clean(value)
+    if not text:
+        return ""
+
+    side_match = re.search(r"\s+(?:Over|Under)\b", text, flags=re.IGNORECASE)
+    if side_match:
+        candidate = text[:side_match.start()].strip()
+        if _looks_like_player_name(candidate):
+            return candidate
+
+    for suffix in _PLAYER_DESCRIPTION_SUFFIXES:
+        pattern = rf"\s+(?:\d+(?:\.\d+)?\+?\s+)?{re.escape(suffix)}$"
+        candidate = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+        if candidate != text and _looks_like_player_name(candidate):
+            return candidate
+
+    return text
+
+
+def player_name_from_prop_row(row: dict[str, Any]) -> str:
+    player = first_value(row, [
+        "player", "playerName", "player_name", "participant",
+        "athlete", "batter", "pitcher_name",
+    ])
+    if player:
+        return player
+
+    fallback = first_value(row, ["name", "description", "title", "selection", "outcome"])
+    return _strip_descriptive_player_suffix(fallback)
+
+
 
 def is_ignored_prop_source(path: Path) -> bool:
     """Skip local backup/debug files so old bad rows do not enter Playerboard."""
@@ -954,14 +1009,11 @@ def normalize_prop_row(row: dict[str, Any], date_label: str) -> dict[str, Any]:
     ])
     market = normalize_market(original_market)
 
-    player = first_value(row, [
-        "player", "playerName", "player_name", "name", "description",
-        "participant", "athlete", "batter", "pitcher_name", "selection"
-    ])
+    player = player_name_from_prop_row(row)
 
     label = first_value(row, ["side", "label", "title", "outcome", "outcome_name", "selection", "description"])
     if not player and label:
-        player = label.split(" Over ")[0].split(" Under ")[0].strip()
+        player = _strip_descriptive_player_suffix(label)
 
     lower_player = player.lower()
     if " over " in lower_player:
