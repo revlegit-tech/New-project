@@ -11,6 +11,7 @@ from mlb_app.services.app_status_service import AppStatusService
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.bankroll_service import BankrollService
 from mlb_app.services.edge_board_service import EdgeBoardService
+from mlb_app.services.edge_report_service import EdgeReportService
 from mlb_app.services.data_health_dashboard_service import DataHealthDashboardService
 from mlb_app.services.data_health_service import DataHealthService
 from mlb_app.services.grading_state_service import GradingStateService
@@ -51,6 +52,10 @@ def get_app_status_service(container: Annotated[AppContainer, Depends(get_contai
 
 def get_edge_board_service(container: Annotated[AppContainer, Depends(get_container)]) -> EdgeBoardService:
     return container.edge_board_service
+
+
+def get_research_report_service(container: Annotated[AppContainer, Depends(get_container)]) -> EdgeReportService:
+    return container.edge_report_service
 
 
 def get_playerboard_service(container: Annotated[AppContainer, Depends(get_container)]) -> PlayerboardService:

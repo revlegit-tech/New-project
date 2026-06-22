@@ -116,3 +116,23 @@ body[data-ob-density="research"] .ob-pill { padding: 6px 10px; }
 .ob-table th:nth-child(8), .ob-table td:nth-child(8),
 .ob-table th:nth-child(9), .ob-table td:nth-child(9),
 .ob-table th:nth-child(10), .ob-table td:nth-child(10) { width: 140px; }
+
+/* Productized daily report layer: turns EdgeBoard rows into a sellable MLB research package. */
+.ob-action-row { display: inline-flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.ob-report-panel { padding: var(--space-5); display: grid; gap: var(--space-4); }
+.ob-report-head { display: flex; justify-content: space-between; align-items: start; gap: var(--space-4); }
+.ob-report-head h2 { margin: 0; font-size: clamp(1.4rem, 2vw, 2rem); }
+.ob-report-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-3); }
+.ob-report-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.ob-report-section { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); padding: var(--space-4); display: grid; gap: var(--space-3); min-width: 0; }
+.ob-report-section-title { display: flex; justify-content: space-between; gap: var(--space-3); align-items: start; }
+.ob-report-section h3 { margin: 0; }
+.ob-report-section p { margin: var(--space-1) 0 0; color: var(--color-muted); font-size: .82rem; line-height: 1.45; }
+.ob-report-card { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: rgba(8, 10, 10, .5); padding: var(--space-3); display: grid; gap: var(--space-2); }
+.ob-report-card strong, .ob-report-card span, .ob-report-card em { display: block; }
+.ob-report-card span, .ob-report-card em { color: var(--color-muted); font-size: .78rem; }
+.ob-report-card em { color: var(--color-dim); font-style: normal; }
+.ob-report-card-meta { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ob-report-footer { border-top: 1px solid var(--color-border); padding-top: var(--space-3); display: grid; gap: 4px; color: var(--color-muted); font-size: .84rem; }
+.ob-report-footer strong { color: var(--color-text); }
+@media (max-width: 1120px) { .ob-report-stats, .ob-report-sections { grid-template-columns: 1fr; } .ob-report-head { display: grid; } .ob-action-row { justify-content: start; } }

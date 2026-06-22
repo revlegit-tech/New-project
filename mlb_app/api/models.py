@@ -343,6 +343,63 @@ class EdgeBoardResponse(StrictResponse):
     freshness: dict[str, Any] = Field(default_factory=dict)
 
 
+class ResearchReportCard(StrictPayload):
+    id: str = ""
+    propKey: str = ""
+    player: str = ""
+    team: str = ""
+    opponent: str = ""
+    matchup: str = ""
+    market: str = ""
+    marketDisplay: str = ""
+    side: str = ""
+    line: Any = None
+    americanOdds: Any = None
+    book: str = ""
+    score: int = 0
+    grade: str = ""
+    riskBucket: str = ""
+    confidence: str = ""
+    edgePercent: float = 0.0
+    modelProbabilityPercent: float | None = None
+    impliedProbabilityPercent: float | None = None
+    decisionLabel: str = ""
+    readinessLabel: str = ""
+    suggestedStake: str = ""
+    sourceRowRank: int = 0
+    freshness: dict[str, Any] = Field(default_factory=dict)
+    trust: dict[str, Any] = Field(default_factory=dict)
+    reasons: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ResearchReportSection(StrictPayload):
+    key: str
+    title: str
+    description: str = ""
+    publishTier: str = "premium"
+    cardCount: int = 0
+    cards: list[ResearchReportCard] = Field(default_factory=list)
+    emptyState: str = ""
+
+
+class ResearchReportResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    version: str | None = None
+    date: str | None = None
+    season: int | None = None
+    product: dict[str, Any] = Field(default_factory=dict)
+    summary: dict[str, Any] = Field(default_factory=dict)
+    sections: list[ResearchReportSection] = Field(default_factory=list)
+    pricing: dict[str, Any] = Field(default_factory=dict)
+    publishPlan: list[dict[str, Any]] = Field(default_factory=list)
+    trust: dict[str, Any] = Field(default_factory=dict)
+    freshness: dict[str, Any] = Field(default_factory=dict)
+    source: dict[str, Any] = Field(default_factory=dict)
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
 class PlayerboardResponse(StrictResponse):
     status: str = "ok"
     schemaVersion: str | None = None

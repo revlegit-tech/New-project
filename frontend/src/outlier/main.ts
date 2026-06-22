@@ -11,6 +11,7 @@ import { renderBoardTable } from "./board";
 import { edgeValue, OutlierBoardRow, rowMarketKey, rowPlayer } from "./board/utils";
 import { DetailRailController, renderDetailRailShell } from "./detail-rail";
 import { freshnessSeverity } from "./trust";
+import { loadResearchReport, renderResearchReport, renderResearchReportError, renderResearchReportLoading } from "./research-report";
 
 const appState = createInitialOutlierState();
 const disabledSports = ["NBA", "NHL", "Soccer", "WNBA", "NCAAFB"];
@@ -50,6 +51,7 @@ function renderSidebar() {
     h("div", { className: "ob-brand" }, [h("div", { className: "ob-mark", attrs: { "aria-hidden": "true" } }), h("div", {}, [h("strong", { text: "Baseball Edge" }), h("span", { text: "MLB research terminal" })])]),
     h("nav", {}, [
       h("button", { className: "ob-nav-button is-active", type: "button", text: "Outlier Board", dataset: { nav: "board" } }),
+      h("button", { className: "ob-nav-button", type: "button", text: "Daily Report", dataset: { action: "focus-report" } }),
       h("button", { className: "ob-nav-button", type: "button", text: "My Picks", dataset: { action: "focus-picks" } }),
       h("button", { className: "ob-nav-button", type: "button", text: "Model Room", dataset: { action: "focus-trust" } }),
       ...disabledSports.map((sport) => h("button", { className: "ob-nav-button is-disabled", type: "button", attrs: { disabled: "true", title: `${sport} support is not connected to production data yet.` } }, [document.createTextNode(sport), h("span", { className: "ob-coming", text: "Coming soon" })])),
@@ -63,11 +65,15 @@ function renderMain() {
     h("header", { className: "ob-hero" }, [
       h("div", { className: "ob-topbar" }, [
         h("div", {}, [h("p", { className: "ob-kicker", text: "Outlier production UI" }), h("h1", { text: "MLB betting research board" }), h("p", { className: "ob-subtitle", text: "Freshness, model readiness, and exposure are visible before any prop is researched or saved." })]),
-        h("button", { className: "ob-button is-primary", type: "button", text: "Reload slate", dataset: { action: "reload" } }),
+        h("div", { className: "ob-action-row" }, [
+          h("button", { className: "ob-button is-ghost", type: "button", text: "Generate report", dataset: { action: "reload-report" } }),
+          h("button", { className: "ob-button is-primary", type: "button", text: "Reload slate", dataset: { action: "reload" } }),
+        ]),
       ]),
       h("section", { id: "freshnessSurface", className: "ob-trust-grid", attrs: { "aria-label": "Board freshness and trust state", "aria-live": "polite" } }, [trustSkeleton("Collector"), trustSkeleton("Playerboard"), trustSkeleton("Odds"), trustSkeleton("Models"), trustSkeleton("Schema")]),
       renderFilters(),
     ]),
+    h("section", { id: "researchReportPanel", className: "ob-panel ob-report-panel" }),
     h("section", { className: "ob-panel" }, [h("div", { id: "boardMeta", className: "ob-board-meta", text: "Loading board…" }), h("div", { id: "boardHost", className: "ob-table-wrap" })]),
   ]);
 }
@@ -105,7 +111,9 @@ function bindEvents() {
     if (!action) return;
     const name = action.getAttribute("data-action");
     if (name === "reload") await loadBoard();
+    if (name === "reload-report") await loadReport();
     if (name === "save-pick") await saveSelectedPick();
+    if (name === "focus-report") document.getElementById("researchReportPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     if (name === "focus-picks") document.getElementById("detailRail")?.scrollIntoView({ behavior: "smooth", block: "start" });
     if (name === "focus-trust") document.getElementById("freshnessSurface")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
@@ -187,11 +195,23 @@ async function loadBoard() {
     applyFilters();
     renderBoard({ resetScroll: true });
     detailRail.close();
+    void loadReport();
   } catch (error) {
     clear(document.getElementById("boardHost"), [h("div", { className: "ob-empty" }, [h("strong", { text: "Board unavailable" }), h("span", { text: error instanceof Error ? error.message : "The EdgeBoard API did not return a usable payload." })])]);
     setMeta("0 props · board unavailable");
   } finally {
     appState.loading = false;
+  }
+}
+
+async function loadReport() {
+  const host = document.getElementById("researchReportPanel");
+  renderResearchReportLoading(host);
+  try {
+    const report = await loadResearchReport(appState.date);
+    renderResearchReport(host, report);
+  } catch (error) {
+    renderResearchReportError(host, error instanceof Error ? error.message : "Research report could not be generated.");
   }
 }
 

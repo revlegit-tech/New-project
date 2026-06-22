@@ -11,7 +11,7 @@
     ]
   },
   "index.html": {
-    "file": "assets/outlier-123c43d193.js",
+    "file": "assets/outlier-a57105ff8b.js",
     "name": "outlier",
     "src": "index.html",
     "isEntry": true,
@@ -19,7 +19,7 @@
       "_tokens-C12HrDAF.js"
     ],
     "css": [
-      "assets/outlier-2afe191a2c.css"
+      "assets/outlier-28c06e9b3a.css"
     ]
   },
   "legacy.html": {

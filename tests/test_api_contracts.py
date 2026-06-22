@@ -93,6 +93,20 @@ def test_edge_board_contract() -> None:
         assert "freshness" in first
 
 
+def test_research_report_contract() -> None:
+    status, payload, content_type = get_json("/api/research/report?season=2026&limit=25")
+
+    assert status == 200
+    assert content_type.startswith("application/json")
+    assert payload["status"] == "ok"
+    assert payload["schemaVersion"] == "edge-report.v1"
+    assert payload["product"]["name"] == "RevLegit MLB Edge"
+    assert payload["meta"]["researchOnly"] is True
+    section_keys = {section["key"] for section in payload["sections"]}
+    assert {"free_preview", "straight_card", "home_run_targets", "strikeout_props", "total_bases", "value_watchlist", "lotto_builder", "fades"} <= section_keys
+    assert "starterMonthlyUsd" in payload["pricing"]
+
+
 def test_prop_detail_contract() -> None:
     status, payload, content_type = get_json("/api/prop-detail?market=batter_hits&player=Contract%20Player&team=NYY&opponent=BAL&line=0.5&americanOdds=-110")
 

@@ -19,6 +19,7 @@ from mlb_app.services.board_cache import BoardCache
 from mlb_app.services.data_health_dashboard_service import DataHealthDashboardService
 from mlb_app.services.data_health_service import DataHealthService
 from mlb_app.services.edge_board_service import EdgeBoardService
+from mlb_app.services.edge_report_service import EdgeReportService
 from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.model_readiness_service import ModelReadinessService
@@ -69,6 +70,7 @@ class AppContainer:
     playerboard_read_service: PlayerboardReadService = field(init=False)
     playerboard_service: PlayerboardService = field(init=False)
     edge_board_service: EdgeBoardService = field(init=False)
+    edge_report_service: EdgeReportService = field(init=False)
     prop_detail_service: PropDetailService = field(init=False)
     bankroll_service: BankrollService = field(init=False)
     picks_service: PicksService = field(init=False)
@@ -157,6 +159,7 @@ class AppContainer:
             board_cache=self.board_cache,
             metrics=self.metrics,
         )
+        self.edge_report_service = EdgeReportService(edge_board_service=self.edge_board_service)
         self.data_health_dashboard_service = DataHealthDashboardService(
             data_health_service=self.data_health_service,
             playerboard_service=self.playerboard_service,
