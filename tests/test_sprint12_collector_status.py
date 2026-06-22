@@ -363,6 +363,7 @@ def test_data_status_endpoint_uses_strict_response_shape(tmp_path: Path) -> None
         "database",
         "historical_game_odds",
         "game_market_enrichment",
+        "ml_feature_exports",
         "expected_files",
         "missing_files",
         "warnings",

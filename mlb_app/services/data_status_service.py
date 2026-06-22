@@ -13,6 +13,7 @@ from mlb_app.repositories.historical_game_odds_repository import HistoricalGameO
 from mlb_app.repositories.warehouse_db import WarehouseDatabase
 from mlb_app.services.collector_manifest_service import CollectorManifestService
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
+from mlb_app.services.ml_feature_export_service import latest_ml_feature_export_status
 
 DEFAULT_STALE_AFTER_SECONDS = 36 * 60 * 60
 MAX_ROW_COUNT_BYTES = 20 * 1024 * 1024
@@ -97,6 +98,7 @@ class DataStatusService:
             database_status=database_status,
             historical_game_odds=historical_game_odds,
         )
+        ml_feature_exports = self._ml_feature_exports_status(database_status)
 
         warnings.extend(f"Missing expected file: {path}" for path in missing_files)
         data_health_score = self._score(source_freshness, missing_files)
@@ -111,6 +113,7 @@ class DataStatusService:
             "database": database_status,
             "historical_game_odds": historical_game_odds,
             "game_market_enrichment": game_market_enrichment,
+            "ml_feature_exports": ml_feature_exports,
             "expected_files": expected_files,
             "missing_files": missing_files,
             "warnings": _dedupe(warnings)[:40],
@@ -220,6 +223,21 @@ class DataStatusService:
             return self.historical_game_odds_repository.latest_feature_date()
         except Exception:
             return ""
+
+    def _ml_feature_exports_status(self, database_status: dict[str, Any]) -> dict[str, Any]:
+        latest = latest_ml_feature_export_status(self.settings)
+        fallback = database_status.get("csv_fallback") if isinstance(database_status.get("csv_fallback"), dict) else {}
+        return {
+            "enabled": True,
+            "latest_export_date": latest.get("latest_export_date") or "",
+            "latest_export_rows": int(latest.get("latest_export_rows") or 0),
+            "latest_manifest_path": latest.get("latest_manifest_path") or "",
+            "feature_schema_version": latest.get("feature_schema_version") or "",
+            "leakage_check_passed": latest.get("leakage_check_passed"),
+            "game_market_feature_coverage_pct": latest.get("game_market_feature_coverage_pct"),
+            "fallback_mode": fallback.get("status") or latest.get("fallback_mode") or "",
+            "warnings": [str(item) for item in latest.get("warnings", []) if str(item).strip()][:10],
+        }
 
     def _inspect_source(self, spec: SourceSpec, *, generated_at: datetime) -> dict[str, Any]:
         root = self.data_dir / spec.relative_path

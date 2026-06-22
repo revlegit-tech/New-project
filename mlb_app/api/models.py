@@ -296,6 +296,7 @@ class DataStatusResponse(StrictResponse):
     database: dict[str, Any] = Field(default_factory=dict)
     historical_game_odds: dict[str, Any] = Field(default_factory=dict)
     game_market_enrichment: dict[str, Any] = Field(default_factory=dict)
+    ml_feature_exports: dict[str, Any] = Field(default_factory=dict)
     expected_files: list[str] = Field(default_factory=list)
     missing_files: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -344,6 +345,70 @@ class HistoricalGameOddsRowsResponse(StrictResponse):
     date: str = ""
     rowCount: int = 0
     rows: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MLFeatureStatusResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    enabled: bool = True
+    feature_schema_version: str = ""
+    database: dict[str, Any] = Field(default_factory=dict)
+    latest_export_date: str = ""
+    latest_export_row_count: int = 0
+    safe_feature_count: int = 0
+    blocked_feature_count: int = 0
+    game_market_feature_availability: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MLFeatureExportResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    feature_schema_version: str = ""
+    exported_at: str = ""
+    date: str = ""
+    season: int = 0
+    source: str = ""
+    format: str = ""
+    dry_run: bool = False
+    row_count: int = 0
+    raw_row_count: int = 0
+    market_counts: dict[str, int] = Field(default_factory=dict)
+    source_counts: dict[str, int] = Field(default_factory=dict)
+    safe_feature_count: int = 0
+    blocked_feature_count: int = 0
+    export_column_count: int = 0
+    game_market_match_count: int = 0
+    game_market_missing_count: int = 0
+    game_market_coverage_pct: float = 0.0
+    leakage_blocked_fields: list[str] = Field(default_factory=list)
+    leakage_blocked_field_count: int = 0
+    leakage_check_passed: bool = True
+    output_paths: dict[str, str] = Field(default_factory=dict)
+    written: dict[str, str] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MLFeaturePreviewResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    feature_schema_version: str = ""
+    date: str = ""
+    row_count: int = 0
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BacktestReadinessResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    feature_schema_version: str = ""
+    date: str = ""
+    source: str = ""
+    market_count: int = 0
+    markets: list[dict[str, Any]] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
 

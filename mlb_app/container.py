@@ -21,6 +21,7 @@ from mlb_app.repositories.research_report_repository import ResearchReportReposi
 from mlb_app.repositories.warehouse_db import WarehouseDatabase
 from mlb_app.services.alert_service import AlertService
 from mlb_app.services.app_status_service import AppStatusService
+from mlb_app.services.backtest_readiness_service import BacktestReadinessService
 from mlb_app.services.bankroll_service import BankrollService
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.board_cache import BoardCache
@@ -32,6 +33,7 @@ from mlb_app.services.edge_report_service import EdgeReportService
 from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.historical_game_odds_import_service import HistoricalGameOddsImportService
+from mlb_app.services.ml_feature_export_service import MLFeatureExportService
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.model_readiness_service import ModelReadinessService
 from mlb_app.services.model_registry_service import ModelRegistryService
@@ -93,6 +95,8 @@ class AppContainer:
     playerboard_service: PlayerboardService = field(init=False)
     edge_board_service: EdgeBoardService = field(init=False)
     edge_report_service: EdgeReportService = field(init=False)
+    ml_feature_export_service: MLFeatureExportService = field(init=False)
+    backtest_readiness_service: BacktestReadinessService = field(init=False)
     prop_detail_service: PropDetailService = field(init=False)
     bankroll_service: BankrollService = field(init=False)
     picks_service: PicksService = field(init=False)
@@ -221,6 +225,15 @@ class AppContainer:
         self.edge_report_service = EdgeReportService(
             edge_board_service=self.edge_board_service,
             report_repository=self.research_report_repository,
+        )
+        self.ml_feature_export_service = MLFeatureExportService(
+            settings=self.settings,
+            playerboard_service=self.playerboard_service,
+            edge_board_service=self.edge_board_service,
+            game_market_feature_lookup_service=self.game_market_feature_lookup_service,
+        )
+        self.backtest_readiness_service = BacktestReadinessService(
+            feature_export_service=self.ml_feature_export_service,
         )
         self.data_health_dashboard_service = DataHealthDashboardService(
             data_health_service=self.data_health_service,
