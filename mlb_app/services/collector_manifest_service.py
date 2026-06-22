@@ -22,6 +22,14 @@ ARTIFACT_CRITICAL_PATHS: tuple[str, ...] = (
     "data/warehouse/logs",
 )
 
+ARTIFACT_CRITICAL_LABELS: dict[str, str] = {
+    "data/odds": "data/odds/propline_props_<date>.csv",
+    "data/warehouse/odds_snapshots": "data/warehouse/odds_snapshots/propline_props_<date>_<run_id>.csv",
+    "data/warehouse/raw": "data/warehouse/raw/*<date>*",
+    "data/warehouse/summaries": "data/warehouse/summaries/*<date>*",
+    "data/warehouse/logs": "data/warehouse/logs/season_collector_*_<date>_<run_id>.json",
+}
+
 RAW_ARTIFACT_DIRS: tuple[str, ...] = (
     "odds",
     "warehouse/raw",
@@ -102,11 +110,25 @@ class CollectorManifestService:
         raw_files = self._files_for_date(RAW_ARTIFACT_DIRS, date_label)
         normalized_files = self._files_for_date(NORMALIZED_ARTIFACT_DIRS, date_label)
         warehouse_files = self._files_for_date(WAREHOUSE_ARTIFACT_DIRS, date_label)
-        present, missing = self._artifact_critical_paths()
+        present, missing = self._artifact_critical_paths(date_label, str(summary.get("runId") or summary.get("run_id") or ""))
         warnings = _dedupe_text(_collect_warnings(summary))
         errors = _dedupe_text(_collect_errors(summary))[:MAX_MANIFEST_ERRORS]
         playerboard_path = self.data_dir / "playerboard" / f"playerboard_{_season(date_label)}.csv"
         playerboard_rows, market_counts = self._playerboard_counts(playerboard_path, date_label)
+        propline = _as_dict(summary.get("proplineProps"))
+        source_counts = _numeric_counts(data_hub) | _numeric_counts(logs)
+        if "propCount" in propline:
+            prop_count = _optional_int(propline.get("propCount"))
+            if prop_count is not None:
+                source_counts["propCount"] = prop_count
+                source_counts["proplinePropCount"] = prop_count
+        if source_counts.get("propCount", 0) <= 0:
+            warnings.append("PropLine propCount=0; source unavailable, no props returned, or API issue.")
+        if _first_int(playerboard.get("rowCount"), playerboard.get("rowsSaved"), playerboard.get("rows"), playerboard_rows) <= 0:
+            warnings.append("Playerboard row count is 0 for this collector date.")
+        edge_rows = self._latest_edge_board_rows(date_label)
+        if edge_rows == 0:
+            warnings.append("Edge board snapshot was written with 0 rows.")
 
         manifest = {
             "run_id": str(summary.get("runId") or summary.get("run_id") or ""),
@@ -116,7 +138,7 @@ class CollectorManifestService:
             "finished_at": str(summary.get("finishedAt") or summary.get("finished_at") or ""),
             "success": bool(summary.get("success")),
             "requested_markets": [str(market).strip() for market in (requested_markets or []) if str(market).strip()],
-            "source_counts": _numeric_counts(data_hub) | _numeric_counts(logs),
+            "source_counts": source_counts,
             "market_counts": market_counts,
             "playerboard_rows": _first_int(
                 playerboard.get("rowCount"),
@@ -124,7 +146,7 @@ class CollectorManifestService:
                 playerboard.get("rows"),
                 playerboard_rows,
             ),
-            "edge_board_rows": self._latest_edge_board_rows(date_label),
+            "edge_board_rows": edge_rows,
             "raw_files_written": raw_files,
             "normalized_files_written": normalized_files,
             "warehouse_files_written": warehouse_files,
@@ -133,7 +155,13 @@ class CollectorManifestService:
             "warnings": warnings,
             "errors": errors,
             "traceback_tail": _tail(str(summary.get("traceback") or "")),
-            "freshness_status": _manifest_status(success=bool(summary.get("success")), missing=missing, warnings=warnings, errors=errors),
+            "freshness_status": _manifest_status(
+                success=bool(summary.get("success")),
+                missing=missing,
+                warnings=warnings,
+                errors=errors,
+                prop_count=source_counts.get("propCount"),
+            ),
         }
         return manifest
 
@@ -173,17 +201,36 @@ class CollectorManifestService:
                     return files
         return files
 
-    def _artifact_critical_paths(self) -> tuple[list[str], list[str]]:
+    def _artifact_critical_paths(self, date_label: str, run_id: str) -> tuple[list[str], list[str]]:
         present: list[str] = []
         missing: list[str] = []
         for relative in ARTIFACT_CRITICAL_PATHS:
-            suffix = relative.removeprefix("data/").lstrip("/")
-            path = self.data_dir / suffix if relative.startswith("data/") else self.data_dir / relative
-            if path.exists() and (path.is_file() or any(path.iterdir())):
+            if self._critical_expected_files(relative, date_label, run_id):
                 present.append(relative)
             else:
-                missing.append(relative)
+                missing.append(ARTIFACT_CRITICAL_LABELS.get(relative, relative))
         return present, missing
+
+    def _critical_expected_files(self, relative: str, date_label: str, run_id: str) -> list[Path]:
+        suffix = relative.removeprefix("data/").lstrip("/")
+        root = self.data_dir / suffix if relative.startswith("data/") else self.data_dir / relative
+        if not root.exists():
+            return []
+        if relative == "data/odds":
+            return [path for path in [root / f"propline_props_{date_label}.csv"] if path.is_file()]
+        if relative == "data/warehouse/odds_snapshots":
+            exact = root / f"propline_props_{date_label}_{run_id}.csv"
+            if exact.is_file():
+                return [exact]
+            return sorted(path for path in root.glob(f"propline_props_{date_label}_*.csv") if path.is_file())
+        if relative == "data/warehouse/logs":
+            exact_matches = sorted(root.glob(f"season_collector_*_{date_label}_{run_id}.json"))
+            if exact_matches:
+                return [path for path in exact_matches if path.is_file()]
+            return sorted(path for path in root.glob(f"season_collector_*_{date_label}_*.json") if path.is_file())
+        if relative in {"data/warehouse/raw", "data/warehouse/summaries"}:
+            return sorted(path for path in root.glob(f"*{date_label}*") if path.is_file())
+        return sorted(path for path in root.rglob("*") if path.is_file())
 
     def _playerboard_counts(self, path: Path, date_label: str) -> tuple[int, dict[str, int]]:
         if not path.exists():
@@ -351,10 +398,19 @@ def _int_dict(value: Any) -> dict[str, int]:
     return result
 
 
-def _manifest_status(*, success: bool, missing: list[str], warnings: list[str], errors: list[str]) -> str:
+def _manifest_status(
+    *,
+    success: bool,
+    missing: list[str],
+    warnings: list[str],
+    errors: list[str],
+    prop_count: int | None = None,
+) -> str:
     if missing:
         return "missing"
     if not success or errors:
+        return "warning"
+    if prop_count is not None and prop_count <= 0:
         return "warning"
     if warnings:
         return "warning"

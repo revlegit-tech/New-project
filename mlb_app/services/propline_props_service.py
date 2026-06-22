@@ -69,6 +69,7 @@ class PropLineSyncRequest:
     save: bool = True
     snapshot: bool = True
     max_events: int = 0
+    snapshot_id: str = ""
 
 
 def _clean(value: Any) -> str:
@@ -143,7 +144,13 @@ def normalize_prop(event: dict[str, Any], bookmaker: dict[str, Any], market: dic
     }
 
 
-def save_props_csv(props: list[dict[str, Any]], date_label: str, *, snapshot: bool = True) -> dict[str, Any]:
+def save_props_csv(
+    props: list[dict[str, Any]],
+    date_label: str,
+    *,
+    snapshot: bool = True,
+    snapshot_id: str = "",
+) -> dict[str, Any]:
     ODDS_DIR.mkdir(parents=True, exist_ok=True)
     path = ODDS_DIR / f"propline_props_{date_label}.csv"
     tmp_path = path.with_suffix(path.suffix + ".tmp")
@@ -157,7 +164,7 @@ def save_props_csv(props: list[dict[str, Any]], date_label: str, *, snapshot: bo
     snapshot_path = ""
     if snapshot:
         WAREHOUSE_SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stamp = _clean(snapshot_id) or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         snapshot_file = WAREHOUSE_SNAPSHOT_DIR / f"propline_props_{date_label}_{stamp}.csv"
         shutil.copyfile(path, snapshot_file)
         snapshot_path = str(snapshot_file)
@@ -230,13 +237,20 @@ def sync_propline_props(request: PropLineSyncRequest) -> dict[str, Any]:
         first = event_errors[0]["error"] if event_errors else "unknown error"
         raise PropLineSyncError(f"PropLine player-prop calls failed for all {attempted_events} events. First error: {first}")
 
-    saved = save_props_csv(props, date_label, snapshot=request.snapshot) if request.save else {"savedPath": "", "snapshotPath": "", "rowCount": len(props)}
+    saved = save_props_csv(
+        props,
+        date_label,
+        snapshot=request.snapshot,
+        snapshot_id=request.snapshot_id,
+    ) if request.save else {"savedPath": "", "snapshotPath": "", "rowCount": len(props)}
 
     warnings: list[str] = []
     if not events and all_events:
         warnings.append(f"PropLine returned {len(all_events)} total events, but none matched {date_label} in {PROPLINE_LOCAL_TZ}.")
     if events and not props and not event_errors:
         warnings.append("PropLine returned events, but no outcomes for the selected player-prop markets. Try fewer markets or check event market availability.")
+    if not all_events:
+        warnings.append("PropLine returned no events; source unavailable, API issue, or no slate for the selected sport.")
     if event_errors:
         warnings.append(f"{len(event_errors)} PropLine event calls failed; returned props from successful events only.")
 

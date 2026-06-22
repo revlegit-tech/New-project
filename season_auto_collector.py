@@ -477,6 +477,27 @@ def append_run_index(summary: dict[str, Any]) -> None:
         })
 
 
+def sync_propline_props_for_collector(date_label: str, run_id: str) -> dict[str, Any]:
+    from mlb_app.services.propline_props_service import PROPLINE_MARKETS, PropLineSyncRequest, sync_propline_props
+
+    max_events = 0
+    try:
+        max_events = int(os.environ.get("PROPLINE_MAX_EVENTS", "0") or 0)
+    except ValueError:
+        max_events = 0
+
+    return sync_propline_props(
+        PropLineSyncRequest(
+            date=date_label,
+            markets=tuple(PROPLINE_MARKETS),
+            save=True,
+            snapshot=True,
+            max_events=max_events,
+            snapshot_id=run_id,
+        )
+    )
+
+
 def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, Any]:
     ensure_dirs()
     validate_year(date_label)
@@ -503,6 +524,23 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
 
     try:
         summary["result"] = sync_all_sources(date_label, include_savant=include_savant)
+
+        try:
+            summary["proplineProps"] = sync_propline_props_for_collector(date_label, run_id)
+            if int(summary["proplineProps"].get("propCount") or 0) <= 0:
+                summary.setdefault("warnings", []).append(
+                    "PropLine propCount=0; source unavailable, no props returned, or API issue."
+                )
+        except Exception as propline_error:
+            summary["proplineProps"] = {
+                "status": "warning",
+                "date": date_label,
+                "propCount": 0,
+                "warnings": [
+                    f"PropLine source unavailable, no props returned, or API issue: {propline_error}"
+                ],
+            }
+            summary.setdefault("warnings", []).append(summary["proplineProps"]["warnings"][0])
 
         try:
             from weather_collector import collect_and_build
@@ -618,6 +656,7 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
                 market="",
                 limit=5000,
                 save=True,
+                source_mode="canonical",
             )
         except Exception as board_error:
             summary["playerboard"] = {"error": str(board_error)}
@@ -784,6 +823,7 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
         summary["traceback"] = traceback.format_exc()
 
     summary["finishedAt"] = now_iso()
+    write_json(log_path, summary)
 
     try:
         from mlb_app.services.collector_manifest_service import CollectorManifestService

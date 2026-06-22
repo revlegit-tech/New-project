@@ -115,6 +115,86 @@ def test_collector_manifest_writer_preserves_required_fields(tmp_path: Path) -> 
     assert not result.manifest["artifact_critical_files_missing"]
 
 
+def test_manifest_marks_empty_odds_directory_as_missing_and_warning(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    data = settings.data_dir
+    (data / "odds").mkdir(parents=True)
+    (data / "warehouse" / "odds_snapshots").mkdir(parents=True)
+    write_json(data / "warehouse" / "raw" / "schedule_2026-06-22.json", {"games": []})
+    write_json(data / "warehouse" / "summaries" / "daily_summary_2026-06-22.json", {"propCount": 0})
+    write_json(data / "warehouse" / "logs" / "season_collector_manual_2026-06-22_run-123.json", {"ok": True})
+
+    result = CollectorManifestService(settings=settings, now_provider=lambda: NOW).write_manifest(
+        {
+            "runId": "run-123",
+            "date": "2026-06-22",
+            "runType": "manual",
+            "success": True,
+            "proplineProps": {"propCount": 0},
+        },
+        requested_markets=["batter_hits"],
+    )
+
+    assert "data/odds/propline_props_<date>.csv" in result.manifest["artifact_critical_files_missing"]
+    assert "data/warehouse/odds_snapshots/propline_props_<date>_<run_id>.csv" in result.manifest["artifact_critical_files_missing"]
+    assert result.manifest["source_counts"]["propCount"] == 0
+    assert any("propCount=0" in warning for warning in result.manifest["warnings"])
+    assert result.manifest["freshness_status"] == "missing"
+
+
+def test_manifest_detects_collector_log_after_log_write(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    data = settings.data_dir
+    write_csv(data / "odds" / "propline_props_2026-06-22.csv", [{"date": "2026-06-22", "market": "batter_hits"}])
+    write_csv(data / "warehouse" / "odds_snapshots" / "propline_props_2026-06-22_run-123.csv", [{"date": "2026-06-22", "market": "batter_hits"}])
+    write_json(data / "warehouse" / "raw" / "schedule_2026-06-22.json", {"games": []})
+    write_json(data / "warehouse" / "summaries" / "daily_summary_2026-06-22.json", {"propCount": 1})
+    write_json(data / "warehouse" / "logs" / "season_collector_manual_2026-06-22_run-123.json", {"ok": True})
+
+    result = CollectorManifestService(settings=settings, now_provider=lambda: NOW).write_manifest(
+        {
+            "runId": "run-123",
+            "date": "2026-06-22",
+            "runType": "manual",
+            "success": True,
+            "proplineProps": {"propCount": 1},
+        },
+        requested_markets=["batter_hits"],
+    )
+
+    assert "data/warehouse/logs" in result.manifest["artifact_critical_files_present"]
+    assert not any("logs" in missing for missing in result.manifest["artifact_critical_files_missing"])
+
+
+def test_manifest_zero_prop_run_is_warning_not_fresh(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    data = settings.data_dir
+    write_csv(data / "odds" / "propline_props_2026-06-22.csv", [])
+    write_csv(data / "warehouse" / "odds_snapshots" / "propline_props_2026-06-22_run-123.csv", [])
+    write_json(data / "warehouse" / "raw" / "schedule_2026-06-22.json", {"games": []})
+    write_json(data / "warehouse" / "summaries" / "daily_summary_2026-06-22.json", {"propCount": 0})
+    write_json(data / "warehouse" / "logs" / "season_collector_manual_2026-06-22_run-123.json", {"ok": True})
+
+    result = CollectorManifestService(settings=settings, now_provider=lambda: NOW).write_manifest(
+        {
+            "runId": "run-123",
+            "date": "2026-06-22",
+            "runType": "manual",
+            "success": True,
+            "proplineProps": {
+                "propCount": 0,
+                "warnings": ["PropLine returned events, but no outcomes for the selected player-prop markets."],
+            },
+        },
+        requested_markets=["batter_hits"],
+    )
+
+    assert result.manifest["artifact_critical_files_missing"] == []
+    assert result.manifest["source_counts"]["propCount"] == 0
+    assert result.manifest["freshness_status"] == "warning"
+    assert any("no outcomes" in warning or "propCount=0" in warning for warning in result.manifest["warnings"])
+
+
 def test_latest_manifest_falls_back_to_newest_manifest_file(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     manifest_dir = settings.data_dir / "health" / "collector_manifests"
@@ -216,6 +296,45 @@ def test_edge_board_snapshot_writer_and_status_detection(tmp_path: Path) -> None
     }
     assert payload["source_freshness"]["edge_board"]["row_count"] == 2
     assert payload["source_freshness"]["edge_board"]["market_counts"] == {"batter_hits": 2}
+
+
+def test_edge_board_zero_row_snapshot_is_written_and_warned(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    seed_complete_data(settings, include_edge_board=False)
+
+    class EmptyEdgeBoardService:
+        def payload(self, query: dict[str, list[str]]) -> dict[str, object]:
+            return {"status": "ok", "date": query["date"][0], "season": int(query["season"][0]), "rows": []}
+
+    result = EdgeBoardSnapshotService(settings=settings, edge_board_service=EmptyEdgeBoardService()).write_snapshot(
+        date_label="2026-06-22",
+        season=2026,
+    )
+    assert result.json_path.exists()
+    assert result.csv_path is None
+    assert result.row_count == 0
+
+    manifest = CollectorManifestService(settings=settings, now_provider=lambda: NOW).write_manifest(
+        {
+            "runId": "run-123",
+            "date": "2026-06-22",
+            "runType": "manual",
+            "success": True,
+            "proplineProps": {"propCount": 2},
+        },
+        requested_markets=["batter_hits"],
+    ).manifest
+
+    assert manifest["edge_board_rows"] == 0
+    assert any("Edge board snapshot was written with 0 rows." == warning for warning in manifest["warnings"])
+    assert "data/edge_board/edge_board_2026-06-22.json" in manifest["normalized_files_written"]
+
+
+def test_workflow_artifact_packaging_includes_edge_board() -> None:
+    workflow = Path(".github/workflows/season-collector.yml").read_text(encoding="utf-8")
+
+    assert "mkdir -p data/odds data/warehouse/odds_snapshots data/warehouse/raw data/warehouse/summaries data/warehouse/logs data/health/collector_manifests data/edge_board" in workflow
+    assert "data/edge_board \\" in workflow
 
 
 def test_data_status_endpoint_uses_strict_response_shape(tmp_path: Path) -> None:
