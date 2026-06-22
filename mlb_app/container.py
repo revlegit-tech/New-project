@@ -150,17 +150,19 @@ class AppContainer:
             product_state_service=self.product_state_service,
             settings=self.settings,
         )
-        self.data_status_service = DataStatusService(
-            settings=self.settings,
-            data_health_repository=self.data_health_repository,
-            historical_game_odds_repository=self.historical_game_odds_repository,
-        )
         self.historical_game_odds_import_service = HistoricalGameOddsImportService(
             self.historical_game_odds_repository,
             settings=self.settings,
         )
         self.game_market_feature_lookup_service = GameMarketFeatureLookupService(
             self.historical_game_odds_repository,
+            settings=self.settings,
+        )
+        self.data_status_service = DataStatusService(
+            settings=self.settings,
+            data_health_repository=self.data_health_repository,
+            historical_game_odds_repository=self.historical_game_odds_repository,
+            game_market_feature_lookup_service=self.game_market_feature_lookup_service,
         )
         self.model_registry_service = ModelRegistryService(settings=self.settings)
         self.model_readiness_service = ModelReadinessService(self.model_registry_service)
@@ -185,6 +187,7 @@ class AppContainer:
             grading_service=self.grading_service,
             readiness_service=self.model_readiness_service,
             product_state_service=self.product_state_service,
+            game_market_feature_lookup_service=self.game_market_feature_lookup_service,
             settings=self.settings,
             metrics=self.metrics,
         )
@@ -194,6 +197,7 @@ class AppContainer:
             readiness_service=self.model_readiness_service,
             product_state_service=self.product_state_service,
             read_service=self.playerboard_read_service,
+            game_market_feature_lookup_service=self.game_market_feature_lookup_service,
             settings=self.settings,
         )
         self.bankroll_service = BankrollService(
@@ -210,6 +214,7 @@ class AppContainer:
             model_card_service=self.model_card_service,
             snapshot_repository=self.edge_board_snapshot_db_repository,
             board_cache=self.board_cache,
+            game_market_feature_lookup_service=self.game_market_feature_lookup_service,
             metrics=self.metrics,
             settings=self.settings,
         )

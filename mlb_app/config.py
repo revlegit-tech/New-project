@@ -81,6 +81,7 @@ class Settings:
     database_echo: bool = False
     db_enabled: bool = False
     db_fallback_to_csv: bool = True
+    game_market_enrichment_enabled: bool = True
     board_cache_ttl_seconds: float = 30.0
     board_cache_max_keys: int = 256
     blocking_work_max_concurrent: int = 24
@@ -131,6 +132,10 @@ class Settings:
             database_echo=_bool_from_env("DATABASE_ECHO", _bool_from_env("MLB_DATABASE_ECHO", False)),
             db_enabled=_bool_from_env("DB_ENABLED", _bool_from_env("MLB_DB_ENABLED", False)),
             db_fallback_to_csv=_bool_from_env("DB_FALLBACK_TO_CSV", _bool_from_env("MLB_DB_FALLBACK_TO_CSV", True)),
+            game_market_enrichment_enabled=_bool_from_env(
+                "GAME_MARKET_ENRICHMENT_ENABLED",
+                _bool_from_env("MLB_GAME_MARKET_ENRICHMENT_ENABLED", True),
+            ),
             board_cache_ttl_seconds=_float_from_env("MLB_BOARD_CACHE_TTL_SECONDS", 30.0),
             board_cache_max_keys=_int_from_env("MLB_BOARD_CACHE_MAX_KEYS", 256),
             blocking_work_max_concurrent=_int_from_env("MLB_BLOCKING_WORK_MAX_CONCURRENT", 24),

@@ -5,6 +5,7 @@ from typing import Any
 from mlb_app.config import Settings, settings as default_settings
 from mlb_app.contracts.playerboard_schema import PLAYERBOARD_SCHEMA_VERSION
 from mlb_app.repositories.playerboard_repository import PlayerboardRepository
+from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.model_readiness_service import ModelReadinessService
 from mlb_app.services.playerboard_builder import build_playerboard
@@ -23,6 +24,7 @@ class PlayerboardService:
         readiness_service: ModelReadinessService | None = None,
         product_state_service: ProductStateService | None = None,
         read_service: PlayerboardReadService | None = None,
+        game_market_feature_lookup_service: GameMarketFeatureLookupService | None = None,
         settings: Settings = default_settings,
     ) -> None:
         self.settings = settings
@@ -30,11 +32,13 @@ class PlayerboardService:
         self.grading_service = grading_service or GradingStateService()
         self.readiness_service = readiness_service or ModelReadinessService()
         self.product_state_service = product_state_service or ProductStateService(settings=settings)
+        self.game_market_feature_lookup_service = game_market_feature_lookup_service
         self.read_service = read_service or PlayerboardReadService(
             repository=self.repository,
             grading_service=self.grading_service,
             readiness_service=self.readiness_service,
             product_state_service=self.product_state_service,
+            game_market_feature_lookup_service=self.game_market_feature_lookup_service,
             settings=self.settings,
         )
 
@@ -61,6 +65,7 @@ class PlayerboardService:
         if not save and not refresh and not replace_date:
             snapshot = self.read_service.get_snapshot(season=season, date_label=date_label, market=market)
             payload = self._payload_from_snapshot(snapshot, market=market, limit=limit)
+            payload = self._apply_game_market_enrichment(payload)
             if payload.get("cacheHit") or not build_if_missing:
                 return payload
 
@@ -73,7 +78,7 @@ class PlayerboardService:
             replace_date=replace_date,
             source_mode=source_mode,
         )
-        return self._attach_trust(payload, query)
+        return self._apply_game_market_enrichment(self._attach_trust(payload, query))
 
     def _payload_from_snapshot(self, snapshot: PlayerboardSnapshot, *, market: str, limit: int) -> dict[str, Any]:
         rows = list(snapshot.rows)[:limit]
@@ -122,6 +127,39 @@ class PlayerboardService:
         enriched.setdefault("schemaVersion", PLAYERBOARD_SCHEMA_VERSION)
         return enriched
 
+    def _apply_game_market_enrichment(self, payload: dict[str, Any]) -> dict[str, Any]:
+        rows = _list_rows(payload.get("rows") or payload.get("top") or [])
+        if not rows:
+            return payload
+
+        if all("game_market_enrichment_status" in row for row in rows):
+            enriched_rows = rows
+        elif self.game_market_feature_lookup_service is not None:
+            try:
+                enriched_rows = self.game_market_feature_lookup_service.enrich_rows(rows)
+            except Exception:
+                enriched_rows = [
+                    dict(row) | {"game_market_available": False, "game_market_enrichment_status": "warehouse_unavailable"}
+                    for row in rows
+                ]
+        else:
+            enriched_rows = [
+                dict(row) | {"game_market_available": False, "game_market_enrichment_status": "warehouse_unavailable"}
+                for row in rows
+            ]
+
+        enriched = dict(payload)
+        enriched["rows"] = enriched_rows
+        if "top" in enriched:
+            enriched["top"] = enriched_rows
+        meta = dict(enriched.get("meta") or {})
+        meta["gameMarketEnrichment"] = _game_market_enrichment_summary(
+            enriched_rows,
+            enabled=bool(getattr(self.settings, "game_market_enrichment_enabled", True)),
+        )
+        enriched["meta"] = meta
+        return enriched
+
     @staticmethod
     def _data_confidence(*, ok: bool, grading_state: str, rows: int) -> str:
         if rows <= 0:
@@ -151,3 +189,21 @@ class PlayerboardService:
 
 def _clean(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _list_rows(value: Any) -> list[dict[str, Any]]:
+    return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+
+
+def _game_market_enrichment_summary(rows: list[dict[str, Any]], *, enabled: bool) -> dict[str, Any]:
+    status_counts: dict[str, int] = {}
+    for row in rows:
+        status = _clean(row.get("game_market_enrichment_status")) or "unknown"
+        status_counts[status] = status_counts.get(status, 0) + 1
+    return {
+        "enabled": enabled,
+        "availableRows": sum(1 for row in rows if bool(row.get("game_market_available"))),
+        "matchedRows": status_counts.get("matched", 0),
+        "statusCounts": status_counts,
+        "source": "historical_game_market_features",
+    }

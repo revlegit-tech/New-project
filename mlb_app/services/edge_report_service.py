@@ -112,6 +112,7 @@ class EdgeReportService:
             "publishPlan": _publish_plan(),
             "trust": board.get("trust", {}),
             "freshness": board.get("freshness", {}),
+            "gameMarketEnrichment": _game_market_enrichment_summary(rows),
             "source": {
                 "boardVersion": board.get("version"),
                 "rowCount": board.get("rowCount", len(rows)),
@@ -158,6 +159,8 @@ def _decorate_row(row: dict[str, Any]) -> dict[str, Any]:
     warnings = [_clean(item) for item in row.get("trustWarnings") or [] if _clean(item)]
     reasons = [_clean(item) for item in row.get("reasons") or [] if _clean(item)]
     generated_reasons = _generated_reasons(row, score=score, grade=grade, edge=edge, odds=odds, risk_bucket=risk_bucket)
+    game_market_context = _game_market_context(row)
+    game_market_reasons = _game_market_reasons(game_market_context)
     return {
         "id": _clean(row.get("id")),
         "propKey": _clean(row.get("propKey")),
@@ -184,8 +187,9 @@ def _decorate_row(row: dict[str, Any]) -> dict[str, Any]:
         "sourceRowRank": _int(row.get("rank"), 0),
         "freshness": row.get("freshness") if isinstance(row.get("freshness"), dict) else {},
         "trust": row.get("trust") if isinstance(row.get("trust"), dict) else {},
-        "reasons": _dedupe(reasons + generated_reasons)[:5],
+        "reasons": _dedupe(reasons + generated_reasons + game_market_reasons)[:7],
         "warnings": warnings[:5],
+        "gameMarketContext": game_market_context,
     }
 
 
@@ -217,6 +221,17 @@ def _summary(rows: list[dict[str, Any]], board: dict[str, Any]) -> dict[str, Any
         "riskBuckets": dict(buckets),
         "boardDataConfidence": board.get("dataConfidence", "Missing"),
         "latestFullyGradedDate": board.get("latestFullyGradedDate", ""),
+        "gameMarketMatchedRows": sum(1 for row in rows if (row.get("gameMarketContext") or {}).get("status") == "matched"),
+    }
+
+
+def _game_market_enrichment_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    statuses = Counter(_clean((row.get("gameMarketContext") or {}).get("status")) or "unknown" for row in rows)
+    return {
+        "availableRows": sum(1 for row in rows if bool((row.get("gameMarketContext") or {}).get("available"))),
+        "matchedRows": statuses.get("matched", 0),
+        "statusCounts": dict(statuses),
+        "source": "historical_game_market_features",
     }
 
 
@@ -227,6 +242,65 @@ def _publish_plan() -> list[dict[str, str]]:
         {"step": "Final update", "cadence": "1-2 hours before first pitch", "copy": "Refresh lines, scratches, and weather flags before users act."},
         {"step": "Results tracker", "cadence": "After games finish", "copy": "Grade all official research picks honestly, including losses and CLV notes."},
     ]
+
+
+def _game_market_context(row: dict[str, Any]) -> dict[str, Any]:
+    status = _clean(row.get("game_market_enrichment_status")) or "not_found"
+    context: dict[str, Any] = {
+        "available": bool(row.get("game_market_available")),
+        "status": status,
+    }
+    if not context["available"]:
+        return context
+    for key in (
+        "game_market_game_id",
+        "game_market_consensus_open_total",
+        "game_market_consensus_current_total",
+        "game_market_total_line_movement",
+        "game_market_favorite_team_current",
+        "game_market_team_is_favorite_current",
+        "game_market_team_no_vig_win_prob_current",
+        "game_market_opponent_no_vig_win_prob_current",
+        "game_market_book_count_moneyline",
+        "game_market_book_count_total",
+        "game_market_book_count_runline",
+        "game_market_disagreement_score",
+        "game_market_quality_flags",
+    ):
+        if key in row:
+            context[key] = row.get(key)
+    return context
+
+
+def _game_market_reasons(context: dict[str, Any]) -> list[str]:
+    if not context.get("available"):
+        return ["No game-market context available."]
+
+    reasons: list[str] = []
+    total_move = _optional_number(context.get("game_market_total_line_movement"))
+    if total_move is not None:
+        if total_move > 0:
+            reasons.append(f"Game total moved up {total_move:.1f} runs.")
+        elif total_move < 0:
+            reasons.append(f"Game total moved down {abs(total_move):.1f} runs.")
+
+    current_total = _optional_number(context.get("game_market_consensus_current_total"))
+    if current_total is not None:
+        if current_total <= 7.5:
+            reasons.append("Market expects lower run environment.")
+        elif current_total >= 9.0:
+            reasons.append("Market expects higher run environment.")
+
+    if context.get("game_market_team_is_favorite_current") is True:
+        reasons.append("Team is a current market favorite.")
+    elif context.get("game_market_team_is_favorite_current") is False and context.get("game_market_favorite_team_current"):
+        reasons.append("Team is a current market underdog.")
+
+    disagreement = _optional_number(context.get("game_market_disagreement_score"))
+    if disagreement is not None and disagreement >= 0.08:
+        reasons.append("Large market disagreement; treat as volatile.")
+
+    return reasons or ["Game-market context matched for this team/opponent."]
 
 
 def _score(row: dict[str, Any], *, edge: float, model_probability: float, implied_probability: float, odds: int) -> int:
@@ -351,6 +425,15 @@ def _number(value: Any) -> float:
         return float(str(value).replace("+", ""))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _optional_number(value: Any) -> float | None:
+    try:
+        if value in {None, ""}:
+            return None
+        return float(str(value).replace("+", ""))
+    except (TypeError, ValueError):
+        return None
 
 
 def _int(value: Any, fallback: int) -> int:

@@ -16,6 +16,7 @@ from mlb_app.repositories.playerboard_snapshot_repository import PlayerboardSnap
 from mlb_app.repositories.playerboard_repository import PlayerboardReadResult, PlayerboardRepository
 from mlb_app.services.board_cache import FileSignature
 from mlb_app.services.grading_state_service import GradingStateService
+from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.model_readiness_service import ModelReadinessService
 from mlb_app.services.playerboard_builder import playerboard_row_looks_shifted, rank_value, saved_card_from_row
 from mlb_app.services.product_state_service import ProductStateService
@@ -119,6 +120,7 @@ class PlayerboardReadService:
         grading_service: GradingStateService | None = None,
         readiness_service: ModelReadinessService | None = None,
         product_state_service: ProductStateService | None = None,
+        game_market_feature_lookup_service: GameMarketFeatureLookupService | None = None,
         settings: Settings = default_settings,
         metrics: MetricsRegistry | None = None,
     ) -> None:
@@ -129,6 +131,7 @@ class PlayerboardReadService:
         self.grading_service = grading_service or GradingStateService(settings=settings)
         self.readiness_service = readiness_service or ModelReadinessService()
         self.product_state_service = product_state_service or ProductStateService(settings=settings)
+        self.game_market_feature_lookup_service = game_market_feature_lookup_service
         self.metrics = metrics
 
     def snapshot_for_query(self, query: dict[str, list[str]]) -> PlayerboardSnapshot:
@@ -143,6 +146,7 @@ class PlayerboardReadService:
         read_result = self._read_result(season=season, date_label=date_label, market=market, prop_key=prop_key)
         selected_date = _selected_date(read_result, date_label)
         selected_rows = _latest_snapshot_rows(read_result.rows, date_label=selected_date, market=market)
+        selected_rows = self._enrich_game_market_rows(selected_rows)
         market_counts = Counter(normalize_market_value(row.get("market")) for row in selected_rows if _clean(row.get("market")))
         grading = self.grading_service.payload({"date": [selected_date]} if selected_date else {})
         readiness = self.readiness_service.payload(
@@ -293,6 +297,33 @@ class PlayerboardReadService:
                 "canShowConfidentPicks": bool(readiness.get("productionEligibleMarkets")),
             },
             "freshness": freshness_from_snapshot(selected_date=selected_date, latest_snapshot=latest_snapshot, signature=FileSignature.from_path(read_result.path), rows=len(selected_rows)),
+            "gameMarketEnrichment": self._game_market_enrichment_status(selected_rows),
+        }
+
+    def _enrich_game_market_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not rows:
+            return rows
+        if self.game_market_feature_lookup_service is None:
+            return [dict(row) | {"game_market_available": False, "game_market_enrichment_status": "warehouse_unavailable"} for row in rows]
+        try:
+            return self.game_market_feature_lookup_service.enrich_rows(rows)
+        except Exception:
+            return [dict(row) | {"game_market_available": False, "game_market_enrichment_status": "warehouse_unavailable"} for row in rows]
+
+    def _game_market_enrichment_status(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        status_counts = Counter(_clean(row.get("game_market_enrichment_status")) or "unknown" for row in rows)
+        service_status = (
+            self.game_market_feature_lookup_service.status_payload()
+            if self.game_market_feature_lookup_service is not None
+            else {}
+        )
+        return {
+            "enabled": bool(getattr(self.settings, "game_market_enrichment_enabled", True)),
+            "availableRows": sum(1 for row in rows if bool(row.get("game_market_available"))),
+            "matchedRows": status_counts.get("matched", 0),
+            "statusCounts": dict(status_counts),
+            "source": service_status.get("source") or "historical_game_market_features",
+            "warnings": list(service_status.get("warnings") or []),
         }
 
     @staticmethod

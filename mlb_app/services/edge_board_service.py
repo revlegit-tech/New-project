@@ -10,6 +10,7 @@ from mlb_app.config import Settings, settings as default_settings
 from mlb_app.observability.metrics import MetricsRegistry
 from mlb_app.repositories.edge_board_snapshot_repository import EdgeBoardSnapshotRepository
 from mlb_app.services.board_cache import BoardCache, BoardCacheBuildResult
+from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.playerboard_read_service import prop_key_for_row
 from mlb_app.services.playerboard_service import PlayerboardService
@@ -33,6 +34,7 @@ class EdgeBoardService:
         model_card_service: ModelCardService | None = None,
         snapshot_repository: EdgeBoardSnapshotRepository | None = None,
         board_cache: BoardCache | None = None,
+        game_market_feature_lookup_service: GameMarketFeatureLookupService | None = None,
         metrics: MetricsRegistry | None = None,
         settings: Settings = default_settings,
     ) -> None:
@@ -40,6 +42,7 @@ class EdgeBoardService:
         self.playerboard_service = playerboard_service or PlayerboardService()
         self.model_card_service = model_card_service or ModelCardService()
         self.snapshot_repository = snapshot_repository
+        self.game_market_feature_lookup_service = game_market_feature_lookup_service
         self.metrics = metrics
         self.board_cache = board_cache or BoardCache(
             ttl_seconds=default_settings.board_cache_ttl_seconds,
@@ -81,6 +84,7 @@ class EdgeBoardService:
 
         board = self.playerboard_service.board_payload(query)
         raw_rows = _list_rows(board.get("top") or board.get("rows") or [])
+        raw_rows = self._game_market_enriched_rows(raw_rows)
         game_context_index = _phase18_v7_game_context_index(query, board)
         self._cards = self._load_cards()
         rows = [
@@ -108,6 +112,10 @@ class EdgeBoardService:
                     "matchedRows": sum(1 for row in rows if _clean(row.get("game_context_source"))),
                     "date": _phase18_v7_context_date(query, board),
                 },
+                "gameMarketEnrichment": _game_market_enrichment_summary(
+                    rows,
+                    enabled=bool(getattr(self.settings, "game_market_enrichment_enabled", True)),
+                ),
             },
             "filters": self._filter_options(rows),
             "summary": self._summary(rows),
@@ -140,7 +148,7 @@ class EdgeBoardService:
             return None
         if not rows:
             return None
-        selected_rows = rows[:limit]
+        selected_rows = self._game_market_enriched_rows(rows[:limit])
         snapshot_at = _clean(meta.get("snapshotAt"))
         return {
             "status": "ok",
@@ -166,6 +174,10 @@ class EdgeBoardService:
                     "snapshotAt": snapshot_at,
                     "snapshotIds": meta.get("snapshotIds", []),
                 },
+                "gameMarketEnrichment": _game_market_enrichment_summary(
+                    selected_rows,
+                    enabled=bool(getattr(self.settings, "game_market_enrichment_enabled", True)),
+                ),
             },
             "filters": self._filter_options(selected_rows),
             "summary": self._summary(selected_rows),
@@ -208,6 +220,7 @@ class EdgeBoardService:
             }
         health = snapshot.health.to_dict()
         self._cards = self._load_cards()
+        row = self._game_market_enriched_rows([row])[0]
         enriched = self._enrich_row(row, 1, {
             "productState": dict(snapshot.product_state),
             "dataConfidence": health.get("dataConfidence", "Missing"),
@@ -251,6 +264,21 @@ class EdgeBoardService:
             if market:
                 cards[market] = card
         return cards
+
+    def _game_market_enriched_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not rows:
+            return rows
+        if all("game_market_enrichment_status" in row for row in rows):
+            return rows
+        if self.game_market_feature_lookup_service is not None:
+            try:
+                return self.game_market_feature_lookup_service.enrich_rows(rows)
+            except Exception:
+                pass
+        return [
+            dict(row) | {"game_market_available": False, "game_market_enrichment_status": "warehouse_unavailable"}
+            for row in rows
+        ]
 
     def _card_for(self, market: str) -> dict[str, Any]:
         key = _clean(market).lower()
@@ -505,6 +533,20 @@ def _truthy_query(query: dict[str, list[str]], key: str) -> bool:
 
 def _list_rows(value: Any) -> list[dict[str, Any]]:
     return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+
+
+def _game_market_enrichment_summary(rows: list[dict[str, Any]], *, enabled: bool) -> dict[str, Any]:
+    status_counts: dict[str, int] = {}
+    for row in rows:
+        status = _clean(row.get("game_market_enrichment_status")) or "unknown"
+        status_counts[status] = status_counts.get(status, 0) + 1
+    return {
+        "enabled": enabled,
+        "availableRows": sum(1 for row in rows if bool(row.get("game_market_available"))),
+        "matchedRows": status_counts.get("matched", 0),
+        "statusCounts": status_counts,
+        "source": "historical_game_market_features",
+    }
 
 
 def _clean(value: Any) -> str:

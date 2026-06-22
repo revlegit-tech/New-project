@@ -89,6 +89,27 @@ class EdgeBoardRow(StrictPayload):
     trust: dict[str, Any] = Field(default_factory=dict)
     freshness: dict[str, Any] = Field(default_factory=dict)
     isAltMarket: bool | str | None = None
+    game_market_available: bool | None = None
+    game_market_game_id: str | None = None
+    game_market_consensus_open_total: Any = None
+    game_market_consensus_current_total: Any = None
+    game_market_total_line_movement: Any = None
+    game_market_favorite_team_open: str | None = None
+    game_market_favorite_team_current: str | None = None
+    game_market_team_is_favorite_open: bool | None = None
+    game_market_team_is_favorite_current: bool | None = None
+    game_market_team_no_vig_win_prob_open: Any = None
+    game_market_team_no_vig_win_prob_current: Any = None
+    game_market_opponent_no_vig_win_prob_open: Any = None
+    game_market_opponent_no_vig_win_prob_current: Any = None
+    game_market_book_count_moneyline: Any = None
+    game_market_book_count_total: Any = None
+    game_market_book_count_runline: Any = None
+    game_market_disagreement_score: Any = None
+    game_market_team_moneyline_movement: Any = None
+    game_market_opponent_moneyline_movement: Any = None
+    game_market_quality_flags: list[str] = Field(default_factory=list)
+    game_market_enrichment_status: str | None = None
 
 
 class ModelCardItem(StrictPayload):
@@ -274,6 +295,7 @@ class DataStatusResponse(StrictResponse):
     source_freshness: dict[str, DataSourceFreshnessPayload] = Field(default_factory=dict)
     database: dict[str, Any] = Field(default_factory=dict)
     historical_game_odds: dict[str, Any] = Field(default_factory=dict)
+    game_market_enrichment: dict[str, Any] = Field(default_factory=dict)
     expected_files: list[str] = Field(default_factory=list)
     missing_files: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -466,6 +488,7 @@ class ResearchReportCard(StrictPayload):
     trust: dict[str, Any] = Field(default_factory=dict)
     reasons: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    gameMarketContext: dict[str, Any] = Field(default_factory=dict)
 
 
 class ResearchReportSection(StrictPayload):
@@ -491,6 +514,7 @@ class ResearchReportResponse(StrictResponse):
     publishPlan: list[dict[str, Any]] = Field(default_factory=list)
     trust: dict[str, Any] = Field(default_factory=dict)
     freshness: dict[str, Any] = Field(default_factory=dict)
+    gameMarketEnrichment: dict[str, Any] = Field(default_factory=dict)
     source: dict[str, Any] = Field(default_factory=dict)
     meta: dict[str, Any] = Field(default_factory=dict)
 
@@ -560,6 +584,7 @@ class PlayerboardHealthResponse(StrictResponse):
     trust: dict[str, Any] = Field(default_factory=dict)
     meta: dict[str, Any] = Field(default_factory=dict)
     freshness: dict[str, Any] = Field(default_factory=dict)
+    gameMarketEnrichment: dict[str, Any] = Field(default_factory=dict)
 
 
 class PropDetailResponse(StrictResponse):

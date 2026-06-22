@@ -15,6 +15,7 @@ from mlb_app.config import Settings, settings as default_settings
 from mlb_app.repositories.historical_game_odds_repository import HistoricalGameOddsRepository
 from mlb_app.repositories.warehouse_utils import clean, json_text, stable_id, utc_now_text
 from mlb_app.services.game_market_grading_service import GameMarketGradingService
+from mlb_app.services.team_match_utils import normalize_team_alias, team_alias_key
 
 HISTORICAL_GAME_ODDS_SCHEMA_VERSION = "historical-game-odds.v1"
 DEFAULT_SOURCE_RELATIVE_PATH = Path("external") / "mlb_odds_dataset.json"
@@ -479,27 +480,7 @@ def stable_game_id(*, game_date: str, away_team: str, home_team: str, start_time
 
 
 def normalize_team(value: Any) -> str:
-    candidates: list[Any] = []
-    if isinstance(value, dict):
-        candidates.extend(
-            [
-                value.get("shortName"),
-                value.get("abbreviation"),
-                value.get("teamCode"),
-                value.get("fullName"),
-                value.get("displayName"),
-                value.get("name"),
-                value.get("nickname"),
-            ]
-        )
-    else:
-        candidates.append(value)
-    for candidate in candidates:
-        key = _team_key(candidate)
-        if key in TEAM_ALIASES:
-            return TEAM_ALIASES[key]
-    fallback = _team_key(candidates[0] if candidates else "")
-    return fallback[:4] if fallback else ""
+    return normalize_team_alias(value)
 
 
 def normalize_sportsbook(value: Any) -> str:
@@ -747,8 +728,7 @@ def _season_from_date(value: str) -> int:
 
 
 def _team_key(value: Any) -> str:
-    text = clean(value).upper().replace(".", "")
-    return re.sub(r"\s+", " ", text).strip()
+    return team_alias_key(value)
 
 
 def _assert_no_leakage(feature: Mapping[str, Any]) -> None:

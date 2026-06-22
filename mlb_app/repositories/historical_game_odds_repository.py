@@ -286,6 +286,17 @@ class HistoricalGameOddsRepository:
             row = session.fetch_one("SELECT game_date FROM historical_game_odds_games ORDER BY game_date DESC LIMIT 1")
         return clean(row.get("game_date")) if row else ""
 
+    def latest_feature_date(self) -> str:
+        with self.db.session() as session:
+            row = session.fetch_one(
+                """
+                SELECT game_date FROM historical_game_market_features
+                ORDER BY game_date DESC
+                LIMIT 1
+                """
+            )
+        return clean(row.get("game_date")) if row else ""
+
     def status(self, *, source_file: str | Path | None = None) -> dict[str, Any]:
         health = self.db.health_check().to_dict()
         source_path = Path(source_file) if source_file else self.settings.data_dir / "external" / "mlb_odds_dataset.json"

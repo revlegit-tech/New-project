@@ -12,6 +12,7 @@ from mlb_app.repositories.data_health_repository import DataHealthRepository
 from mlb_app.repositories.historical_game_odds_repository import HistoricalGameOddsRepository
 from mlb_app.repositories.warehouse_db import WarehouseDatabase
 from mlb_app.services.collector_manifest_service import CollectorManifestService
+from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 
 DEFAULT_STALE_AFTER_SECONDS = 36 * 60 * 60
 MAX_ROW_COUNT_BYTES = 20 * 1024 * 1024
@@ -48,6 +49,7 @@ class DataStatusService:
         settings: Settings = default_settings,
         data_health_repository: DataHealthRepository | None = None,
         historical_game_odds_repository: HistoricalGameOddsRepository | None = None,
+        game_market_feature_lookup_service: GameMarketFeatureLookupService | None = None,
         now_provider: Callable[[], datetime] | None = None,
         stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
     ) -> None:
@@ -61,6 +63,7 @@ class DataStatusService:
             WarehouseDatabase.from_settings(settings),
             settings=settings,
         )
+        self.game_market_feature_lookup_service = game_market_feature_lookup_service
 
     def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
         query = query or {}
@@ -90,6 +93,10 @@ class DataStatusService:
             suffix = " CSV fallback is enabled." if database_status["csv_fallback"]["enabled"] else ""
             warnings.append(f"Warehouse database is enabled but unreachable.{suffix}")
         historical_game_odds = self._historical_game_odds_status()
+        game_market_enrichment = self._game_market_enrichment_status(
+            database_status=database_status,
+            historical_game_odds=historical_game_odds,
+        )
 
         warnings.extend(f"Missing expected file: {path}" for path in missing_files)
         data_health_score = self._score(source_freshness, missing_files)
@@ -103,6 +110,7 @@ class DataStatusService:
             "source_freshness": source_freshness,
             "database": database_status,
             "historical_game_odds": historical_game_odds,
+            "game_market_enrichment": game_market_enrichment,
             "expected_files": expected_files,
             "missing_files": missing_files,
             "warnings": _dedupe(warnings)[:40],
@@ -174,6 +182,44 @@ class DataStatusService:
             "source_file_present": bool(status.get("source_file_present")),
             "warnings": [str(item) for item in status.get("warnings", []) if str(item).strip()],
         }
+
+    def _game_market_enrichment_status(
+        self,
+        *,
+        database_status: dict[str, Any],
+        historical_game_odds: dict[str, Any],
+    ) -> dict[str, Any]:
+        lookup_status = (
+            self.game_market_feature_lookup_service.status_payload()
+            if self.game_market_feature_lookup_service is not None
+            else {}
+        )
+        fallback = database_status.get("csv_fallback") if isinstance(database_status.get("csv_fallback"), dict) else {}
+        warnings = list(lookup_status.get("warnings") or [])
+        if not bool(historical_game_odds.get("feature_rows")):
+            warnings.append("No historical game-market feature rows are available for enrichment.")
+        if not bool(database_status.get("enabled")) or not bool(database_status.get("reachable")):
+            warnings.append("Game-market enrichment will fall back safely because the warehouse is unavailable.")
+        return {
+            "enabled": bool(getattr(self.settings, "game_market_enrichment_enabled", True)),
+            "source": lookup_status.get("source") or "historical_game_market_features",
+            "historical_game_odds_available": bool(
+                historical_game_odds.get("enabled")
+                and historical_game_odds.get("reachable")
+                and int(historical_game_odds.get("feature_rows") or 0) > 0
+            ),
+            "feature_rows": int(historical_game_odds.get("feature_rows") or 0),
+            "latest_feature_date": self._latest_feature_date(),
+            "matched_rows_last_request": int(lookup_status.get("matched_rows_last_request") or 0),
+            "fallback_mode": fallback.get("status") or ("active_db_unreachable" if not database_status.get("reachable") else "standby"),
+            "warnings": _dedupe(warnings)[:10],
+        }
+
+    def _latest_feature_date(self) -> str:
+        try:
+            return self.historical_game_odds_repository.latest_feature_date()
+        except Exception:
+            return ""
 
     def _inspect_source(self, spec: SourceSpec, *, generated_at: datetime) -> dict[str, Any]:
         root = self.data_dir / spec.relative_path
