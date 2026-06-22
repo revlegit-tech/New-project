@@ -421,6 +421,8 @@ class PlayerboardResponse(StrictResponse):
     dataConfidence: str | None = None
     source: dict[str, Any] | str | None = None
     sourceMeta: dict[str, Any] = Field(default_factory=dict)
+    sourceMode: str | None = None
+    canonicalSourceFiles: list[str] = Field(default_factory=list)
     filters: dict[str, Any] = Field(default_factory=dict)
     summary: dict[str, Any] = Field(default_factory=dict)
     meta: dict[str, Any] = Field(default_factory=dict)
@@ -563,3 +565,4 @@ class HealthResponse(StrictResponse):
     status: str
     ok: bool
     checks: dict[str, Any] = Field(default_factory=dict)
+

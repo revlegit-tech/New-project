@@ -104,7 +104,7 @@ def before_game(date_label: str) -> None:
     markets = ",".join(PROP_MARKETS)
 
     props = request_json(
-        f"/api/propline/props?markets={urllib.parse.quote(markets)}&date={urllib.parse.quote(date_label)}",
+        f"/api/admin/propline/props/sync?markets={urllib.parse.quote(markets)}&date={urllib.parse.quote(date_label)}",
         method="POST",
     )
 
