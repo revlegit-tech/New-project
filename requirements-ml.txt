@@ -1,0 +1,7 @@
+# Optional model-zoo dependencies for local ML experimentation.
+# Keep XGBoost out of the base runtime path so app startup remains resilient.
+xgboost>=2.0
+joblib>=1.3
+scikit-learn>=1.4
+pandas>=2.0
+numpy>=1.26
