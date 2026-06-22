@@ -16,9 +16,11 @@ from mlb_app.services.data_health_dashboard_service import DataHealthDashboardSe
 from mlb_app.services.data_health_service import DataHealthService
 from mlb_app.services.data_status_service import DataStatusService
 from mlb_app.services.backtest_readiness_service import BacktestReadinessService
+from mlb_app.services.backtest_dataset_builder_service import BacktestDatasetBuilderService
 from mlb_app.services.historical_game_odds_import_service import HistoricalGameOddsImportService
 from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.ml_feature_export_service import MLFeatureExportService
+from mlb_app.services.player_prop_label_builder_service import PlayerPropLabelBuilderService
 from mlb_app.services.workflow_health_service import WorkflowHealthService
 from mlb_app.observability.metrics import MetricsRegistry
 from mlb_app.services.alert_service import AlertService
@@ -102,6 +104,14 @@ def get_ml_feature_export_service(container: Annotated[AppContainer, Depends(get
 
 def get_backtest_readiness_service(container: Annotated[AppContainer, Depends(get_container)]) -> BacktestReadinessService:
     return container.backtest_readiness_service
+
+
+def get_player_prop_label_builder_service(container: Annotated[AppContainer, Depends(get_container)]) -> PlayerPropLabelBuilderService:
+    return container.player_prop_label_builder_service
+
+
+def get_backtest_dataset_builder_service(container: Annotated[AppContainer, Depends(get_container)]) -> BacktestDatasetBuilderService:
+    return container.backtest_dataset_builder_service
 
 
 def get_historical_game_odds_repository(container: Annotated[AppContainer, Depends(get_container)]) -> HistoricalGameOddsRepository:

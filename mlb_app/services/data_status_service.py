@@ -14,6 +14,10 @@ from mlb_app.repositories.warehouse_db import WarehouseDatabase
 from mlb_app.services.collector_manifest_service import CollectorManifestService
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.ml_feature_export_service import latest_ml_feature_export_status
+from mlb_app.services.player_prop_label_builder_service import (
+    latest_player_prop_label_status,
+    latest_player_prop_training_status,
+)
 
 DEFAULT_STALE_AFTER_SECONDS = 36 * 60 * 60
 MAX_ROW_COUNT_BYTES = 20 * 1024 * 1024
@@ -99,6 +103,8 @@ class DataStatusService:
             historical_game_odds=historical_game_odds,
         )
         ml_feature_exports = self._ml_feature_exports_status(database_status)
+        ml_label_exports = self._ml_label_exports_status(database_status)
+        ml_training_datasets = self._ml_training_datasets_status(database_status)
 
         warnings.extend(f"Missing expected file: {path}" for path in missing_files)
         data_health_score = self._score(source_freshness, missing_files)
@@ -114,6 +120,8 @@ class DataStatusService:
             "historical_game_odds": historical_game_odds,
             "game_market_enrichment": game_market_enrichment,
             "ml_feature_exports": ml_feature_exports,
+            "ml_label_exports": ml_label_exports,
+            "ml_training_datasets": ml_training_datasets,
             "expected_files": expected_files,
             "missing_files": missing_files,
             "warnings": _dedupe(warnings)[:40],
@@ -235,6 +243,35 @@ class DataStatusService:
             "feature_schema_version": latest.get("feature_schema_version") or "",
             "leakage_check_passed": latest.get("leakage_check_passed"),
             "game_market_feature_coverage_pct": latest.get("game_market_feature_coverage_pct"),
+            "fallback_mode": fallback.get("status") or latest.get("fallback_mode") or "",
+            "warnings": [str(item) for item in latest.get("warnings", []) if str(item).strip()][:10],
+        }
+
+    def _ml_label_exports_status(self, database_status: dict[str, Any]) -> dict[str, Any]:
+        latest = latest_player_prop_label_status(self.settings)
+        fallback = database_status.get("csv_fallback") if isinstance(database_status.get("csv_fallback"), dict) else {}
+        return {
+            "enabled": True,
+            "latest_label_date": latest.get("latest_label_date") or "",
+            "latest_label_rows": int(latest.get("latest_label_rows") or 0),
+            "latest_manifest_path": latest.get("latest_manifest_path") or "",
+            "label_schema_version": latest.get("label_schema_version") or "",
+            "graded_count": int(latest.get("graded_count") or 0),
+            "ungraded_count": int(latest.get("ungraded_count") or 0),
+            "fallback_mode": fallback.get("status") or latest.get("fallback_mode") or "",
+            "warnings": [str(item) for item in latest.get("warnings", []) if str(item).strip()][:10],
+        }
+
+    def _ml_training_datasets_status(self, database_status: dict[str, Any]) -> dict[str, Any]:
+        latest = latest_player_prop_training_status(self.settings)
+        fallback = database_status.get("csv_fallback") if isinstance(database_status.get("csv_fallback"), dict) else {}
+        return {
+            "enabled": True,
+            "latest_training_date": latest.get("latest_training_date") or "",
+            "latest_training_rows": int(latest.get("latest_training_rows") or 0),
+            "latest_manifest_path": latest.get("latest_manifest_path") or "",
+            "training_schema_version": latest.get("training_schema_version") or "",
+            "leakage_check_passed": latest.get("leakage_check_passed"),
             "fallback_mode": fallback.get("status") or latest.get("fallback_mode") or "",
             "warnings": [str(item) for item in latest.get("warnings", []) if str(item).strip()][:10],
         }

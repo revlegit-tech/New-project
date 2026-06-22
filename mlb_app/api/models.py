@@ -297,6 +297,8 @@ class DataStatusResponse(StrictResponse):
     historical_game_odds: dict[str, Any] = Field(default_factory=dict)
     game_market_enrichment: dict[str, Any] = Field(default_factory=dict)
     ml_feature_exports: dict[str, Any] = Field(default_factory=dict)
+    ml_label_exports: dict[str, Any] = Field(default_factory=dict)
+    ml_training_datasets: dict[str, Any] = Field(default_factory=dict)
     expected_files: list[str] = Field(default_factory=list)
     missing_files: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -409,6 +411,95 @@ class BacktestReadinessResponse(StrictResponse):
     market_count: int = 0
     markets: list[dict[str, Any]] = Field(default_factory=list)
     summary: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MLLabelStatusResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    enabled: bool = True
+    label_schema_version: str = ""
+    latest_label_date: str = ""
+    latest_label_rows: int = 0
+    latest_training_date: str = ""
+    latest_training_rows: int = 0
+    supported_markets: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PlayerPropLabelBuildResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    label_schema_version: str = ""
+    date: str = ""
+    season: int = 0
+    source: str = ""
+    format: str = ""
+    dry_run: bool = False
+    row_count: int = 0
+    feature_row_count: int = 0
+    graded_count: int = 0
+    ungraded_count: int = 0
+    win_count: int = 0
+    loss_count: int = 0
+    push_count: int = 0
+    void_count: int = 0
+    market_counts: dict[str, int] = Field(default_factory=dict)
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    supported_market_count: int = 0
+    unsupported_market_count: int = 0
+    output_paths: dict[str, str] = Field(default_factory=dict)
+    written: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PlayerPropLabelPreviewResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    label_schema_version: str = ""
+    date: str = ""
+    row_count: int = 0
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PlayerPropTrainingBuildResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    feature_schema_version: str = ""
+    label_schema_version: str = ""
+    training_schema_version: str = ""
+    date: str = ""
+    season: int = 0
+    source: str = ""
+    format: str = ""
+    dry_run: bool = False
+    feature_row_count: int = 0
+    label_row_count: int = 0
+    joined_row_count: int = 0
+    graded_training_row_count: int = 0
+    ungraded_training_row_count: int = 0
+    market_counts: dict[str, int] = Field(default_factory=dict)
+    result_counts: dict[str, int] = Field(default_factory=dict)
+    label_status_counts: dict[str, int] = Field(default_factory=dict)
+    feature_columns: list[str] = Field(default_factory=list)
+    target_columns: list[str] = Field(default_factory=list)
+    leakage_check_passed: bool = True
+    blocked_feature_fields_found: list[str] = Field(default_factory=list)
+    output_paths: dict[str, str] = Field(default_factory=dict)
+    written: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PlayerPropTrainingPreviewResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    training_schema_version: str = ""
+    feature_schema_version: str = ""
+    label_schema_version: str = ""
+    date: str = ""
+    row_count: int = 0
+    rows: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 

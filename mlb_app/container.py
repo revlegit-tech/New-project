@@ -22,6 +22,7 @@ from mlb_app.repositories.warehouse_db import WarehouseDatabase
 from mlb_app.services.alert_service import AlertService
 from mlb_app.services.app_status_service import AppStatusService
 from mlb_app.services.backtest_readiness_service import BacktestReadinessService
+from mlb_app.services.backtest_dataset_builder_service import BacktestDatasetBuilderService
 from mlb_app.services.bankroll_service import BankrollService
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.board_cache import BoardCache
@@ -38,6 +39,7 @@ from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.model_readiness_service import ModelReadinessService
 from mlb_app.services.model_registry_service import ModelRegistryService
 from mlb_app.services.picks_service import PicksService
+from mlb_app.services.player_prop_label_builder_service import PlayerPropLabelBuilderService
 from mlb_app.services.prediction_audit_service import PredictionAuditService
 from mlb_app.services.propline_props_service import ProplinePropsService
 from mlb_app.services.playerboard_read_service import PlayerboardReadService
@@ -96,6 +98,8 @@ class AppContainer:
     edge_board_service: EdgeBoardService = field(init=False)
     edge_report_service: EdgeReportService = field(init=False)
     ml_feature_export_service: MLFeatureExportService = field(init=False)
+    player_prop_label_builder_service: PlayerPropLabelBuilderService = field(init=False)
+    backtest_dataset_builder_service: BacktestDatasetBuilderService = field(init=False)
     backtest_readiness_service: BacktestReadinessService = field(init=False)
     prop_detail_service: PropDetailService = field(init=False)
     bankroll_service: BankrollService = field(init=False)
@@ -232,8 +236,18 @@ class AppContainer:
             edge_board_service=self.edge_board_service,
             game_market_feature_lookup_service=self.game_market_feature_lookup_service,
         )
+        self.player_prop_label_builder_service = PlayerPropLabelBuilderService(
+            settings=self.settings,
+            feature_export_service=self.ml_feature_export_service,
+        )
+        self.backtest_dataset_builder_service = BacktestDatasetBuilderService(
+            settings=self.settings,
+            feature_export_service=self.ml_feature_export_service,
+            label_builder_service=self.player_prop_label_builder_service,
+        )
         self.backtest_readiness_service = BacktestReadinessService(
             feature_export_service=self.ml_feature_export_service,
+            training_builder_service=self.backtest_dataset_builder_service,
         )
         self.data_health_dashboard_service = DataHealthDashboardService(
             data_health_service=self.data_health_service,
