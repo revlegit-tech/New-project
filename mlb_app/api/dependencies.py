@@ -15,6 +15,7 @@ from mlb_app.services.edge_report_service import EdgeReportService
 from mlb_app.services.data_health_dashboard_service import DataHealthDashboardService
 from mlb_app.services.data_health_service import DataHealthService
 from mlb_app.services.data_status_service import DataStatusService
+from mlb_app.services.historical_game_odds_import_service import HistoricalGameOddsImportService
 from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.workflow_health_service import WorkflowHealthService
 from mlb_app.observability.metrics import MetricsRegistry
@@ -26,6 +27,7 @@ from mlb_app.services.propline_props_service import ProplinePropsService
 from mlb_app.services.picks_service import PicksService
 from mlb_app.services.playerboard_service import PlayerboardService
 from mlb_app.services.prop_detail_service import PropDetailService
+from mlb_app.repositories.historical_game_odds_repository import HistoricalGameOddsRepository
 
 
 def query_params(request: Request) -> dict[str, list[str]]:
@@ -90,6 +92,14 @@ def get_data_health_dashboard_service(container: Annotated[AppContainer, Depends
 
 def get_data_status_service(container: Annotated[AppContainer, Depends(get_container)]) -> DataStatusService:
     return container.data_status_service
+
+
+def get_historical_game_odds_repository(container: Annotated[AppContainer, Depends(get_container)]) -> HistoricalGameOddsRepository:
+    return container.historical_game_odds_repository
+
+
+def get_historical_game_odds_import_service(container: Annotated[AppContainer, Depends(get_container)]) -> HistoricalGameOddsImportService:
+    return container.historical_game_odds_import_service
 
 
 def get_grading_service(container: Annotated[AppContainer, Depends(get_container)]) -> GradingStateService:

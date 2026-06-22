@@ -9,6 +9,7 @@ from typing import Any, Callable, Iterable
 
 from mlb_app.config import Settings, settings as default_settings
 from mlb_app.repositories.data_health_repository import DataHealthRepository
+from mlb_app.repositories.historical_game_odds_repository import HistoricalGameOddsRepository
 from mlb_app.repositories.warehouse_db import WarehouseDatabase
 from mlb_app.services.collector_manifest_service import CollectorManifestService
 
@@ -46,6 +47,7 @@ class DataStatusService:
         *,
         settings: Settings = default_settings,
         data_health_repository: DataHealthRepository | None = None,
+        historical_game_odds_repository: HistoricalGameOddsRepository | None = None,
         now_provider: Callable[[], datetime] | None = None,
         stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
     ) -> None:
@@ -55,6 +57,10 @@ class DataStatusService:
         self.stale_after_seconds = int(stale_after_seconds)
         self.manifests = CollectorManifestService(settings=settings)
         self.data_health_repository = data_health_repository or DataHealthRepository(WarehouseDatabase.from_settings(settings))
+        self.historical_game_odds_repository = historical_game_odds_repository or HistoricalGameOddsRepository(
+            WarehouseDatabase.from_settings(settings),
+            settings=settings,
+        )
 
     def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
         query = query or {}
@@ -83,6 +89,7 @@ class DataStatusService:
         if database_status["enabled"] and not database_status["reachable"]:
             suffix = " CSV fallback is enabled." if database_status["csv_fallback"]["enabled"] else ""
             warnings.append(f"Warehouse database is enabled but unreachable.{suffix}")
+        historical_game_odds = self._historical_game_odds_status()
 
         warnings.extend(f"Missing expected file: {path}" for path in missing_files)
         data_health_score = self._score(source_freshness, missing_files)
@@ -95,6 +102,7 @@ class DataStatusService:
             "latest_collector_manifest": latest_manifest,
             "source_freshness": source_freshness,
             "database": database_status,
+            "historical_game_odds": historical_game_odds,
             "expected_files": expected_files,
             "missing_files": missing_files,
             "warnings": _dedupe(warnings)[:40],
@@ -138,6 +146,33 @@ class DataStatusService:
                     fallback_enabled=fallback_enabled,
                 ),
             },
+        }
+
+    def _historical_game_odds_status(self) -> dict[str, Any]:
+        try:
+            status = self.historical_game_odds_repository.status()
+        except Exception as error:
+            status = {
+                "enabled": self.settings.db_enabled,
+                "reachable": False,
+                "games": 0,
+                "line_rows": 0,
+                "feature_rows": 0,
+                "grade_rows": 0,
+                "latest_import_at": "",
+                "source_file_present": (self.data_dir / "external" / "mlb_odds_dataset.json").exists(),
+                "warnings": [f"Historical game odds status unavailable: {type(error).__name__}: {error}"],
+            }
+        return {
+            "enabled": bool(status.get("enabled")),
+            "reachable": bool(status.get("reachable")),
+            "games": int(status.get("games") or 0),
+            "line_rows": int(status.get("line_rows") or 0),
+            "feature_rows": int(status.get("feature_rows") or 0),
+            "grade_rows": int(status.get("grade_rows") or 0),
+            "latest_import_at": str(status.get("latest_import_at") or ""),
+            "source_file_present": bool(status.get("source_file_present")),
+            "warnings": [str(item) for item in status.get("warnings", []) if str(item).strip()],
         }
 
     def _inspect_source(self, spec: SourceSpec, *, generated_at: datetime) -> dict[str, Any]:

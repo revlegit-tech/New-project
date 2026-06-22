@@ -10,6 +10,7 @@ from mlb_app.repositories.collector_run_repository import CollectorRunRepository
 from mlb_app.repositories.data_health_repository import DataHealthRepository
 from mlb_app.repositories.db import SQLiteDatabase
 from mlb_app.repositories.edge_board_snapshot_repository import EdgeBoardSnapshotRepository
+from mlb_app.repositories.historical_game_odds_repository import HistoricalGameOddsRepository
 from mlb_app.repositories.picks_repository import PicksRepository
 from mlb_app.repositories.playerboard_snapshot_repository import PlayerboardSnapshotRepository
 from mlb_app.repositories.playerboard_repository import PlayerboardRepository
@@ -29,6 +30,8 @@ from mlb_app.services.data_status_service import DataStatusService
 from mlb_app.services.edge_board_service import EdgeBoardService
 from mlb_app.services.edge_report_service import EdgeReportService
 from mlb_app.services.grading_state_service import GradingStateService
+from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
+from mlb_app.services.historical_game_odds_import_service import HistoricalGameOddsImportService
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.model_readiness_service import ModelReadinessService
 from mlb_app.services.model_registry_service import ModelRegistryService
@@ -73,11 +76,14 @@ class AppContainer:
     prop_repository: PropRepository = field(init=False)
     data_health_repository: DataHealthRepository = field(init=False)
     research_report_repository: ResearchReportRepository = field(init=False)
+    historical_game_odds_repository: HistoricalGameOddsRepository = field(init=False)
 
     grading_service: GradingStateService = field(init=False)
     data_health_service: DataHealthService = field(init=False)
     data_health_dashboard_service: DataHealthDashboardService = field(init=False)
     data_status_service: DataStatusService = field(init=False)
+    historical_game_odds_import_service: HistoricalGameOddsImportService = field(init=False)
+    game_market_feature_lookup_service: GameMarketFeatureLookupService = field(init=False)
     product_state_service: ProductStateService = field(init=False)
     model_registry_service: ModelRegistryService = field(init=False)
     model_readiness_service: ModelReadinessService = field(init=False)
@@ -132,6 +138,10 @@ class AppContainer:
         self.prop_repository = PropRepository(self.warehouse_db)
         self.data_health_repository = DataHealthRepository(self.warehouse_db)
         self.research_report_repository = ResearchReportRepository(self.warehouse_db)
+        self.historical_game_odds_repository = HistoricalGameOddsRepository(
+            self.warehouse_db,
+            settings=self.settings,
+        )
 
         self.grading_service = GradingStateService(settings=self.settings)
         self.product_state_service = ProductStateService(settings=self.settings)
@@ -143,6 +153,14 @@ class AppContainer:
         self.data_status_service = DataStatusService(
             settings=self.settings,
             data_health_repository=self.data_health_repository,
+            historical_game_odds_repository=self.historical_game_odds_repository,
+        )
+        self.historical_game_odds_import_service = HistoricalGameOddsImportService(
+            self.historical_game_odds_repository,
+            settings=self.settings,
+        )
+        self.game_market_feature_lookup_service = GameMarketFeatureLookupService(
+            self.historical_game_odds_repository,
         )
         self.model_registry_service = ModelRegistryService(settings=self.settings)
         self.model_readiness_service = ModelReadinessService(self.model_registry_service)

@@ -361,6 +361,7 @@ def test_data_status_endpoint_uses_strict_response_shape(tmp_path: Path) -> None
         "latest_collector_manifest",
         "source_freshness",
         "database",
+        "historical_game_odds",
         "expected_files",
         "missing_files",
         "warnings",
@@ -370,4 +371,5 @@ def test_data_status_endpoint_uses_strict_response_shape(tmp_path: Path) -> None
     assert payload["status"] == "fresh"
     assert payload["database"]["enabled"] is False
     assert payload["database"]["csv_fallback"]["status"] == "primary_csv"
+    assert payload["historical_game_odds"]["enabled"] is False
     assert "traceback" not in payload["latest_collector_manifest"]

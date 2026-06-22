@@ -273,10 +273,56 @@ class DataStatusResponse(StrictResponse):
     latest_collector_manifest: CollectorManifestPayload | None = None
     source_freshness: dict[str, DataSourceFreshnessPayload] = Field(default_factory=dict)
     database: dict[str, Any] = Field(default_factory=dict)
+    historical_game_odds: dict[str, Any] = Field(default_factory=dict)
     expected_files: list[str] = Field(default_factory=list)
     missing_files: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     data_health_score: int = Field(ge=0, le=100)
+
+
+class HistoricalGameOddsImportResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    importStatus: str = ""
+    importId: str = ""
+    sourceFile: str = ""
+    startedAt: str = ""
+    finishedAt: str = ""
+    gamesRead: int = 0
+    gamesImported: int = 0
+    lineRowsImported: int = 0
+    featureRowsWritten: int = 0
+    gradeRowsWritten: int = 0
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    csvExports: dict[str, str] = Field(default_factory=dict)
+
+
+class HistoricalGameOddsStatusResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    enabled: bool = False
+    reachable: bool = False
+    dialect: str = ""
+    reason: str = ""
+    error: str = ""
+    games: int = 0
+    lineRows: int = 0
+    featureRows: int = 0
+    gradeRows: int = 0
+    latestImportAt: str = ""
+    latestImportStatus: str = ""
+    sourceFilePresent: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class HistoricalGameOddsRowsResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    date: str = ""
+    rowCount: int = 0
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class GradingHealthResponse(StrictResponse):
