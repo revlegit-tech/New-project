@@ -37,6 +37,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PHASE18_MARKETS: "pitcher_strikeouts,batter_hits,batter_total_bases,batter_home_runs,batter_rbis,batter_stolen_bases,batter_walks,batter_singles,batter_doubles,batter_runs,batter_2plus_hits,batter_2plus_home_runs,batter_2plus_rbis,batter_3plus_rbis,pitcher_outs,pitcher_hits_allowed,pitcher_earned_runs"
 
 jobs:
   collect:
@@ -136,13 +137,26 @@ jobs:
             python playerboard.py --season "$SEASON" --date "$TODAY" --market "$MARKET" --limit 5000 || true
           done
 
-      - name: Package compact data artifact
+      - name: Package collector data artifact
         if: always()
         shell: bash
         run: |
           mkdir -p workflow-artifacts
+          mkdir -p data/odds data/warehouse/odds_snapshots data/warehouse/raw data/warehouse/summaries data/warehouse/logs
           tar -czf "workflow-artifacts/season-collector-${{ github.run_id }}.tgz" \
-            data/cloud data/cache/savant data/cache/odds_movement data/playerboard data/backtests data/audit data/ml data/training \
+            data/cloud \
+            data/cache/savant \
+            data/cache/odds_movement \
+            data/playerboard \
+            data/backtests \
+            data/audit \
+            data/ml \
+            data/training \
+            data/odds \
+            data/warehouse/odds_snapshots \
+            data/warehouse/raw \
+            data/warehouse/summaries \
+            data/warehouse/logs \
             2>/dev/null || true
 
       - name: Upload compact data artifact
@@ -152,4 +166,4 @@ jobs:
           name: season-collector-${{ github.run_id }}
           path: workflow-artifacts/*.tgz
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 90
