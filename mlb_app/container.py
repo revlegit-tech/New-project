@@ -10,11 +10,14 @@ from mlb_app.repositories.collector_run_repository import CollectorRunRepository
 from mlb_app.repositories.data_health_repository import DataHealthRepository
 from mlb_app.repositories.db import SQLiteDatabase
 from mlb_app.repositories.edge_board_snapshot_repository import EdgeBoardSnapshotRepository
+from mlb_app.repositories.game_environment_repository import GameEnvironmentRepository
 from mlb_app.repositories.historical_game_odds_repository import HistoricalGameOddsRepository
 from mlb_app.repositories.picks_repository import PicksRepository
+from mlb_app.repositories.player_metric_repository import PlayerMetricRepository
 from mlb_app.repositories.playerboard_snapshot_repository import PlayerboardSnapshotRepository
 from mlb_app.repositories.playerboard_repository import PlayerboardRepository
 from mlb_app.repositories.prop_repository import PropRepository
+from mlb_app.repositories.statcast_repository import StatcastRepository
 from mlb_app.observability.metrics import MetricsRegistry, default_registry
 from mlb_app.repositories.prediction_events_repository import PredictionEventsRepository
 from mlb_app.repositories.research_report_repository import ResearchReportRepository
@@ -24,6 +27,7 @@ from mlb_app.services.app_status_service import AppStatusService
 from mlb_app.services.backtest_readiness_service import BacktestReadinessService
 from mlb_app.services.backtest_dataset_builder_service import BacktestDatasetBuilderService
 from mlb_app.services.bankroll_service import BankrollService
+from mlb_app.services.baseball_savant_feature_service import BaseballSavantFeatureService
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.board_cache import BoardCache
 from mlb_app.services.data_health_dashboard_service import DataHealthDashboardService
@@ -31,6 +35,8 @@ from mlb_app.services.data_health_service import DataHealthService
 from mlb_app.services.data_status_service import DataStatusService
 from mlb_app.services.edge_board_service import EdgeBoardService
 from mlb_app.services.edge_report_service import EdgeReportService
+from mlb_app.services.feature_store_service import FeatureStoreService
+from mlb_app.services.game_environment_feature_service import GameEnvironmentFeatureService
 from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.historical_game_odds_import_service import HistoricalGameOddsImportService
@@ -42,6 +48,7 @@ from mlb_app.services.picks_service import PicksService
 from mlb_app.services.player_prop_label_builder_service import PlayerPropLabelBuilderService
 from mlb_app.services.prediction_audit_service import PredictionAuditService
 from mlb_app.services.propline_props_service import ProplinePropsService
+from mlb_app.services.statcast_ingestion_service import StatcastIngestionService
 from mlb_app.services.playerboard_read_service import PlayerboardReadService
 from mlb_app.services.playerboard_service import PlayerboardService
 from mlb_app.services.product_state_service import ProductStateService
@@ -81,6 +88,9 @@ class AppContainer:
     data_health_repository: DataHealthRepository = field(init=False)
     research_report_repository: ResearchReportRepository = field(init=False)
     historical_game_odds_repository: HistoricalGameOddsRepository = field(init=False)
+    statcast_repository: StatcastRepository = field(init=False)
+    player_metric_repository: PlayerMetricRepository = field(init=False)
+    game_environment_repository: GameEnvironmentRepository = field(init=False)
 
     grading_service: GradingStateService = field(init=False)
     data_health_service: DataHealthService = field(init=False)
@@ -88,6 +98,10 @@ class AppContainer:
     data_status_service: DataStatusService = field(init=False)
     historical_game_odds_import_service: HistoricalGameOddsImportService = field(init=False)
     game_market_feature_lookup_service: GameMarketFeatureLookupService = field(init=False)
+    baseball_savant_feature_service: BaseballSavantFeatureService = field(init=False)
+    game_environment_feature_service: GameEnvironmentFeatureService = field(init=False)
+    statcast_ingestion_service: StatcastIngestionService = field(init=False)
+    feature_store_service: FeatureStoreService = field(init=False)
     product_state_service: ProductStateService = field(init=False)
     model_registry_service: ModelRegistryService = field(init=False)
     model_readiness_service: ModelReadinessService = field(init=False)
@@ -150,6 +164,18 @@ class AppContainer:
             self.warehouse_db,
             settings=self.settings,
         )
+        self.statcast_repository = StatcastRepository(
+            self.warehouse_db,
+            settings=self.settings,
+        )
+        self.player_metric_repository = PlayerMetricRepository(
+            self.warehouse_db,
+            settings=self.settings,
+        )
+        self.game_environment_repository = GameEnvironmentRepository(
+            self.warehouse_db,
+            settings=self.settings,
+        )
 
         self.grading_service = GradingStateService(settings=self.settings)
         self.product_state_service = ProductStateService(settings=self.settings)
@@ -165,6 +191,17 @@ class AppContainer:
         self.game_market_feature_lookup_service = GameMarketFeatureLookupService(
             self.historical_game_odds_repository,
             settings=self.settings,
+        )
+        self.baseball_savant_feature_service = BaseballSavantFeatureService(self.player_metric_repository)
+        self.game_environment_feature_service = GameEnvironmentFeatureService(self.game_environment_repository)
+        self.statcast_ingestion_service = StatcastIngestionService(
+            statcast_repository=self.statcast_repository,
+            player_metric_repository=self.player_metric_repository,
+            savant_feature_service=self.baseball_savant_feature_service,
+        )
+        self.feature_store_service = FeatureStoreService(
+            savant_feature_service=self.baseball_savant_feature_service,
+            game_environment_feature_service=self.game_environment_feature_service,
         )
         self.data_status_service = DataStatusService(
             settings=self.settings,
