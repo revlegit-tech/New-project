@@ -142,11 +142,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p workflow-artifacts
-          mkdir -p data/odds data/warehouse/odds_snapshots data/warehouse/raw data/warehouse/summaries data/warehouse/logs
+          mkdir -p data/odds data/warehouse/odds_snapshots data/warehouse/raw data/warehouse/summaries data/warehouse/logs data/health/collector_manifests
           tar -czf "workflow-artifacts/season-collector-${{ github.run_id }}.tgz" \
             data/cloud \
             data/cache/savant \
             data/cache/odds_movement \
+            data/health \
             data/playerboard \
             data/backtests \
             data/audit \

@@ -14,6 +14,7 @@ from mlb_app.services.edge_board_service import EdgeBoardService
 from mlb_app.services.edge_report_service import EdgeReportService
 from mlb_app.services.data_health_dashboard_service import DataHealthDashboardService
 from mlb_app.services.data_health_service import DataHealthService
+from mlb_app.services.data_status_service import DataStatusService
 from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.workflow_health_service import WorkflowHealthService
 from mlb_app.observability.metrics import MetricsRegistry
@@ -85,6 +86,10 @@ def get_data_health_service(container: Annotated[AppContainer, Depends(get_conta
 
 def get_data_health_dashboard_service(container: Annotated[AppContainer, Depends(get_container)]) -> DataHealthDashboardService:
     return container.data_health_dashboard_service
+
+
+def get_data_status_service(container: Annotated[AppContainer, Depends(get_container)]) -> DataStatusService:
+    return container.data_status_service
 
 
 def get_grading_service(container: Annotated[AppContainer, Depends(get_container)]) -> GradingStateService:

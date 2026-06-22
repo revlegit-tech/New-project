@@ -37,6 +37,7 @@ ROUTE_OWNERSHIP: tuple[RouteOwnership, ...] = (
     RouteOwnership("GET", "/api/observability/alerts", "FastAPI", "native_observability_alerts", "none", "no_legacy_handler", "Native alert surface."),
     RouteOwnership("GET", "/api/data-health", "FastAPI", "native_data_health", "mlb_app.routes.data_health.data_health", "delete", "Native data-health endpoint; service resolved from AppContainer."),
     RouteOwnership("GET", "/api/data-health/dashboard", "FastAPI", "native_data_health_dashboard", "mlb_app.routes.data_health.data_health_dashboard", "delete", "Native data-health dashboard endpoint; service resolved from AppContainer."),
+    RouteOwnership("GET", "/api/data/status", "FastAPI", "native_data_status", "none", "no_legacy_handler", "Collector freshness/status endpoint; compact public health contract."),
     RouteOwnership("GET", "/api/grading/health", "FastAPI", "native_grading_health", "mlb_app.routes.data_health.grading_health", "delete", "Native grading health endpoint; service resolved from AppContainer."),
     RouteOwnership("GET", "/api/workflows/health", "FastAPI", "native_workflow_health", "mlb_app.routes.workflows.workflow_health", "delete", "Native workflow health endpoint; service resolved from AppContainer."),
     RouteOwnership("GET", "/api/prop-ml/status", "FastAPI", "native_prop_ml_status", "mlb_app.routes.health.prop_ml_status", "delete", "Native prop-ML status endpoint; service resolved from AppContainer."),

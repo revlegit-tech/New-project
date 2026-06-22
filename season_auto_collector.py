@@ -48,6 +48,25 @@ CLOUD_SUMMARY_DIR = CLOUD_DIR / "summaries"
 RUN_INDEX = SEASON_LOG_DIR / "collector_runs.csv"
 
 SUPPORTED_YEARS = {2024, 2025, 2026}
+DEFAULT_PHASE18_MARKETS = (
+    "pitcher_strikeouts",
+    "batter_hits",
+    "batter_total_bases",
+    "batter_home_runs",
+    "batter_rbis",
+    "batter_stolen_bases",
+    "batter_walks",
+    "batter_singles",
+    "batter_doubles",
+    "batter_runs",
+    "batter_2plus_hits",
+    "batter_2plus_home_runs",
+    "batter_2plus_rbis",
+    "batter_3plus_rbis",
+    "pitcher_outs",
+    "pitcher_hits_allowed",
+    "pitcher_earned_runs",
+)
 
 
 def now_stamp() -> str:
@@ -73,6 +92,11 @@ def validate_year(date_label: str) -> None:
         raise ValueError("Active autonomous collection only supports 2024, 2025, and 2026.")
 
 
+def requested_phase18_markets() -> list[str]:
+    raw = os.environ.get("PHASE18_MARKETS", ",".join(DEFAULT_PHASE18_MARKETS))
+    return [market.strip() for market in raw.split(",") if market.strip()]
+
+
 def ensure_dirs() -> None:
     for path in [
         WAREHOUSE_DIR,
@@ -83,6 +107,8 @@ def ensure_dirs() -> None:
         CLOUD_DIR,
         CLOUD_SEASON_DIR,
         CLOUD_SUMMARY_DIR,
+        DATA_DIR / "health" / "collector_manifests",
+        DATA_DIR / "edge_board",
     ]:
         path.mkdir(parents=True, exist_ok=True)
 
@@ -471,6 +497,7 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
         "cloudExport": None,
         "error": "",
         "traceback": "",
+        "warnings": [],
         "logPath": str(log_path),
     }
 
@@ -595,17 +622,36 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
         except Exception as board_error:
             summary["playerboard"] = {"error": str(board_error)}
 
+        try:
+            from mlb_app.services.edge_board_snapshot_service import EdgeBoardSnapshotService
+
+            edge_snapshot = EdgeBoardSnapshotService().write_snapshot(
+                date_label=date_label,
+                season=int(date_label[:4]),
+                limit=5000,
+            )
+            summary["edgeBoardSnapshot"] = {
+                "jsonPath": str(edge_snapshot.json_path),
+                "csvPath": str(edge_snapshot.csv_path or ""),
+                "rowCount": edge_snapshot.row_count,
+                "date": edge_snapshot.date,
+                "season": edge_snapshot.season,
+            }
+        except Exception as edge_snapshot_error:
+            warning = f"Edge board snapshot failed: {edge_snapshot_error}"
+            summary.setdefault("warnings", []).append(warning)
+            summary["edgeBoardSnapshot"] = {
+                "status": "warning",
+                "error": str(edge_snapshot_error),
+            }
+
 
         # Phase 18 provider-backed context collector hook
         try:
             import subprocess
             import sys
 
-            context_markets = [
-                market.strip()
-                for market in os.environ.get("PHASE18_MARKETS", "batter_hits,batter_total_bases").split(",")
-                if market.strip()
-            ]
+            context_markets = requested_phase18_markets()
             context_cmd = [
                 sys.executable,
                 str(ROOT / "tools" / "phase18_fill_missing_context.py"),
@@ -738,6 +784,21 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
         summary["traceback"] = traceback.format_exc()
 
     summary["finishedAt"] = now_iso()
+
+    try:
+        from mlb_app.services.collector_manifest_service import CollectorManifestService
+
+        manifest_result = CollectorManifestService(data_dir=DATA_DIR).write_manifest(
+            summary,
+            requested_markets=requested_phase18_markets(),
+        )
+        summary["collectorManifest"] = {
+            "manifestPath": str(manifest_result.manifest_path),
+            "latestPath": str(manifest_result.latest_path),
+            "freshnessStatus": manifest_result.manifest.get("freshness_status", ""),
+        }
+    except Exception as manifest_error:
+        summary.setdefault("warnings", []).append(f"Collector manifest write failed: {manifest_error}")
 
     write_json(log_path, summary)
     append_run_index(summary)

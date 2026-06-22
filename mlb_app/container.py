@@ -18,6 +18,7 @@ from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.board_cache import BoardCache
 from mlb_app.services.data_health_dashboard_service import DataHealthDashboardService
 from mlb_app.services.data_health_service import DataHealthService
+from mlb_app.services.data_status_service import DataStatusService
 from mlb_app.services.edge_board_service import EdgeBoardService
 from mlb_app.services.edge_report_service import EdgeReportService
 from mlb_app.services.grading_state_service import GradingStateService
@@ -62,6 +63,7 @@ class AppContainer:
     grading_service: GradingStateService = field(init=False)
     data_health_service: DataHealthService = field(init=False)
     data_health_dashboard_service: DataHealthDashboardService = field(init=False)
+    data_status_service: DataStatusService = field(init=False)
     product_state_service: ProductStateService = field(init=False)
     model_registry_service: ModelRegistryService = field(init=False)
     model_readiness_service: ModelReadinessService = field(init=False)
@@ -111,6 +113,7 @@ class AppContainer:
             product_state_service=self.product_state_service,
             settings=self.settings,
         )
+        self.data_status_service = DataStatusService(settings=self.settings)
         self.model_registry_service = ModelRegistryService(settings=self.settings)
         self.model_readiness_service = ModelReadinessService(self.model_registry_service)
         self.workflow_health_service = WorkflowHealthService(settings=self.settings)

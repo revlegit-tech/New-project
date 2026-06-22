@@ -230,6 +230,54 @@ class DataHealthDashboardResponse(StrictResponse):
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
+class CollectorManifestPayload(StrictPayload):
+    run_id: str = ""
+    date: str = ""
+    run_type: str = ""
+    started_at: str = ""
+    finished_at: str = ""
+    success: bool = False
+    requested_markets: list[str] = Field(default_factory=list)
+    source_counts: dict[str, int] = Field(default_factory=dict)
+    market_counts: dict[str, int] = Field(default_factory=dict)
+    playerboard_rows: int = 0
+    edge_board_rows: int | None = None
+    raw_files_written: list[str] = Field(default_factory=list)
+    normalized_files_written: list[str] = Field(default_factory=list)
+    warehouse_files_written: list[str] = Field(default_factory=list)
+    artifact_critical_files_present: list[str] = Field(default_factory=list)
+    artifact_critical_files_missing: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    traceback_tail: str = ""
+    freshness_status: str = "missing"
+
+
+class DataSourceFreshnessPayload(StrictPayload):
+    status: str
+    path: str
+    latest_file: str | None = None
+    latest_timestamp: str | None = None
+    age_seconds: int | None = None
+    row_count: int | None = None
+    file_count: int = 0
+    market_counts: dict[str, int] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class DataStatusResponse(StrictResponse):
+    schemaVersion: str | None = None
+    status: str
+    current_date: str
+    generated_at: str
+    latest_collector_manifest: CollectorManifestPayload | None = None
+    source_freshness: dict[str, DataSourceFreshnessPayload] = Field(default_factory=dict)
+    expected_files: list[str] = Field(default_factory=list)
+    missing_files: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    data_health_score: int = Field(ge=0, le=100)
+
+
 class GradingHealthResponse(StrictResponse):
     schemaVersion: str | None = None
     state: str
