@@ -63,8 +63,9 @@ def test_design_tokens_include_confidence_and_state_colors() -> None:
 def test_outlier_source_has_freshness_and_research_pick_controls() -> None:
     source = (FRONTEND / "src" / "outlier" / "main.ts").read_text(encoding="utf-8")
     assert "freshnessSurface" in source
-    assert "Last collector run" in source
+    assert "Board snapshot" in source
     assert "Odds freshness" in source
+    assert "Playerboard data" in source
     assert "Schema version" in source
     assert "Add research pick" in source
     assert "stakeUnits: 0" in source
