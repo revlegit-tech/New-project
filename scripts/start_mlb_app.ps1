@@ -1,6 +1,6 @@
-param(
+﻿param(
     [int]$Port = 8765,
-    [string]$Host = "127.0.0.1",
+    [string]$BindHost = "127.0.0.1",
     [switch]$SkipBootstrap,
     [switch]$NoBrowser,
     [string]$Date = "today"
@@ -30,9 +30,10 @@ if (-not $SkipBootstrap) {
     }
 }
 
-$Url = "http://$Host`:$Port"
+$Url = "http://$BindHost`:$Port"
 if (-not $NoBrowser) {
     Start-Process $Url
 }
 
-& $Python -m uvicorn mlb_app.asgi:app --host $Host --port $Port
+& $Python -m uvicorn mlb_app.asgi:app --host $BindHost --port $Port
+
