@@ -9,6 +9,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from mlb_app.services.mlb_truth_log_resolver import load_truth_logs
+
 
 BATTER_LOG = Path("data/cloud/season_logs/batter_game_logs_2026.csv")
 PITCHER_LOG = Path("data/cloud/season_logs/pitcher_game_logs_2026.csv")
@@ -96,6 +98,10 @@ def load_suspect_dates(overlap_threshold: float = 80.0) -> set[str]:
     return {d for d in suspect if d}
 
 
+def game_pk(row: dict[str, str]) -> str:
+    return str(row.get("gamePk") or row.get("game_pk") or row.get("game_id") or "").strip()
+
+
 def index_logs(rows: list[dict[str, str]], player_col: str = "player") -> tuple[dict[tuple[str, str], list[dict[str, str]]], set[str]]:
     by_date_player: dict[tuple[str, str], list[dict[str, str]]] = {}
     known_players: set[str] = set()
@@ -110,6 +116,16 @@ def index_logs(rows: list[dict[str, str]], player_col: str = "player") -> tuple[
         by_date_player.setdefault((date, player), []).append(row)
 
     return by_date_player, known_players
+
+
+def index_logs_by_game(rows: list[dict[str, str]], player_col: str = "player") -> dict[tuple[str, str], list[dict[str, str]]]:
+    by_game_player: dict[tuple[str, str], list[dict[str, str]]] = {}
+    for row in rows:
+        player = norm_name(row.get(player_col, ""))
+        pk = game_pk(row)
+        if player and pk:
+            by_game_player.setdefault((pk, player), []).append(row)
+    return by_game_player
 
 
 def index_team_logs(rows: list[dict[str, str]]) -> tuple[dict[tuple[str, str], list[dict[str, str]]], set[str]]:
@@ -213,11 +229,16 @@ def validate_row(
     batter_by_date: dict[tuple[str, str], list[dict[str, str]]],
     pitcher_by_date: dict[tuple[str, str], list[dict[str, str]]],
     team_by_date: dict[tuple[str, str], list[dict[str, str]]],
+    batter_by_game: dict[tuple[str, str], list[dict[str, str]]],
+    pitcher_by_game: dict[tuple[str, str], list[dict[str, str]]],
     known_batters: set[str],
     known_pitchers: set[str],
     known_teams: set[str],
     suspect_dates: set[str],
     apply_integrity_gate: bool,
+    bridge_by_event: dict[tuple[str, str], dict[str, str]],
+    truth_logs_available: bool,
+    requested_date_covered: bool,
 ) -> dict[str, str]:
     out = dict(row)
 
@@ -226,6 +247,9 @@ def validate_row(
             "validation_status": "",
             "truth_source": "",
             "matched_name": "",
+            "gamePk": "",
+            "bridge_status": "",
+            "event_game_confidence": "",
             "actual_stat": "",
             "label_result": "",
             "label_win": "",
@@ -238,6 +262,16 @@ def validate_row(
     side = row.get("bet_side", "")
     line = parse_float(row.get("line"))
     odds = parse_float(row.get("american_odds"))
+
+    if not truth_logs_available:
+        out["validation_status"] = "truth_logs_missing"
+        out["exclude_reason"] = "Required MLB truth logs are missing or header-only."
+        return out
+
+    if not requested_date_covered:
+        out["validation_status"] = "truth_logs_missing_for_date"
+        out["exclude_reason"] = "Requested date is outside truth log coverage."
+        return out
 
     if apply_integrity_gate and game_date in suspect_dates:
         out["validation_status"] = "reused_board_suspect"
@@ -288,24 +322,40 @@ def validate_row(
             return out
 
         result = score_result(actual, line, side)
-        out["validation_status"] = "valid_labeled"
+        bridge = bridge_by_event.get((game_date, row.get("event_id", "")))
+        if not bridge:
+            out["validation_status"] = "event_bridge_missing"
+            out["exclude_reason"] = "No ActionNetwork event_id to MLB gamePk bridge row."
+            return out
+        out["bridge_status"] = bridge.get("bridge_status", "")
+        out["event_game_confidence"] = bridge.get("confidence", "")
+        out["gamePk"] = bridge.get("gamePk", "")
+        if bridge.get("bridge_status") != "confirmed" or bridge.get("duplicate_best_gamePk") == "1":
+            out["validation_status"] = "event_bridge_rejected"
+            out["exclude_reason"] = bridge.get("exclude_reason") or "ActionNetwork event bridge was not confirmed."
+            return out
+
+        out["validation_status"] = "valid_labeled_event_confirmed" if result in {"win", "loss"} else "valid_labeled_date_only_diagnostic"
         out["truth_source"] = "team_game_logs"
         out["matched_name"] = truth.get("teamName") or truth.get("team", "")
         out["actual_stat"] = str(actual)
         out["label_result"] = result
         out["label_win"] = "1" if result == "win" else "0" if result == "loss" else ""
-        out["exclude_from_ml"] = "0" if result in {"win", "loss"} else "1"
-        out["exclude_reason"] = "" if result in {"win", "loss"} else result
+        live_forward = row.get("collection_mode") == "live_forward"
+        out["exclude_from_ml"] = "0" if result in {"win", "loss"} and live_forward else "1"
+        out["exclude_reason"] = "" if out["exclude_from_ml"] == "0" else (result if result not in {"win", "loss"} else "not_live_forward")
         return out
 
     player_key = norm_name(row.get("player_name"))
 
     if entity_type == "batter":
         matches = batter_by_date.get((game_date, player_key), [])
+        game_matches = batter_by_game
         known = known_batters
         source = "batter_game_logs"
     else:
         matches = pitcher_by_date.get((game_date, player_key), [])
+        game_matches = pitcher_by_game
         known = known_pitchers
         source = "pitcher_game_logs"
 
@@ -319,6 +369,24 @@ def validate_row(
         return out
 
     truth = matches[0]
+    bridge = bridge_by_event.get((game_date, row.get("event_id", "")))
+    if not bridge:
+        out["validation_status"] = "event_bridge_missing"
+        out["exclude_reason"] = "No ActionNetwork event_id to MLB gamePk bridge row."
+        return out
+    out["bridge_status"] = bridge.get("bridge_status", "")
+    out["event_game_confidence"] = bridge.get("confidence", "")
+    out["gamePk"] = bridge.get("gamePk", "")
+    if bridge.get("bridge_status") != "confirmed" or bridge.get("duplicate_best_gamePk") == "1":
+        out["validation_status"] = "event_bridge_rejected"
+        out["exclude_reason"] = bridge.get("exclude_reason") or "ActionNetwork event bridge was not confirmed."
+        return out
+    confirmed_matches = game_matches.get((bridge.get("gamePk", ""), player_key), [])
+    if not confirmed_matches:
+        out["validation_status"] = "player_not_in_confirmed_game"
+        out["exclude_reason"] = "Player did not appear in the confirmed MLB gamePk."
+        return out
+    truth = confirmed_matches[0]
     actual = actual_value(truth, stat)
 
     if actual is None:
@@ -330,14 +398,15 @@ def validate_row(
 
     result = score_result(actual, line, side)
 
-    out["validation_status"] = "valid_labeled"
+    out["validation_status"] = "valid_labeled_event_confirmed" if result in {"win", "loss"} else "valid_labeled_date_only_diagnostic"
     out["truth_source"] = source
     out["matched_name"] = truth.get("player", "")
     out["actual_stat"] = str(actual)
     out["label_result"] = result
     out["label_win"] = "1" if result == "win" else "0" if result == "loss" else ""
-    out["exclude_from_ml"] = "0" if result in {"win", "loss"} else "1"
-    out["exclude_reason"] = "" if result in {"win", "loss"} else result
+    live_forward = row.get("collection_mode") == "live_forward"
+    out["exclude_from_ml"] = "0" if result in {"win", "loss"} and live_forward else "1"
+    out["exclude_reason"] = "" if out["exclude_from_ml"] == "0" else (result if result not in {"win", "loss"} else "not_live_forward")
     return out
 
 
@@ -347,18 +416,23 @@ def main() -> int:
     parser.add_argument("--season", default="2026")
     parser.add_argument("--no-integrity-gate", action="store_true", help="Do not block reused-board suspect dates.")
     parser.add_argument("--overlap-threshold", type=float, default=80.0)
+    parser.add_argument("--truth-dir", default=None, help="Optional directory containing season truth logs.")
+    parser.add_argument("--bridge-path", default=None, help="Optional ActionNetwork event bridge CSV.")
     args = parser.parse_args()
 
     QUALITY_DIR.mkdir(parents=True, exist_ok=True)
     LABEL_DIR.mkdir(parents=True, exist_ok=True)
 
-    batter_rows = read_csv(BATTER_LOG)
-    pitcher_rows = read_csv(PITCHER_LOG)
-    team_rows = read_csv(TEAM_LOG)
+    truth = load_truth_logs(args.season, truth_dir=args.truth_dir)
+    batter_rows = truth.batter_rows
+    pitcher_rows = truth.pitcher_rows
+    team_rows = truth.team_rows
 
     batter_by_date, known_batters = index_logs(batter_rows)
     pitcher_by_date, known_pitchers = index_logs(pitcher_rows)
     team_by_date, known_teams = index_team_logs(team_rows)
+    batter_by_game = index_logs_by_game(batter_rows)
+    pitcher_by_game = index_logs_by_game(pitcher_rows)
 
     suspect_dates = load_suspect_dates(args.overlap_threshold)
     apply_integrity_gate = not args.no_integrity_gate
@@ -374,6 +448,11 @@ def main() -> int:
         raise SystemExit("No ActionNetwork odds files found for validation.")
 
     validated: list[dict[str, str]] = []
+    requested_date = args.date or (read_csv(odds_files[0])[0].get("game_date", "") if odds_files and read_csv(odds_files[0]) else None)
+    requested_date_covered = truth.covers(requested_date)
+    bridge_path = Path(args.bridge_path) if args.bridge_path else QUALITY_DIR / f"actionnetwork_event_game_bridge_{requested_date}.csv"
+    bridge_rows = read_csv(bridge_path)
+    bridge_by_event = {(row.get("game_date", ""), row.get("event_id", "")): row for row in bridge_rows}
 
     for odds_path in odds_files:
         print("validating:", odds_path)
@@ -384,11 +463,16 @@ def main() -> int:
                     batter_by_date=batter_by_date,
                     pitcher_by_date=pitcher_by_date,
                     team_by_date=team_by_date,
+                    batter_by_game=batter_by_game,
+                    pitcher_by_game=pitcher_by_game,
                     known_batters=known_batters,
                     known_pitchers=known_pitchers,
                     known_teams=known_teams,
                     suspect_dates=suspect_dates,
                     apply_integrity_gate=apply_integrity_gate,
+                    bridge_by_event=bridge_by_event,
+                    truth_logs_available=bool(truth.source_dir),
+                    requested_date_covered=requested_date_covered,
                 )
             )
 
@@ -404,7 +488,15 @@ def main() -> int:
             writer.writeheader()
             writer.writerows(validated)
 
-        label_rows = [row for row in validated if row.get("validation_status") == "valid_labeled" and row.get("exclude_from_ml") == "0"]
+        label_rows = [
+            row
+            for row in validated
+            if row.get("validation_status") == "valid_labeled_event_confirmed"
+            and row.get("exclude_from_ml") == "0"
+            and row.get("label_result") in {"win", "loss"}
+            and row.get("collection_mode") == "live_forward"
+            and row.get("bridge_status") == "confirmed"
+        ]
 
         with labels_path.open("w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
@@ -425,6 +517,8 @@ def main() -> int:
         "status_counts": dict(status_counts),
         "market_counts": dict(market_counts),
         "label_counts": dict(label_counts),
+        **truth.summary(requested_date),
+        "bridge_csv": str(bridge_path),
         "validation_csv": str(validation_path),
         "labels_csv": str(labels_path),
     }

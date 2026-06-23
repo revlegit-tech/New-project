@@ -11,6 +11,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from mlb_app.services.actionnetwork_source_policy import resolve_collection_policy
+
 
 ACTIONNETWORK_MARKETS: dict[str, dict[str, str]] = {
     "home_runs": {"label": "HRs", "slug": "home-runs"},
@@ -30,21 +32,8 @@ BOOKS_URL = "https://api.actionnetwork.com/web/v1/books"
 
 
 def normalize_date(value: str | None) -> tuple[str, str]:
-    if not value:
-        today = datetime.now().date()
-        return today.isoformat(), today.strftime("%Y%m%d")
-
-    value = value.strip()
-
-    if re.fullmatch(r"\d{8}", value):
-        dt = datetime.strptime(value, "%Y%m%d").date()
-        return dt.isoformat(), value
-
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-        dt = datetime.strptime(value, "%Y-%m-%d").date()
-        return value, dt.strftime("%Y%m%d")
-
-    raise ValueError("Date must be YYYY-MM-DD or YYYYMMDD.")
+    policy = resolve_collection_policy(value, allow_past_diagnostic=True)
+    return policy.game_date, policy.yyyymmdd
 
 
 def fetch_text(url: str, cache_path: Path, refresh: bool = False) -> str:
@@ -354,6 +343,10 @@ def parse_market_html(
     source_html: Path,
     source_url: str,
     global_books: dict[str, dict[str, Any]],
+    snapshot_id: str,
+    collection_mode: str,
+    exclude_from_ml: str,
+    exclude_reason: str,
 ) -> list[dict[str, Any]]:
     data = extract_next_data(html)
     page_props = data.get("props", {}).get("pageProps", {})
@@ -438,6 +431,10 @@ def parse_market_html(
                 "line_status": outcome.get("line_status"),
                 "deeplink_id": outcome.get("deeplink_id"),
                 "snapshot_time": snapshot_time,
+                "snapshot_id": snapshot_id,
+                "collection_mode": collection_mode,
+                "exclude_from_ml": exclude_from_ml,
+                "exclude_reason": exclude_reason,
                 "source_html": str(source_html),
                 "source_url": source_url,
             }
@@ -483,10 +480,18 @@ def main() -> int:
     parser.add_argument("--market", default="all", help="all, a market key, a slug, or comma-separated values.")
     parser.add_argument("--refresh", action="store_true", help="Refresh cached raw HTML/book JSON.")
     parser.add_argument("--sleep", type=float, default=0.4, help="Delay between market page requests.")
+    parser.add_argument(
+        "--allow-past-diagnostic",
+        action="store_true",
+        help="Allow past-date diagnostic collection. Rows are excluded from ML.",
+    )
 
     args = parser.parse_args()
 
-    game_date, yyyymmdd = normalize_date(args.date)
+    policy = resolve_collection_policy(args.date, allow_past_diagnostic=args.allow_past_diagnostic)
+    if policy.warning:
+        print(policy.warning)
+    game_date, yyyymmdd = policy.game_date, policy.yyyymmdd
 
     raw_dir = Path("data/warehouse/raw/actionnetwork")
     raw_pages_dir = raw_dir / "pages"
@@ -494,6 +499,7 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     snapshot_stamp = datetime.now().strftime("%H%M%S")
+    snapshot_id = f"{game_date}_{snapshot_stamp}"
     snapshot_pages_dir = raw_pages_dir / "snapshots" / game_date / snapshot_stamp
 
     selected_markets = resolve_markets(args.market)
@@ -521,6 +527,10 @@ def main() -> int:
             source_html=html_path,
             source_url=source_url,
             global_books=global_books,
+            snapshot_id=snapshot_id,
+            collection_mode=policy.collection_mode,
+            exclude_from_ml=policy.exclude_from_ml,
+            exclude_reason=policy.exclude_reason,
         )
 
         print(f"  rows={len(rows)} raw={html_path}")
@@ -567,6 +577,10 @@ def main() -> int:
         "line_status",
         "deeplink_id",
         "snapshot_time",
+        "snapshot_id",
+        "collection_mode",
+        "exclude_from_ml",
+        "exclude_reason",
         "source_html",
         "source_url",
     ]
