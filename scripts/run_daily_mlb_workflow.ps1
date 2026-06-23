@@ -35,6 +35,13 @@ Write-Host "Log: $LogFile"
     Tee-Object -FilePath $LogFile
 
 $ExitCode = $LASTEXITCODE
+
+$GameContextDir = Join-Path $Root "data\warehouse\game_context"
+if (Test-Path $GameContextDir) {
+    Get-ChildItem $GameContextDir -Filter "*.phase22v3_backup_*" -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+}
+
 if ($ExitCode -ne 0) {
     Write-Error "Full MLB snapshot failed with exit code $ExitCode"
 }
