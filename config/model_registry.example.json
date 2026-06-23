@@ -1,21 +1,41 @@
 {
   "batter_hits": {
-    "artifact": "data/models/prop_model_batter_hits.joblib",
-    "features": "data/models/prop_model_batter_hits_features.json",
-    "status": "experimental",
-    "trained_at": "2026-05-08T00:00:00Z",
-    "training_rows": 204,
-    "positive_rows": 43,
-    "negative_rows": 161,
-    "feature_count": 18,
-    "calibrated": false,
-    "model_type": "logistic_regression",
-    "backtest": {
-      "graded": 0,
-      "brierScore": null,
-      "logLoss": null,
-      "roiPercent": null,
-      "source": "not_available"
+    "candidate": {
+      "artifact": "data/models/artifacts/sprint19/batter_hits/calibrated_logistic/sprint19-example/model.joblib",
+      "features": "data/models/artifacts/sprint19/batter_hits/calibrated_logistic/sprint19-example/feature_schema.json",
+      "metadata": "data/models/artifacts/sprint19/batter_hits/calibrated_logistic/sprint19-example/metadata.json",
+      "status": "candidate",
+      "market": "batter_hits",
+      "model_key": "calibrated_logistic",
+      "selected_model": "calibrated_logistic",
+      "version": "sprint19-example",
+      "trained_at": "2026-06-22T00:00:00Z",
+      "training_rows": 204,
+      "positive_rows": 43,
+      "negative_rows": 161,
+      "feature_count": 18,
+      "calibrated": true,
+      "production_gated": true,
+      "models": {
+        "calibrated_logistic": {
+          "status": "candidate",
+          "market": "batter_hits",
+          "model_key": "calibrated_logistic",
+          "version": "sprint19-example",
+          "artifact": "data/models/artifacts/sprint19/batter_hits/calibrated_logistic/sprint19-example/model.joblib",
+          "features": "data/models/artifacts/sprint19/batter_hits/calibrated_logistic/sprint19-example/feature_schema.json",
+          "metadata": "data/models/artifacts/sprint19/batter_hits/calibrated_logistic/sprint19-example/metadata.json",
+          "production_gated": true
+        }
+      }
+    },
+    "shadow": {
+      "status": "shadow",
+      "market": "batter_hits",
+      "model_key": "hist_gradient_boosting",
+      "selected_model": "hist_gradient_boosting",
+      "production_gated": true,
+      "models": {}
     }
   }
 }

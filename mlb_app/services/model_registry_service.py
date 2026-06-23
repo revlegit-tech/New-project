@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,8 @@ MAX_PRODUCTION_BRIER_SCORE = 0.25
 MAX_PRODUCTION_LOG_LOSS = 0.75
 PRODUCTION_STATUSES = {"production_candidate", "production"}
 DISABLED_STATUSES = {"disabled", "blocked"}
+SPRINT19_ALLOWED_MODEL_STATUSES = {"disabled", "candidate", "shadow", "deprecated"}
+TRAINING_RUNNER_STATUSES = {"candidate", "shadow"}
 
 
 @dataclass(frozen=True)
@@ -342,3 +345,74 @@ def _dedupe(items: list[str]) -> list[str]:
             out.append(text)
             seen.add(text)
     return out
+
+
+def load_training_registry(path: str | Path) -> dict[str, Any]:
+    target = Path(path)
+    if not target.exists():
+        return {}
+    text = target.read_text(encoding="utf-8").strip()
+    if not text:
+        return {}
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise ValueError("Model registry must be a JSON object.")
+    return payload
+
+
+def write_training_registry_entries(
+    path: str | Path,
+    entries: list[dict[str, Any]],
+    *,
+    status: str,
+) -> dict[str, Any]:
+    selected_status = _validate_registry_status(status)
+    if selected_status not in TRAINING_RUNNER_STATUSES:
+        raise ValueError("Training runner can only write candidate or shadow registry entries.")
+    registry_path = Path(path)
+    registry = load_training_registry(registry_path)
+    for entry in entries:
+        market = normalize_market_key(str(entry.get("market") or ""))
+        model_key = str(entry.get("model_key") or entry.get("modelKey") or "").strip()
+        if not market or not model_key:
+            continue
+        entry_status = _validate_registry_status(str(entry.get("status") or selected_status))
+        if entry_status != selected_status:
+            raise ValueError("Registry entry status does not match the requested write status.")
+        market_entry = registry.get(market)
+        if not isinstance(market_entry, dict):
+            market_entry = {}
+        stage_entry = market_entry.get(selected_status)
+        if not isinstance(stage_entry, dict):
+            stage_entry = {}
+        models = stage_entry.get("models")
+        if not isinstance(models, dict):
+            models = {}
+        clean_entry = dict(entry)
+        clean_entry["status"] = selected_status
+        clean_entry["market"] = market
+        clean_entry["model_key"] = model_key
+        models[model_key] = clean_entry
+        pointer = dict(clean_entry)
+        pointer["models"] = models
+        pointer["selected_model"] = model_key
+        pointer["production_gated"] = True
+        market_entry[selected_status] = pointer
+        registry[market] = market_entry
+    _write_json_atomic(registry_path, registry)
+    return registry
+
+
+def _validate_registry_status(status: str) -> str:
+    text = str(status or "").strip().lower()
+    if text not in SPRINT19_ALLOWED_MODEL_STATUSES:
+        allowed = ", ".join(sorted(SPRINT19_ALLOWED_MODEL_STATUSES))
+        raise ValueError(f"Unsupported model registry status {status!r}. Allowed statuses: {allowed}")
+    return text
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    tmp.replace(path)
