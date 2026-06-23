@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
 from mlb_app.api.middleware import ReadRateLimitMiddleware, RequestMetadataMiddleware, SecurityHeadersMiddleware
-from mlb_app.api.routes import admin, data_health, edge_board, game_odds, health, ml_features, ml_labels, ml_models, model_cards, observability, picks, playerboard, predictions, prop_detail, research_report, status, workflow
+from mlb_app.api.routes import admin, data_health, edge_board, game_odds, health, ml_features, ml_labels, ml_models, model_cards, observability, picks, playerboard, predictions, prop_detail, research_report, runtime_status, status, workflow
 from mlb_app.container import AppContainer, build_container
 from mlb_app.api.route_ownership import NATIVE_OWNED_ROUTES
 from mlb_app.http import ApiError, error_payload
@@ -56,6 +56,8 @@ def create_app(
     app.add_exception_handler(Exception, _unexpected_error_handler)
 
     app.include_router(health.router)
+    app.include_router(health.api_router)
+    app.include_router(runtime_status.router)
     app.include_router(status.router)
     app.include_router(admin.router)
     app.include_router(game_odds.router)

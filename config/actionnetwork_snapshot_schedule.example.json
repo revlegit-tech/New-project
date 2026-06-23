@@ -1,0 +1,10 @@
+{
+  "timezone": "America/New_York",
+  "snapshots": [
+    { "name": "morning", "time": "09:30", "command": "scripts/run_actionnetwork_live_snapshot.ps1 -Date today" },
+    { "name": "midday", "time": "12:30", "command": "scripts/run_actionnetwork_live_snapshot.ps1 -Date today" },
+    { "name": "afternoon", "time": "15:30", "command": "scripts/run_actionnetwork_live_snapshot.ps1 -Date today" },
+    { "name": "near_close", "time": "18:30", "command": "scripts/run_actionnetwork_live_snapshot.ps1 -Date today" },
+    { "name": "postgame_workflow", "time": "02:00", "command": "scripts/run_daily_mlb_workflow.ps1 -Date today" }
+  ]
+}

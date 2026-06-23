@@ -10,6 +10,19 @@ from mlb_app.container import AppContainer
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 
 router = APIRouter(prefix="/health", tags=["health"])
+api_router = APIRouter(prefix="/api", tags=["health"])
+
+
+@api_router.get("/health", response_model=HealthResponse, name="native_api_health")
+async def api_health() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "ok": True,
+        "checks": {
+            "process": "alive",
+            "entrypoint": "mlb_app.asgi:app",
+        },
+    }
 
 
 @router.get("/live", response_model=HealthResponse, name="native_health_live")

@@ -23,6 +23,12 @@ from pathlib import Path
 
 BASE_URL = (os.environ.get("BASEBALL_PROP_APP_URL") or os.environ.get("APP_BASE_URL") or "http://127.0.0.1:8766").rstrip("/")
 ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from mlb_app.config import Settings
+from mlb_app.services.daily_workflow_service import DailyWorkflowService
+
 ACTION_HEADER_NAME = "X-Baseball-Prop-Action"
 ACTION_HEADER_VALUE = "1"
 
@@ -219,7 +225,9 @@ def status() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Simple daily ML workflow.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--launch-mode", action="store_true", help="Run lightweight launch bootstrap and exit.")
+    parser.add_argument("--date", default=None, help="YYYY-MM-DD or today for --launch-mode / run-daily.")
+    sub = parser.add_subparsers(dest="command")
 
     before = sub.add_parser("before")
     before.add_argument("--date", default=today())
@@ -228,8 +236,22 @@ def main() -> None:
     after.add_argument("--date", default=today())
 
     sub.add_parser("status")
+    sub.add_parser("run-daily")
 
     args = parser.parse_args()
+
+    if args.launch_mode:
+      from mlb_app.services.launch_bootstrap_service import LaunchBootstrapService
+
+      date_label = args.date or today()
+      if date_label == "today":
+        date_label = today()
+      payload = LaunchBootstrapService(Settings.from_env(ROOT)).run(date_text=date_label)
+      print(json.dumps(payload, indent=2, sort_keys=True))
+      return
+
+    if not args.command:
+      parser.error("command is required unless --launch-mode is used")
 
     if args.command == "before":
       before_game(args.date)
@@ -237,6 +259,12 @@ def main() -> None:
       after_game(args.date)
     elif args.command == "status":
       status()
+    elif args.command == "run-daily":
+      date_label = args.date or today()
+      if date_label == "today":
+        date_label = today()
+      payload = DailyWorkflowService(Settings.from_env(ROOT)).run(date_text=date_label)
+      print(json.dumps(payload, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
