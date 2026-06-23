@@ -132,3 +132,37 @@ def test_admin_evaluate_with_header_returns_gate_result(tmp_path: Path) -> None:
     payload = response.json()
     assert payload["action"] == "evaluate"
     assert payload["result"]["allowed"] is False
+
+
+def test_admin_evaluate_with_header_can_run_walk_forward_report(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    training_path = tmp_path / "data" / "ml" / "training.csv"
+    training_path.parent.mkdir(parents=True, exist_ok=True)
+    training_path.write_text(
+        "\n".join(
+            [
+                "meta_game_date,meta_market,feature_line,target_hit,model_probability,edge,target_profit_1u",
+                "2026-05-01,batter_hits,0.5,1,0.7,0.04,0.9",
+                "2026-05-02,batter_hits,0.5,0,0.3,0.04,-1",
+                "2026-05-03,batter_hits,0.5,1,0.7,0.04,0.9",
+                "2026-05-04,batter_hits,0.5,0,0.3,0.04,-1",
+                "2026-05-05,batter_hits,0.5,1,0.7,0.04,0.9",
+                "2026-05-06,batter_hits,0.5,0,0.3,0.04,-1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    client = client_for(settings)
+
+    response = client.post(
+        "/api/admin/ml-models/evaluate",
+        json={"evaluationPath": str(training_path), "minTrainRows": 4, "validationWindow": 2},
+        headers={"X-Baseball-Prop-Action": "1"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["action"] == "evaluate"
+    assert payload["result"]["status"] == "ok"
+    assert payload["result"]["summary"]["brierScore"] == 0.09

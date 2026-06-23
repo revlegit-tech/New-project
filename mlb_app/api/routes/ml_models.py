@@ -21,6 +21,7 @@ from mlb_app.api.models import (
     MLModelsStatusResponse,
 )
 from mlb_app.api.routes._utils import enforce_native_mutation, with_schema_version
+from mlb_app.ml.evaluation.reports import evaluate_csv
 from mlb_app.ml.inference.prediction_service import PredictionService
 from mlb_app.repositories.model_store import normalize_market_key
 from mlb_app.services.blocking_work import BlockingWorkLimiter
@@ -198,6 +199,24 @@ async def admin_ml_models_evaluate(
 ) -> dict[str, Any]:
     enforce_native_mutation(request, owner="ml_ops", risk="high", kind="ml_model_evaluate")
     payload = body or {}
+    evaluation_path = _body_text(payload, "evaluationPath", "evaluation_path", "trainingPath", "training_path")
+    if evaluation_path:
+        report = await limiter.run(
+            evaluate_csv,
+            _resolve_input_path(evaluation_path, service.settings.root_dir),
+            min_train_rows=_body_int(payload, "minTrainRows", "min_train_rows") or 20,
+            validation_window=_body_int(payload, "validationWindow", "validation_window") or 20,
+            route_name="POST /api/admin/ml-models/evaluate",
+        )
+        return with_schema_version(
+            {
+                "status": str(report.get("status") or "ok"),
+                "action": "evaluate",
+                "result": _sanitize_public_payload(report, service.settings.root_dir),
+                "warnings": list(report.get("warnings", [])),
+            },
+            SCHEMA_VERSION,
+        )
     market = normalize_market_key(_body_text(payload, "market"))
     if not market:
         response.status_code = 202
