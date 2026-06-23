@@ -128,6 +128,9 @@ export function rowTrustCopy(row: OutlierBoardRow): string {
     return "This prop clears model-readiness gates, but line movement and limits still need a final book check.";
   }
   if (actionability.status === "watchlist") {
+    if (actionability.label.toLowerCase().includes("research") || !readiness.canAct) {
+      return "This prop has a positive research lean from an experimental projection, but it should stay on the watchlist until model readiness gates are complete.";
+    }
     return "This prop has a positive model lean, but it should stay on the watchlist until the readiness gates are complete.";
   }
   return "This prop is visible for research but should stay 0u until data and model gates are satisfied.";

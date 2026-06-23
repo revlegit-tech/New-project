@@ -336,17 +336,25 @@ async function saveSelectedPick() {
 
 function renderTrustSurface(payload: any, requestId: string, extras: { actionnetwork?: any; runtime?: any; workflow?: any; ml?: any } = {}) {
   const severity = freshnessSeverity(payload);
-  const boardDate = text(payload?.latestBoardDate || payload?.playerboard?.latestAvailableDate || payload?.date, "Unavailable");
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const firstFreshness = rows.map((row: any) => row?.freshness).find(Boolean) || {};
+  const boardSnapshotAt = text(payload?.snapshot?.writtenAt || payload?.snapshotAt || payload?.generatedAt || payload?.updatedAt || payload?.date, "Unavailable");
+  const boardSnapshotDate = boardSnapshotAt.includes("T") ? boardSnapshotAt.slice(0, 10) : "";
+  const boardDate = text(payload?.snapshot?.date || boardSnapshotDate || payload?.latestBoardDate || payload?.playerboard?.latestAvailableDate || payload?.date, "Unavailable");
+  const boardFreshnessLabel = text(firstFreshness.label || payload?.freshness?.label || severity.label, severity.label);
+  const boardFreshnessTone = text(firstFreshness.tone || payload?.freshness?.tone || severity.tone, severity.tone);
+  const boardFreshnessCopy = text(firstFreshness.status || firstFreshness.source || payload?.freshness?.status || severity.copy, severity.copy);
   const schemaVersion = text(payload?.playerboard?.schemaVersion || payload?.schemaVersion || payload?.contracts?.playerboard || "playerboard.v3", "Unknown");
   const marketsReady = Array.isArray(extras.ml?.productionMarkets) ? extras.ml.productionMarkets.length : Array.isArray(payload?.productionEligibleMarkets) ? payload.productionEligibleMarkets.length : MARKETS.filter((market) => market.modelReady).length;
   const runtimeTone = extras.runtime?.ok ? "fresh" : extras.runtime?.status === "degraded" ? "aging" : "stale";
   const workflowTone = extras.workflow?.status === "success" ? "fresh" : extras.workflow?.status === "warning" ? "aging" : "stale";
   const actionTone = extras.actionnetwork?.ok ? "fresh" : extras.actionnetwork?.status === "degraded" ? "aging" : "stale";
   clear(document.getElementById("freshnessSurface"), [
-    trustCard("Last collector run", text(payload?.workflows?.lastCompletedAt || payload?.collector?.finishedAt || boardDate), severity.label, severity.tone),
+    trustCard("Board snapshot", boardSnapshotAt, boardFreshnessLabel, boardFreshnessTone),
+    trustCard("Playerboard data", boardDate, boardFreshnessCopy, boardFreshnessTone),
     trustCard("Runtime", extras.runtime?.ok ? "Runtime Healthy" : "Runtime Degraded", text(extras.runtime?.status || severity.label), runtimeTone),
-    trustCard("Workflow", workflowLabel(extras.workflow), text(extras.workflow?.checkedAt || payload?.workflows?.lastCompletedAt || boardDate), workflowTone),
-    trustCard("Odds freshness", text(payload?.odds?.latestSnapshotAt || payload?.oddsFreshness || boardDate), severity.copy, severity.tone),
+    trustCard("Workflow", workflowLabel(extras.workflow), text(extras.workflow?.checkedAt || boardSnapshotAt), workflowTone),
+    trustCard("Odds freshness", boardSnapshotAt, boardFreshnessCopy, boardFreshnessTone),
     trustCard("ActionNetwork", actionNetworkLabel(extras.actionnetwork), text(extras.actionnetwork?.labels?.trainableEligibility || extras.actionnetwork?.snapshot?.snapshotFreshness || "not trainable"), actionTone),
     trustCard("Model readiness", `${marketsReady} production markets`, text(payload?.productStateDetail?.label || payload?.productState, "Research Mode"), marketsReady ? "fresh" : "aging"),
     trustCard("Schema version", schemaVersion, requestId ? `Request ${requestId}` : "Contract checked", "fresh"),
