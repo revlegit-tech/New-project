@@ -231,3 +231,5 @@ data/backups/
 data/edge_board/
 data/health/
 data/cloud/summaries/games_*.json
+data/ml/
+data/playerboard/
