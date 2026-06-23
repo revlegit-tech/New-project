@@ -1222,7 +1222,14 @@ def load_saved_props(date_label: str, markets: list[str] | None = None, limit: i
 
     # OddsPapi game/team markets use the same normalized prop shape.
     # They are cached in data/cache/oddspapi as latest-pregame rows.
-    rows.extend(load_oddspapi_game_market_props(date_label, market_set, limit=limit))
+    rows.extend(
+        load_oddspapi_game_market_props(
+            date_label,
+            market_set,
+            limit=limit,
+            projections_enabled=default_settings.team_game_market_projections_enabled,
+        )
+    )
 
     out = aggregate_book_prices(rows)
     return out[:limit]

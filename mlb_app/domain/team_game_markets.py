@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from mlb_app.config import settings as default_settings
+
 ROOT = Path(__file__).resolve().parents[2]
 ODDSPAPI_DIR = ROOT / "data" / "cache" / "oddspapi"
 INCREMENTAL_DIR = ROOT / "data" / "cache" / "incremental_stats"
@@ -113,6 +115,34 @@ def to_float(value: Any, default: float = 0.0) -> float:
         return float(text)
     except Exception:
         return default
+
+
+def american_to_implied_probability(value: Any) -> float:
+    odds = to_float(value)
+    if odds == 0:
+        return 0.0
+    if odds > 0:
+        return 100.0 / (odds + 100.0)
+    return abs(odds) / (abs(odds) + 100.0)
+
+
+def team_game_market_projections_enabled(projections_enabled: bool | None = None) -> bool:
+    if projections_enabled is not None:
+        return bool(projections_enabled)
+    return bool(default_settings.team_game_market_projections_enabled)
+
+
+def _mark_legacy_projection_unavailable(row: dict[str, Any]) -> dict[str, Any]:
+    row.update({
+        "sportsbookImpliedProbability": american_to_implied_probability(row.get("americanOdds")),
+        "projectedProbability": None,
+        "edge": None,
+        "edgePercent": None,
+        "finalEdgePercent": None,
+        "modelName": "",
+        "modelAvailable": False,
+    })
+    return row
 
 
 def read_rows(path: Path) -> list[dict[str, str]]:
@@ -319,24 +349,20 @@ def should_keep_outcome(market: str, side: str) -> bool:
 
 
 
-def enrich_team_game_market_prediction(row: dict[str, Any]) -> dict[str, Any]:
+def enrich_team_game_market_prediction(row: dict[str, Any], *, projections_enabled: bool | None = None) -> dict[str, Any]:
     """Attach baseline model projection fields to a normalized team/game market row.
 
     If local generated model artifacts are unavailable, keep the row usable and
     expose modelAvailable=False instead of failing the UI/playerboard.
     """
+    if not team_game_market_projections_enabled(projections_enabled):
+        return _mark_legacy_projection_unavailable(row)
+
     try:
         from mlb_app.domain.team_game_market_predictor import predict_team_game_market
     except Exception:
-        row.update({
-            "projectedProbability": None,
-            "sportsbookImpliedProbability": None,
-            "edge": None,
-            "edgePercent": None,
-            "confidence": "Unavailable",
-            "modelName": "",
-            "modelAvailable": False,
-        })
+        row = _mark_legacy_projection_unavailable(row)
+        row["confidence"] = "Unavailable"
         return row
 
     try:
@@ -364,7 +390,13 @@ def enrich_team_game_market_prediction(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def load_oddspapi_game_market_props(date_label: str, markets: set[str] | None = None, limit: int = 5000) -> list[dict[str, Any]]:
+def load_oddspapi_game_market_props(
+    date_label: str,
+    markets: set[str] | None = None,
+    limit: int = 5000,
+    *,
+    projections_enabled: bool | None = None,
+) -> list[dict[str, Any]]:
     """Load cached OddsPapi latest-pregame game/team markets as Playerboard props."""
     target_date = clean(date_label)[:10]
     market_set = {normalize_market(m) for m in (markets or TEAM_GAME_MARKETS)}
@@ -449,7 +481,7 @@ def load_oddspapi_game_market_props(date_label: str, markets: set[str] | None = 
         if key in seen:
             continue
         seen.add(key)
-        row = enrich_team_game_market_prediction(row)
+        row = enrich_team_game_market_prediction(row, projections_enabled=projections_enabled)
         out.append(row)
         if len(out) >= limit:
             break
