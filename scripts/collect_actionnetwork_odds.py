@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import csv
@@ -493,6 +493,9 @@ def main() -> int:
     out_dir = Path("data/warehouse/normalized/odds")
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    snapshot_stamp = datetime.now().strftime("%H%M%S")
+    snapshot_pages_dir = raw_pages_dir / "snapshots" / game_date / snapshot_stamp
+
     selected_markets = resolve_markets(args.market)
     global_books = load_book_lookup(raw_dir, yyyymmdd, refresh=args.refresh)
 
@@ -504,7 +507,7 @@ def main() -> int:
         source_url = f"https://www.actionnetwork.com/mlb/props/{slug}?date={yyyymmdd}"
 
         safe_slug = slug.replace("-", "_")
-        html_path = raw_pages_dir / f"actionnetwork_{safe_slug}_{yyyymmdd}.html"
+        html_path = snapshot_pages_dir / f"actionnetwork_{safe_slug}_{yyyymmdd}_{snapshot_stamp}.html"
 
         print(f"fetching {market_key}: {source_url}")
         html = fetch_text(source_url, html_path, refresh=args.refresh)
@@ -527,6 +530,7 @@ def main() -> int:
             time.sleep(args.sleep)
 
     out_path = out_dir / f"actionnetwork_all_markets_{game_date}.csv"
+    snapshot_out_path = out_dir / f"actionnetwork_all_markets_{game_date}_{snapshot_stamp}.csv"
 
     fieldnames = [
         "source",
@@ -567,13 +571,19 @@ def main() -> int:
         "source_url",
     ]
 
-    with out_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(all_rows)
+    def write_csv(path: Path) -> None:
+        with path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(all_rows)
+
+    write_csv(out_path)
+    write_csv(snapshot_out_path)
 
     print("")
     print(f"saved_csv={out_path}")
+    print(f"saved_snapshot_csv={snapshot_out_path}")
+    print(f"snapshot_raw_dir={snapshot_pages_dir}")
     print(f"total_rows={len(all_rows)}")
 
     counts: dict[str, int] = {}
