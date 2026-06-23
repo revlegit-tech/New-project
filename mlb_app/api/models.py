@@ -545,6 +545,61 @@ class PropMlStatusResponse(StrictResponse):
     policy: dict[str, Any] = Field(default_factory=dict)
 
 
+class MLModelsStatusResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    registry: dict[str, Any] = Field(default_factory=dict)
+    modelCounts: dict[str, int] = Field(default_factory=dict)
+    markets: list[str] = Field(default_factory=list)
+    productionMarkets: list[str] = Field(default_factory=list)
+    shadowMarkets: list[str] = Field(default_factory=list)
+    candidateMarkets: list[str] = Field(default_factory=list)
+    policy: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MLModelsRegistryResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    entries: list[dict[str, Any]] = Field(default_factory=list)
+    entryCount: int = 0
+    markets: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MLModelsMetricsResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    metrics: list[dict[str, Any]] = Field(default_factory=list)
+    metricCount: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MLModelsFeatureCoverageResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    coverage: list[dict[str, Any]] = Field(default_factory=list)
+    entryCount: int = 0
+    receivedFeatureCount: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MLModelsPredictionPreviewResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    preview: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MLModelsAdminActionResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    action: str = ""
+    market: str = ""
+    result: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class MetricsSeries(StrictPayload):
     name: str
     labels: dict[str, Any] = Field(default_factory=dict)

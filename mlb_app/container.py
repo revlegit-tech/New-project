@@ -47,6 +47,7 @@ from mlb_app.services.ml_feature_export_service import MLFeatureExportService
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.model_readiness_service import ModelReadinessService
 from mlb_app.services.model_registry_service import ModelRegistryService
+from mlb_app.services.model_training_service import ModelTrainingService
 from mlb_app.services.picks_service import PicksService
 from mlb_app.services.player_prop_label_builder_service import PlayerPropLabelBuilderService
 from mlb_app.services.prediction_audit_service import PredictionAuditService
@@ -107,6 +108,7 @@ class AppContainer:
     feature_store_service: FeatureStoreService = field(init=False)
     product_state_service: ProductStateService = field(init=False)
     model_registry_service: ModelRegistryService = field(init=False)
+    model_training_service: ModelTrainingService = field(init=False)
     model_loader: ModelLoader = field(init=False)
     probability_blender: ProbabilityBlender = field(init=False)
     prediction_service: PredictionService = field(init=False)
@@ -216,6 +218,7 @@ class AppContainer:
             game_market_feature_lookup_service=self.game_market_feature_lookup_service,
         )
         self.model_registry_service = ModelRegistryService(settings=self.settings)
+        self.model_training_service = ModelTrainingService(settings=self.settings)
         self.model_loader = ModelLoader(
             settings=self.settings,
             registry_service=self.model_registry_service,
