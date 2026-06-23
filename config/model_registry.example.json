@@ -16,6 +16,18 @@
       "feature_count": 18,
       "calibrated": true,
       "production_gated": true,
+      "promotion_gates": {
+        "schema_version": "mlb-model-promotion-gates.sprint20.v1",
+        "production_requires_shadow": true,
+        "candidate_to_production_blocked": true,
+        "deprecated_to_production_blocked": true,
+        "requires_market_config": true,
+        "requires_artifact": true,
+        "requires_feature_schema": true,
+        "requires_minimum_training_rows": true,
+        "requires_minimum_positive_rows": true,
+        "requires_calibration_when_configured": true
+      },
       "models": {
         "calibrated_logistic": {
           "status": "candidate",

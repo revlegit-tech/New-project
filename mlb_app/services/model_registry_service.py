@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
+from mlb_app.ml.market_config import get_market_config, is_supported_market
+from mlb_app.ml.registry.metadata import utc_now_iso
+from mlb_app.ml.registry.promotion_gates import PromotionValidationResult, validate_promotion_gate
 from mlb_app.repositories.csv_store import CsvStore
 from mlb_app.repositories.model_artifact_repository import ModelArtifactRepository
 from mlb_app.repositories.model_store import ModelStore, normalize_market_key
@@ -159,6 +162,12 @@ class ModelRegistryService:
     def registry_entry(self, market: str) -> dict[str, Any]:
         return self.artifact_repository.registry_entry(market)
 
+    def load_registry(self) -> dict[str, Any]:
+        return load_training_registry(self.settings.model_registry_path)
+
+    def save_registry(self, registry: dict[str, Any]) -> dict[str, Any]:
+        return save_training_registry(self.settings.model_registry_path, registry)
+
     def artifact_path(self, market: str, entry: dict[str, Any]) -> Path:
         return self.artifact_repository.resolve_entry(market, entry=entry).artifact_path or self.model_store.model_path_for_market(market).resolve()
 
@@ -260,9 +269,9 @@ class ModelRegistryService:
             "modelTrained": artifact_exists and metadata_exists,
             "artifactExists": artifact_exists,
             "metadataExists": metadata_exists,
-            "artifact": str(artifact_path),
-            "modelPath": str(artifact_path),
-            "metadataPath": str(metadata_path),
+            "artifact": _public_path(self.settings.root_dir, artifact_path),
+            "modelPath": _public_path(self.settings.root_dir, artifact_path),
+            "metadataPath": _public_path(self.settings.root_dir, metadata_path),
             "registryStatus": registry_status,
             "status": readiness,
             "reason": reason,
@@ -280,7 +289,7 @@ class ModelRegistryService:
             "trainingDataSha256": resolved_entry.training_data_sha256,
             "artifactHashPrefix": resolved_entry.artifact_hash_prefix,
             "hashVerified": hash_verified,
-            "artifactVerification": verification,
+            "artifactVerification": _sanitize_verification_paths(verification, self.settings.root_dir),
             "knownLimitations": list(resolved_entry.known_limitations),
             "registryMetrics": resolved_entry.metrics,
         }
@@ -307,6 +316,113 @@ class ModelRegistryService:
                 "requiresCalibrationForProduction": True,
             },
         }
+
+    def validate_promotion(
+        self,
+        market: str,
+        target_status: str,
+        *,
+        source_status: str | None = None,
+        model_key: str | None = None,
+        allow_candidate_to_production: bool = False,
+        allow_deprecated_to_production: bool = False,
+    ) -> dict[str, Any]:
+        result = self._validate_promotion_result(
+            market,
+            target_status,
+            source_status=source_status,
+            model_key=model_key,
+            allow_candidate_to_production=allow_candidate_to_production,
+            allow_deprecated_to_production=allow_deprecated_to_production,
+        )
+        return result.as_dict()
+
+    def transition_model_status(
+        self,
+        market: str,
+        target_status: str,
+        *,
+        source_status: str | None = None,
+        model_key: str | None = None,
+        allow_candidate_to_production: bool = False,
+        allow_deprecated_to_production: bool = False,
+    ) -> dict[str, Any]:
+        key = normalize_market_key(market)
+        target = str(target_status or "").strip().lower()
+        validation = self._validate_promotion_result(
+            key,
+            target,
+            source_status=source_status,
+            model_key=model_key,
+            allow_candidate_to_production=allow_candidate_to_production,
+            allow_deprecated_to_production=allow_deprecated_to_production,
+        )
+        if not validation.allowed:
+            return {
+                "status": "rejected",
+                "market": key,
+                "target_status": target,
+                "promotion": validation.as_dict(),
+            }
+
+        registry = self.load_registry()
+        market_entry = registry.get(key)
+        if not isinstance(market_entry, dict):
+            market_entry = {}
+        source = validation.source_status
+        entry = _select_model_entry(market_entry, source_status=source, model_key=model_key)
+        promoted = dict(entry)
+        promoted["status"] = target
+        promoted["market"] = key
+        if target == "production":
+            promoted["last_promoted_at"] = utc_now_iso()
+        if model_key:
+            promoted["selected_model"] = model_key
+        market_entry[target] = promoted
+        registry[key] = market_entry
+        self.save_registry(registry)
+        return {
+            "status": "ok",
+            "market": key,
+            "source_status": source,
+            "target_status": target,
+            "promotion": validation.as_dict(),
+        }
+
+    def _validate_promotion_result(
+        self,
+        market: str,
+        target_status: str,
+        *,
+        source_status: str | None = None,
+        model_key: str | None = None,
+        allow_candidate_to_production: bool = False,
+        allow_deprecated_to_production: bool = False,
+    ) -> PromotionValidationResult:
+        key = normalize_market_key(market)
+        target = str(target_status or "").strip().lower()
+        registry = self.load_registry()
+        raw_market = registry.get(key)
+        market_entry = raw_market if isinstance(raw_market, dict) else {}
+        source = str(source_status or ("shadow" if target == "production" else "candidate")).strip().lower()
+        entry = _select_model_entry(market_entry, source_status=source, model_key=model_key)
+        if not entry:
+            entry = {"market": key, "status": source}
+        entry.setdefault("status", source)
+        entry.setdefault("market", key)
+        resolved = self.artifact_repository.resolve_entry(key, stage=source, entry=entry)
+        market_config = get_market_config(key) if is_supported_market(key) else None
+        return validate_promotion_gate(
+            market=key,
+            entry=entry,
+            target_status=target,
+            source_status=source,
+            market_config=market_config,
+            artifact_path=resolved.artifact_path,
+            feature_schema_path=resolved.features_path,
+            allow_candidate_to_production=allow_candidate_to_production,
+            allow_deprecated_to_production=allow_deprecated_to_production,
+        )
 
 
 def _read_csv_rows_cached(csv_store: Any, path: Path) -> list[dict[str, str]]:
@@ -358,6 +474,13 @@ def load_training_registry(path: str | Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("Model registry must be a JSON object.")
     return payload
+
+
+def save_training_registry(path: str | Path, registry: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(registry, dict):
+        raise ValueError("Model registry must be a JSON object.")
+    _write_json_atomic(Path(path), registry)
+    return registry
 
 
 def write_training_registry_entries(
@@ -416,3 +539,44 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def _select_model_entry(market_entry: dict[str, Any], *, source_status: str, model_key: str | None = None) -> dict[str, Any]:
+    stage_entry = market_entry.get(source_status)
+    if not isinstance(stage_entry, dict):
+        return {}
+    models = stage_entry.get("models")
+    if model_key and isinstance(models, dict) and isinstance(models.get(model_key), dict):
+        selected = dict(models[model_key])
+        selected.setdefault("selected_model", model_key)
+        return selected
+    selected_model = str(model_key or stage_entry.get("selected_model") or stage_entry.get("model_key") or "").strip()
+    if selected_model and isinstance(models, dict) and isinstance(models.get(selected_model), dict):
+        selected = dict(stage_entry)
+        selected.update(dict(models[selected_model]))
+        selected["selected_model"] = selected_model
+        return selected
+    return dict(stage_entry)
+
+
+def _public_path(root: Path, path: Path | None) -> str:
+    if path is None:
+        return ""
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _sanitize_verification_paths(payload: dict[str, Any], root: Path) -> dict[str, Any]:
+    sanitized = json.loads(json.dumps(payload, default=str))
+    for key in ("artifact", "features", "metrics"):
+        value = sanitized.get(key)
+        if isinstance(value, dict) and value.get("path"):
+            value["path"] = _public_path(root, Path(str(value["path"])))
+    entry = sanitized.get("entry")
+    if isinstance(entry, dict):
+        for key in ("artifactPath", "featuresPath", "metricsPath"):
+            if entry.get(key):
+                entry[key] = _public_path(root, Path(str(entry[key])))
+    return sanitized

@@ -7,6 +7,7 @@ from mlb_app.ml.datasets.leakage_guard import assert_feature_columns_safe
 
 FEATURE_SCHEMA_VERSION = "mlb-feature-schema.sprint19.v1"
 ARTIFACT_METADATA_SCHEMA_VERSION = "mlb-model-metadata.sprint19.v1"
+PROMOTION_GATE_SCHEMA_VERSION = "mlb-model-promotion-gates.sprint20.v1"
 
 
 def utc_now_iso() -> str:
