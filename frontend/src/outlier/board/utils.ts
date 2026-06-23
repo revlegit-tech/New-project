@@ -32,12 +32,16 @@ export function matchup(row: OutlierBoardRow): string {
   return away && home ? `${away} @ ${home}` : text(row.game ?? row.matchup, "Matchup pending");
 }
 
-export function edgeValue(row: OutlierBoardRow): number {
-  return number(row.trust?.modelEdge?.edgePercent ?? row.finalEdgePercent ?? row.edge ?? row.edgePercent, 0);
+export function edgeValue(row: OutlierBoardRow): number | null {
+  const value = row.trust?.modelEdge?.edgePercent ?? row.edgePercent;
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function edgeTone(row: OutlierBoardRow): string {
   const edge = edgeValue(row);
+  if (edge === null) return "is-risk";
   if (edge >= 5) return "is-good";
   if (edge >= 0) return "is-watch";
   return "is-risk";

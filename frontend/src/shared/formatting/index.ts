@@ -9,6 +9,7 @@ export function number(value: unknown, fallback = 0): number {
 }
 
 export function percent(value: unknown, fallback = "--"): string {
+  if (value === null || value === undefined || value === "") return fallback;
   const parsed = number(value, Number.NaN);
   if (!Number.isFinite(parsed)) return fallback;
   const scaled = Math.abs(parsed) <= 1 ? parsed * 100 : parsed;
@@ -16,6 +17,7 @@ export function percent(value: unknown, fallback = "--"): string {
 }
 
 export function signedPercent(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "--";
   const parsed = number(value, Number.NaN);
   if (!Number.isFinite(parsed)) return "--";
   const scaled = Math.abs(parsed) <= 1 ? parsed * 100 : parsed;

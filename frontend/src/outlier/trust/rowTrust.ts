@@ -12,7 +12,7 @@ export interface NormalizedPropIdentity {
 }
 
 export interface NormalizedModelEdge {
-  edgePercent: number;
+  edgePercent: number | null;
   modelProbabilityPercent: unknown;
   impliedProbabilityPercent: unknown;
   tone: "positive" | "neutral" | "negative";
@@ -64,13 +64,15 @@ export function rowPropIdentity(row: OutlierBoardRow): NormalizedPropIdentity {
 
 export function rowModelEdge(row: OutlierBoardRow): NormalizedModelEdge {
   const modelEdge = objectValue(row.trust?.modelEdge);
-  const edge = number(modelEdge.edgePercent ?? row.finalEdgePercent ?? row.edgePercent ?? row.edge ?? row.modelEdgePercent, 0);
+  const rawEdge = modelEdge.edgePercent ?? row.edgePercent;
+  const edge = rawEdge === null || rawEdge === undefined || rawEdge === "" ? null : number(rawEdge, Number.NaN);
+  const normalizedEdge = Number.isFinite(edge) ? edge : null;
   const explicitTone = text(modelEdge.tone, "");
   return {
-    edgePercent: edge,
+    edgePercent: normalizedEdge,
     modelProbabilityPercent: modelEdge.modelProbabilityPercent ?? row.modelProbabilityPercent ?? row.modelProbability ?? row.probabilityPercent ?? row.probability ?? row.prob,
     impliedProbabilityPercent: modelEdge.impliedProbabilityPercent ?? row.impliedProbabilityPercent ?? row.sportsbookImpliedPercent ?? row.impliedProbability ?? row.impliedPercent,
-    tone: explicitTone === "positive" || explicitTone === "neutral" || explicitTone === "negative" ? explicitTone : edge > 0 ? "positive" : edge < 0 ? "negative" : "neutral",
+    tone: explicitTone === "positive" || explicitTone === "neutral" || explicitTone === "negative" ? explicitTone : normalizedEdge !== null && normalizedEdge > 0 ? "positive" : normalizedEdge !== null && normalizedEdge < 0 ? "negative" : "neutral",
   };
 }
 
@@ -213,7 +215,7 @@ function normalizeActionabilityStatus(value: unknown, decision: string, readines
   const raw = text(value, "").toLowerCase();
   if (raw === "actionable" || raw === "watchlist" || raw === "research_only" || raw === "blocked") return raw;
   const decisionRaw = decision.toLowerCase();
-  if (decisionRaw.includes("no bet") || edgePercent <= 0) return "blocked";
+  if (decisionRaw.includes("no bet") || edgePercent === null || edgePercent <= 0) return "blocked";
   if (readiness.canAct && (decisionRaw.includes("potential edge") || edgePercent >= 2)) return "actionable";
   if (decisionRaw.includes("watch") || decisionRaw.includes("lean") || edgePercent > 0) return "watchlist";
   return "research_only";

@@ -292,11 +292,37 @@ class EdgeBoardService:
         market = _clean(row.get("market"))
         card = self._card_for(market)
         edge = _float(_first(row, "finalEdgePercent", "edgePercent", "edge", "modelEdgePercent"))
-        probability = _float(_first(row, "finalProbabilityPercent", "probabilityPercent", "modelProbabilityPercent", "probability"))
-        implied = _float(_first(row, "impliedProbabilityPercent", "bookImpliedProbabilityPercent", "impliedPercent"))
         confidence = _clean(_first(row, "confidence", "confidenceLabel")) or "Research"
-        decision_label = _decision_label(card, edge, confidence, _clean(row.get("recommendation")))
         readiness = _clean(card.get("readinessLabel") or card.get("productionStatus") or "Research only")
+
+        implied = _float(
+            _first(
+                row,
+                "impliedProbabilityPercent",
+                "sportsbookImpliedPercent",
+                "bookImpliedProbabilityPercent",
+                "impliedPercent",
+            )
+        )
+
+        probability = _float(_first(row, "modelProbabilityPercent", "probabilityPercent", "probability"))
+        is_odds_only = confidence.lower() == "odds only"
+        is_no_model = readiness.lower() in {"no model", "not_ready", "not ready"}
+
+        # finalProbabilityPercent may be an odds-only fallback. Do not display it as a model probability
+        # unless model governance/readiness says this row actually has model support.
+        if probability is None and not is_odds_only and not is_no_model:
+            probability = _float(_first(row, "finalProbabilityPercent"))
+
+        if is_odds_only or is_no_model:
+            probability = None
+            edge = None
+        elif probability is not None and implied is not None and edge is None:
+            edge = probability - implied
+
+        decision_label = _decision_label(card, edge, confidence, _clean(row.get("recommendation")))
+        if decision_label == "Model lean" and not bool(card.get("canShowConfidentPick")):
+            decision_label = "Research lean"
         latest_graded = _clean(card.get("latestGradedDate") or board.get("latestFullyGradedDate"))
         warnings = list(card.get("trustWarnings") or [])
         book = _clean(_first(row, "book", "sportsbook", "bestBook", "bookmaker", "sourceBook"))
