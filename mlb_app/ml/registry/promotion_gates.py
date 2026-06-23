@@ -162,6 +162,76 @@ def _validate_production_requirements(
     if entry_market and str(market).strip() and entry_market != str(market).strip():
         reasons.append("market_mismatch")
 
+    if _is_actionnetwork_source(entry):
+        _validate_actionnetwork_production_requirements(reasons=reasons, checks=checks, entry=entry)
+
+
+def _validate_actionnetwork_production_requirements(
+    *,
+    reasons: list[str],
+    checks: dict[str, Any],
+    entry: dict[str, Any],
+) -> None:
+    clean_days = _int(_first(entry, "clean_forward_days", "cleanForwardDays", "forward_collection_days", "forwardCollectionDays"))
+    min_clean_days = _int(_first(entry, "minimum_clean_forward_days", "minimumCleanForwardDays", "min_clean_forward_days", "minCleanForwardDays"), 14)
+    event_labels = _int(_first(entry, "event_confirmed_labels", "eventConfirmedLabels", "event_confirmed_label_count", "eventConfirmedLabelCount"))
+    min_event_labels = _int(_first(entry, "minimum_event_confirmed_labels", "minimumEventConfirmedLabels", "min_event_confirmed_labels", "minEventConfirmedLabels"), 100)
+    diagnostic_rows = _int(_first(entry, "diagnostic_rows", "diagnosticRows", "diagnostic_past_rows", "diagnosticPastRows"))
+    date_only_rows = _int(_first(entry, "date_only_rows", "dateOnlyRows", "date_only_label_rows", "dateOnlyLabelRows"))
+    reused_rows = _int(_first(entry, "reused_board_rows", "reusedBoardRows", "reused_board_suspect_rows", "reusedBoardSuspectRows"))
+    push_rows = _int(_first(entry, "push_rows", "pushRows"))
+    walk_forward_rows = _int(_first(entry, "walk_forward_rows", "walkForwardRows", "walk_forward_sample_count", "walkForwardSampleCount"))
+    min_walk_forward_rows = _int(_first(entry, "minimum_walk_forward_rows", "minimumWalkForwardRows", "min_walk_forward_rows", "minWalkForwardRows"), 100)
+    shadow_roi = _float(_first(entry, "shadow_roi", "shadowRoi", "shadow_roi_percent", "shadowRoiPercent"))
+    min_shadow_roi = _float(_first(entry, "minimum_shadow_roi", "minimumShadowRoi", "min_shadow_roi", "minShadowRoi", "min_shadow_roi_percent", "minShadowRoiPercent"), 0.0)
+    shadow_clv = _float(_first(entry, "shadow_clv", "shadowClv", "average_clv", "averageClv"))
+    min_shadow_clv = _float(_first(entry, "minimum_shadow_clv", "minimumShadowClv", "min_shadow_clv", "minShadowClv"), None)
+    calibration_passed = _bool(_first(entry, "calibration_metrics_passed", "calibrationMetricsPassed", "calibration_passed", "calibrationPassed"), default=True)
+    forward_only = _bool(_first(entry, "actionnetwork_forward_only", "actionnetworkForwardOnly", "forward_only", "forwardOnly"), default=True)
+
+    checks["actionnetwork"] = {
+        "forwardOnly": forward_only,
+        "cleanForwardDays": clean_days,
+        "minimumCleanForwardDays": min_clean_days,
+        "eventConfirmedLabels": event_labels,
+        "minimumEventConfirmedLabels": min_event_labels,
+        "diagnosticRows": diagnostic_rows,
+        "dateOnlyRows": date_only_rows,
+        "reusedBoardRows": reused_rows,
+        "pushRows": push_rows,
+        "calibrationMetricsPassed": calibration_passed,
+        "walkForwardRows": walk_forward_rows,
+        "minimumWalkForwardRows": min_walk_forward_rows,
+        "shadowRoi": shadow_roi,
+        "minimumShadowRoi": min_shadow_roi,
+        "shadowClv": shadow_clv,
+        "minimumShadowClv": min_shadow_clv,
+    }
+
+    collection_modes = _strings(_first(entry, "collection_modes", "collectionModes"))
+    if not forward_only or any(mode != "live_forward" for mode in collection_modes):
+        reasons.append("actionnetwork_forward_only")
+    if clean_days < min_clean_days:
+        reasons.append("min_clean_forward_days")
+    if event_labels < min_event_labels:
+        reasons.append("min_event_confirmed_labels")
+    if diagnostic_rows > 0:
+        reasons.append("no_diagnostic_rows")
+    if date_only_rows > 0:
+        reasons.append("no_date_only_rows")
+    if reused_rows > 0:
+        reasons.append("no_reused_board_rows")
+    if push_rows > 0:
+        reasons.append("no_push_rows")
+    if not calibration_passed:
+        reasons.append("calibration_metrics_failed")
+    if walk_forward_rows < min_walk_forward_rows:
+        reasons.append("walk_forward_sample_threshold")
+    if shadow_roi is None or (min_shadow_roi is not None and shadow_roi < min_shadow_roi):
+        reasons.append("shadow_roi_threshold")
+    if min_shadow_clv is not None and (shadow_clv is None or shadow_clv < min_shadow_clv):
+        reasons.append("shadow_clv_threshold")
+
 
 def _model_allowed(entry: dict[str, Any], market_config: MarketModelConfig) -> bool:
     model_key = str(entry.get("model_key") or entry.get("modelKey") or entry.get("model_type") or "").strip()
@@ -199,6 +269,22 @@ def _normalize_status(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def _is_actionnetwork_source(entry: dict[str, Any]) -> bool:
+    source = " ".join(
+        _strings(
+            [
+                entry.get("source"),
+                entry.get("sourceSystem"),
+                entry.get("source_system"),
+                entry.get("dataSource"),
+                entry.get("data_source"),
+                entry.get("provider"),
+            ]
+        )
+    ).lower()
+    return "actionnetwork" in source or bool(entry.get("actionnetwork") or entry.get("actionNetwork"))
+
+
 def _int(value: Any, default: int = 0) -> int:
     try:
         if value in {None, ""}:
@@ -206,6 +292,42 @@ def _int(value: Any, default: int = 0) -> int:
         return int(float(value))
     except (TypeError, ValueError):
         return default
+
+
+def _float(value: Any, default: float | None = None) -> float | None:
+    try:
+        if value in {None, ""}:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _bool(value: Any, *, default: bool) -> bool:
+    if value in {None, ""}:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _first(mapping: dict[str, Any], *keys: str, default: Any = "") -> Any:
+    for key in keys:
+        if key not in mapping:
+            continue
+        value = mapping[key]
+        if value is None or value == "":
+            continue
+        return value
+    return default
+
+
+def _strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
 
 
 def _dedupe(items: list[str]) -> list[str]:

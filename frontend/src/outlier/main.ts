@@ -157,13 +157,28 @@ function bindEvents() {
 
 async function loadStatus() {
   try {
-    const { payload, requestId } = await jsonFetch<any>("/api/app/status");
+    const [{ payload, requestId }, actionnetwork, runtime, workflow, ml] = await Promise.all([
+      jsonFetch<any>("/api/app/status"),
+      optionalJson(`/api/actionnetwork/trust?date=${encodeURIComponent(appState.date)}`),
+      optionalJson("/api/runtime/status"),
+      optionalJson("/api/workflow/status"),
+      optionalJson("/api/ml-models/status"),
+    ]);
     appState.status = payload;
     appState.requestId = requestId || payload?.meta?.requestId || "";
-    renderTrustSurface(payload, appState.requestId);
+    renderTrustSurface(payload, appState.requestId, { actionnetwork, runtime, workflow, ml });
     detailRail?.rerender(detailContext());
   } catch (error) {
     clear(document.getElementById("freshnessSurface"), [trustCard("Status", "Unavailable", error instanceof Error ? error.message : "App status could not be loaded.", "unavailable")]);
+  }
+}
+
+async function optionalJson(path: string): Promise<any> {
+  try {
+    const { payload } = await jsonFetch<any>(path);
+    return payload;
+  } catch (error) {
+    return { status: "missing", ok: false, warnings: [error instanceof Error ? error.message : String(error)] };
   }
 }
 
@@ -319,18 +334,37 @@ async function saveSelectedPick() {
   }
 }
 
-function renderTrustSurface(payload: any, requestId: string) {
+function renderTrustSurface(payload: any, requestId: string, extras: { actionnetwork?: any; runtime?: any; workflow?: any; ml?: any } = {}) {
   const severity = freshnessSeverity(payload);
   const boardDate = text(payload?.latestBoardDate || payload?.playerboard?.latestAvailableDate || payload?.date, "Unavailable");
   const schemaVersion = text(payload?.playerboard?.schemaVersion || payload?.schemaVersion || payload?.contracts?.playerboard || "playerboard.v3", "Unknown");
-  const marketsReady = Array.isArray(payload?.productionEligibleMarkets) ? payload.productionEligibleMarkets.length : MARKETS.filter((market) => market.modelReady).length;
+  const marketsReady = Array.isArray(extras.ml?.productionMarkets) ? extras.ml.productionMarkets.length : Array.isArray(payload?.productionEligibleMarkets) ? payload.productionEligibleMarkets.length : MARKETS.filter((market) => market.modelReady).length;
+  const runtimeTone = extras.runtime?.ok ? "fresh" : extras.runtime?.status === "degraded" ? "aging" : "stale";
+  const workflowTone = extras.workflow?.status === "success" ? "fresh" : extras.workflow?.status === "warning" ? "aging" : "stale";
+  const actionTone = extras.actionnetwork?.ok ? "fresh" : extras.actionnetwork?.status === "degraded" ? "aging" : "stale";
   clear(document.getElementById("freshnessSurface"), [
     trustCard("Last collector run", text(payload?.workflows?.lastCompletedAt || payload?.collector?.finishedAt || boardDate), severity.label, severity.tone),
-    trustCard("Playerboard data", boardDate, text(payload?.dataConfidence || payload?.playerboard?.dataConfidence, "Missing"), severity.tone),
+    trustCard("Runtime", extras.runtime?.ok ? "Runtime Healthy" : "Runtime Degraded", text(extras.runtime?.status || severity.label), runtimeTone),
+    trustCard("Workflow", workflowLabel(extras.workflow), text(extras.workflow?.checkedAt || payload?.workflows?.lastCompletedAt || boardDate), workflowTone),
     trustCard("Odds freshness", text(payload?.odds?.latestSnapshotAt || payload?.oddsFreshness || boardDate), severity.copy, severity.tone),
-    trustCard("Model readiness", `${marketsReady} MLB markets`, text(payload?.productStateDetail?.label || payload?.productState, "Research Mode"), marketsReady ? "fresh" : "aging"),
+    trustCard("ActionNetwork", actionNetworkLabel(extras.actionnetwork), text(extras.actionnetwork?.labels?.trainableEligibility || extras.actionnetwork?.snapshot?.snapshotFreshness || "not trainable"), actionTone),
+    trustCard("Model readiness", `${marketsReady} production markets`, text(payload?.productStateDetail?.label || payload?.productState, "Research Mode"), marketsReady ? "fresh" : "aging"),
     trustCard("Schema version", schemaVersion, requestId ? `Request ${requestId}` : "Contract checked", "fresh"),
   ]);
+}
+
+function workflowLabel(payload: any): string {
+  if (payload?.status === "success") return "Workflow Fresh";
+  if (payload?.status === "warning") return "Workflow Degraded";
+  if (payload?.status === "failed") return "Workflow Failed";
+  return "Workflow Missing";
+}
+
+function actionNetworkLabel(payload: any): string {
+  if (payload?.snapshot?.snapshotFreshness === "fresh") return "Snapshot Fresh";
+  if (payload?.labels?.eventConfirmed) return "Event Confirmed";
+  if (payload?.status === "degraded") return "Not Trainable";
+  return "Snapshot Stale";
 }
 
 function trustSkeleton(label: string) { return trustCard(label, "Checking", "Loading trust signal…", "aging"); }

@@ -2,7 +2,7 @@ import { jsonFetch } from "../../shared/api/client";
 import { clear, h } from "../../shared/components/dom";
 import { formatOdds, number, percent, signedPercent, text } from "../../shared/formatting";
 import { marketLabel } from "../../shared/markets/markets";
-import { freshnessSeverity, rowActionability, rowFreshness, rowReadiness, rowTrustCopy } from "../trust";
+import { badgeToneClass, freshnessSeverity, rowActionability, rowFreshness, rowReadiness, rowTrustChips, rowTrustCopy } from "../trust";
 import {
   edgeValue,
   matchup,
@@ -104,8 +104,10 @@ export class DetailRailController {
       h("article", { className: "ob-rail-card" }, [
         h("h3", { text: "Trust context" }),
         h("p", { text: rowTrustCopy(row) }),
+        h("div", { className: "ob-chip-row is-rail" }, rowTrustChips(row).map((chip) => h("span", { className: `ob-pill ob-pill-mini ${badgeToneClass(chip.tone)}`, attrs: { title: chip.title }, text: chip.label }))),
         h("div", { className: "ob-stat-grid" }, [stat("Readiness", readiness.label), stat("Freshness", freshness.label), stat("Action", actionability.label), stat("Implied", percent(rowImpliedProbability(row))), stat("Request", text(context.requestId, "latest"))]),
       ]),
+      renderRowTrustDetail(row, context.status),
       renderServerDetail(state),
       h("article", { className: "ob-rail-card" }, [
         h("h3", { text: "Picks & exposure" }),
@@ -115,6 +117,27 @@ export class DetailRailController {
       ]),
     ]);
   }
+}
+
+function renderRowTrustDetail(row: OutlierBoardRow, status: unknown): HTMLElement {
+  const trust = row.trust || {};
+  const model = objectValue(trust.model);
+  const actionnetwork = objectValue(trust.actionnetwork);
+  const runtime = objectValue(trust.runtime);
+  const severity = freshnessSeverity(status);
+  return h("article", { className: "ob-rail-card" }, [
+    h("h3", { text: "Model & source trust" }),
+    h("div", { className: "ob-stat-grid" }, [
+      stat("Model", text(model.modelStatus ?? model.status ?? row.modelStatus, "unavailable")),
+      stat("Version", text(model.modelVersion ?? model.version, "none")),
+      stat("Coverage", text(model.featureCoverage ?? row.featureCoverage, "unknown")),
+      stat("Calibrated", Boolean(model.calibrated ?? row.calibrated) ? "yes" : "no"),
+      stat("Snapshot", text(actionnetwork.snapshotFreshness ?? actionnetwork.status, "unknown")),
+      stat("Labels", text(actionnetwork.trainableEligibility ?? actionnetwork.labelQuality, "not trainable")),
+      stat("Workflow", text(runtime.workflowStatus, severity.label)),
+      stat("Runtime", text(runtime.runtimeStatus, severity.label)),
+    ]),
+  ]);
 }
 
 function renderServerDetail(state: { detail?: Record<string, unknown>; error?: string; loading?: boolean }): HTMLElement {

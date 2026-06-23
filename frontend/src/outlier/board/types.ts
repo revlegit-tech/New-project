@@ -40,6 +40,9 @@ export interface RowTrustPayload {
   modelEdge?: ModelEdgeTrust;
   readiness?: ReadinessTrust;
   actionability?: ActionabilityTrust;
+  model?: Record<string, unknown>;
+  actionnetwork?: Record<string, unknown>;
+  runtime?: Record<string, unknown>;
 }
 
 export interface RowFreshnessPayload {

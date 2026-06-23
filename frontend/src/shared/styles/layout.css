@@ -58,6 +58,9 @@ h1 { margin: 0; font-size: clamp(2rem, 4vw, 4.4rem); line-height: .94; letter-sp
 .ob-pill { white-space: nowrap; }
 .ob-pill-edge { min-width: 64px; justify-content: center; }
 .ob-pill-action { min-width: 86px; justify-content: center; }
+.ob-pill-mini { padding: 3px 7px; font-size: .68rem; }
+.ob-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--space-2); }
+.ob-chip-row.is-rail { margin-bottom: var(--space-3); }
 .ob-pill.is-good { color: var(--color-positive); background: var(--color-positive-soft); }
 .ob-pill.is-watch { color: var(--color-warning); background: var(--color-warning-soft); }
 .ob-pill.is-risk { color: var(--color-danger); background: var(--color-danger-soft); }

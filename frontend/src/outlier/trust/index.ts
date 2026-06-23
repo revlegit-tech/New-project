@@ -11,6 +11,7 @@ export {
   rowModelEdge,
   rowPropIdentity,
   rowReadiness,
+  rowTrustChips,
   rowTrustCopy,
 } from "./rowTrust";
 

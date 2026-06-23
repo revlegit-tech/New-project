@@ -1,7 +1,7 @@
 import { h } from "../../shared/components/dom";
 import { formatOdds, percent, signedPercent, text } from "../../shared/formatting";
 import { marketLabel } from "../../shared/markets/markets";
-import { badgeToneClass, rowActionability, rowFreshness, rowModelEdge, rowPropIdentity, rowReadiness } from "../trust";
+import { badgeToneClass, rowActionability, rowFreshness, rowModelEdge, rowPropIdentity, rowReadiness, rowTrustChips } from "../trust";
 import {
   matchup,
   OutlierBoardRow,
@@ -29,6 +29,7 @@ export function renderBoardRow(row: OutlierBoardRow, options: BoardRowRenderOpti
   const readiness = rowReadiness(row);
   const freshness = rowFreshness(row, options.freshnessFallback);
   const actionability = rowActionability(row);
+  const chips = rowTrustChips(row).slice(0, 3);
   const market = rowMarketKey(row) || identity.market;
   const sideLine = [identity.side, text(rowLine(row), "")].filter(Boolean).join(" ");
   return h("tr", {
@@ -41,6 +42,7 @@ export function renderBoardRow(row: OutlierBoardRow, options: BoardRowRenderOpti
         h("strong", { text: rowPlayer(row) }),
         h("span", { text: matchup(row) }),
         h("em", { text: [marketLabel(market), sideLine].filter(Boolean).join(" / ") }),
+        h("div", { className: "ob-chip-row" }, chips.map((chip) => h("span", { className: `ob-pill ob-pill-mini ${badgeToneClass(chip.tone)}`, attrs: { title: chip.title }, text: chip.label }))),
       ]),
     ]),
     h("td", { text: marketLabel(market) }),

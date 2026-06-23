@@ -75,6 +75,28 @@ def registry_entry(
     }
 
 
+def actionnetwork_registry_entry(settings: Settings, **overrides: Any) -> dict[str, Any]:
+    entry = registry_entry(settings)
+    entry.update(
+        {
+            "source": "actionnetwork",
+            "actionnetwork_forward_only": True,
+            "clean_forward_days": 14,
+            "event_confirmed_labels": 125,
+            "diagnostic_rows": 0,
+            "date_only_rows": 0,
+            "reused_board_rows": 0,
+            "push_rows": 0,
+            "calibration_metrics_passed": True,
+            "walk_forward_rows": 125,
+            "shadow_roi_percent": 1.5,
+            "min_shadow_roi_percent": 0.0,
+        }
+    )
+    entry.update(overrides)
+    return entry
+
+
 def write_registry(settings: Settings, stage: str, entry: dict[str, Any]) -> None:
     settings.model_registry_path.parent.mkdir(parents=True, exist_ok=True)
     settings.model_registry_path.write_text(
@@ -171,6 +193,70 @@ def test_transition_to_production_writes_validated_registry_stage(tmp_path: Path
     assert result["status"] == "ok"
     assert saved["batter_hits"]["production"]["status"] == "production"
     assert saved["batter_hits"]["production"]["last_promoted_at"]
+
+
+def test_actionnetwork_model_requires_clean_forward_days(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    reasons = reasons_for(settings, entry=actionnetwork_registry_entry(settings, clean_forward_days=13))
+
+    assert "min_clean_forward_days" in reasons
+
+
+def test_actionnetwork_model_requires_event_confirmed_labels(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    reasons = reasons_for(settings, entry=actionnetwork_registry_entry(settings, event_confirmed_labels=99))
+
+    assert "min_event_confirmed_labels" in reasons
+
+
+def test_actionnetwork_model_blocks_diagnostic_date_only_reused_and_push_rows(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    reasons = reasons_for(
+        settings,
+        entry=actionnetwork_registry_entry(
+            settings,
+            diagnostic_rows=1,
+            date_only_rows=1,
+            reused_board_rows=1,
+            push_rows=1,
+        ),
+    )
+
+    assert "no_diagnostic_rows" in reasons
+    assert "no_date_only_rows" in reasons
+    assert "no_reused_board_rows" in reasons
+    assert "no_push_rows" in reasons
+
+
+def test_actionnetwork_model_blocks_weak_evaluation_metrics(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    reasons = reasons_for(
+        settings,
+        entry=actionnetwork_registry_entry(
+            settings,
+            calibration_metrics_passed=False,
+            walk_forward_rows=99,
+            shadow_roi_percent=-0.1,
+        ),
+    )
+
+    assert "calibration_metrics_failed" in reasons
+    assert "walk_forward_sample_threshold" in reasons
+    assert "shadow_roi_threshold" in reasons
+
+
+def test_actionnetwork_clean_shadow_candidate_passes_extra_gates(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_registry(settings, "shadow", actionnetwork_registry_entry(settings))
+
+    validation = ModelRegistryService(settings).validate_promotion(
+        "batter_hits",
+        "production",
+        source_status="shadow",
+    )
+
+    assert validation["allowed"] is True
+    assert validation["checks"]["actionnetwork"]["eventConfirmedLabels"] == 125
 
 
 def test_registry_load_handles_missing_file(tmp_path: Path) -> None:

@@ -43,6 +43,12 @@ export interface NormalizedActionability {
   reason: string;
 }
 
+export interface TrustChip {
+  label: string;
+  tone: TrustTone;
+  title: string;
+}
+
 export function rowPropIdentity(row: OutlierBoardRow): NormalizedPropIdentity {
   const identity = objectValue(row.trust?.propIdentity);
   return {
@@ -123,6 +129,43 @@ export function rowTrustCopy(row: OutlierBoardRow): string {
     return "This prop has a positive model lean, but it should stay on the watchlist until the readiness gates are complete.";
   }
   return "This prop is visible for research but should stay 0u until data and model gates are satisfied.";
+}
+
+export function rowTrustChips(row: OutlierBoardRow): TrustChip[] {
+  return [modelTrustChip(row), featureCoverageChip(row), actionNetworkTrustChip(row)].filter(Boolean) as TrustChip[];
+}
+
+export function modelTrustChip(row: OutlierBoardRow): TrustChip {
+  const model = objectValue(row.trust?.model);
+  const status = text(model.modelStatus ?? model.status ?? row.modelStatus ?? row.productionStatus, "").toLowerCase();
+  if (status === "production") return { label: "Model Production", tone: "good", title: text(model.modelVersion ?? model.version, "Production model is active.") };
+  if (status === "shadow") return { label: "Model Shadow", tone: "watch", title: "Shadow model is visible but cannot alter board ranking." };
+  if (status === "candidate") return { label: "Production Gated", tone: "watch", title: "Candidate model has not cleared promotion gates." };
+  return { label: "Model Unavailable", tone: "risk", title: "No production model is available for this row." };
+}
+
+export function featureCoverageChip(row: OutlierBoardRow): TrustChip | null {
+  const model = objectValue(row.trust?.model);
+  const raw = model.featureCoverage ?? row.featureCoverage;
+  const coverage = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(coverage)) return null;
+  const percentValue = coverage <= 1 ? Math.round(coverage * 100) : Math.round(coverage);
+  if (percentValue < 70) return { label: "Low Feature Coverage", tone: "risk", title: `${percentValue}% feature coverage.` };
+  return { label: `Feature Coverage ${percentValue}%`, tone: "good", title: `${percentValue}% feature coverage.` };
+}
+
+export function actionNetworkTrustChip(row: OutlierBoardRow): TrustChip | null {
+  const trust = objectValue(row.trust?.actionnetwork);
+  const status = text(trust.status ?? row.actionnetworkStatus, "").toLowerCase();
+  const eventConfirmed = Boolean(trust.eventConfirmed ?? row.eventConfirmed);
+  const trainable = text(trust.trainableEligibility ?? row.trainableEligibility, "").toLowerCase();
+  const collectionMode = text(trust.collectionMode ?? row.collectionMode, "").toLowerCase();
+  if (eventConfirmed) return { label: "Event Confirmed", tone: "good", title: "ActionNetwork row has event-to-game confirmation." };
+  if (collectionMode === "diagnostic_past" || status.includes("diagnostic")) return { label: "Date Only Diagnostic", tone: "risk", title: "Diagnostic/past ActionNetwork data is not trainable." };
+  if (trainable === "not_trainable" || status.includes("not_trainable")) return { label: "Not Trainable", tone: "risk", title: "ActionNetwork row has not cleared ML eligibility gates." };
+  if (status.includes("fresh")) return { label: "Snapshot Fresh", tone: "good", title: "ActionNetwork live snapshot is fresh." };
+  if (status.includes("stale")) return { label: "Snapshot Stale", tone: "risk", title: "ActionNetwork snapshot is stale or missing." };
+  return null;
 }
 
 export function badgeToneClass(tone: TrustTone | "positive" | "neutral" | "negative"): string {
