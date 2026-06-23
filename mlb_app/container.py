@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from mlb_app.config import Settings, settings as default_settings
+from mlb_app.ml.inference.model_loader import ModelLoader
+from mlb_app.ml.inference.prediction_service import PredictionService
+from mlb_app.ml.inference.probability_blender import ProbabilityBlender
 from mlb_app.repositories.bankroll_repository import BankrollRepository
 from mlb_app.repositories.board_row_repository import BoardRowRepository
 from mlb_app.repositories.board_snapshot_repository import BoardSnapshotRepository
@@ -104,6 +107,9 @@ class AppContainer:
     feature_store_service: FeatureStoreService = field(init=False)
     product_state_service: ProductStateService = field(init=False)
     model_registry_service: ModelRegistryService = field(init=False)
+    model_loader: ModelLoader = field(init=False)
+    probability_blender: ProbabilityBlender = field(init=False)
+    prediction_service: PredictionService = field(init=False)
     model_readiness_service: ModelReadinessService = field(init=False)
     workflow_health_service: WorkflowHealthService = field(init=False)
     model_card_service: ModelCardService = field(init=False)
@@ -210,6 +216,16 @@ class AppContainer:
             game_market_feature_lookup_service=self.game_market_feature_lookup_service,
         )
         self.model_registry_service = ModelRegistryService(settings=self.settings)
+        self.model_loader = ModelLoader(
+            settings=self.settings,
+            registry_service=self.model_registry_service,
+        )
+        self.probability_blender = ProbabilityBlender()
+        self.prediction_service = PredictionService(
+            settings=self.settings,
+            model_loader=self.model_loader,
+            probability_blender=self.probability_blender,
+        )
         self.model_readiness_service = ModelReadinessService(self.model_registry_service)
         self.workflow_health_service = WorkflowHealthService(settings=self.settings)
         self.prediction_audit_service = PredictionAuditService(
