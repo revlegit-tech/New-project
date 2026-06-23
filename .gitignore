@@ -1,4 +1,4 @@
-# Python caches
+﻿# Python caches
 __pycache__/
 *.py[cod]
 
@@ -11,14 +11,12 @@ env/
 .env
 .env.*
 !.env.example
-!.env.production.example
 
 # Strict local secret hygiene
 .env
 .env.*
 *.env
 !.env.example
-!.env.production.example
 .en
 *.key
 *.pem

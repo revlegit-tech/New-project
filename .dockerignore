@@ -1,4 +1,4 @@
-.git
+﻿.git
 .venv
 .venv*/
 __pycache__/
@@ -7,7 +7,6 @@ __pycache__/
 *.err.log
 .env
 .env.*
-!.env.production.example
 node_modules/
 data/
 models/

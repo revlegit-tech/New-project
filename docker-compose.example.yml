@@ -1,9 +1,9 @@
-services:
+﻿services:
   web:
     build: .
     command: python -m uvicorn mlb_app.asgi:app --host 0.0.0.0 --port 8765
     env_file:
-      - .env.production.example
+      - config/production.env.example
     ports:
       - "8765:8765"
     depends_on:
@@ -13,7 +13,7 @@ services:
     build: .
     command: python daily_ml_workflow.py status
     env_file:
-      - .env.production.example
+      - config/production.env.example
     depends_on:
       - postgres
 
@@ -21,7 +21,7 @@ services:
     build: .
     command: python scripts/actionnetwork_live_snapshot_workflow.py --date today
     env_file:
-      - .env.production.example
+      - config/production.env.example
     depends_on:
       - postgres
 
@@ -36,3 +36,4 @@ services:
 
 volumes:
   postgres_data:
+
