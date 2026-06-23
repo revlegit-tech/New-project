@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_start_wrapper_exists_and_has_expected_parameters() -> None:
     text = (ROOT / "scripts" / "start_mlb_app.ps1").read_text(encoding="utf-8")
-    for token in ["$Port = 8765", '$Host = "127.0.0.1"', "$SkipBootstrap", "$NoBrowser", '$Date = "today"']:
+    for token in ["$Port = 8765", '$BindHost = "127.0.0.1"', "$SkipBootstrap", "$NoBrowser", '$Date = "today"']:
         assert token in text
     assert "mlb_app.asgi:app" in text
     assert "-m uvicorn" in text
