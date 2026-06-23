@@ -236,3 +236,8 @@ data/playerboard/
 data/warehouse/raw/actionnetwork/
 data/warehouse/normalized/odds/actionnetwork_*.csv
 data/status/
+/build/
+/dist/
+/*.spec
+/MLBPropLauncher.exe
+/data/logs/
