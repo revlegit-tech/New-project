@@ -652,6 +652,19 @@ class AppStatusResponse(StrictResponse):
     contractErrors: list[str] = Field(default_factory=list)
 
 
+class CollectorCheckResponse(StrictResponse):
+    schemaVersion: str = "collector-check.v1"
+    status: str
+    date: str
+    season: int
+    resolvedDateMode: str
+    checks: dict[str, Any] = Field(default_factory=dict)
+    counts: dict[str, Any] = Field(default_factory=dict)
+    files: dict[str, Any] = Field(default_factory=dict)
+    runtime: dict[str, Any] = Field(default_factory=dict)
+    recommendations: list[str] = Field(default_factory=list)
+
+
 class EdgeBoardResponse(StrictResponse):
     status: str = "ok"
     schemaVersion: str | None = None
