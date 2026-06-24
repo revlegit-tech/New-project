@@ -593,11 +593,11 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
             summary["weatherFeatures"] = {"error": str(weather_error)}
 
         # Daily incremental stats warehouse:
-        # - Runs only on true midnight/full-final snapshots.
-        # - Skipped for grading/manual runs so daily grading stays date-only and fast.
+        # - Runs on midnight and manual full snapshots so hit-rates/recent-game context stays current.
+        # - Skipped for grading/morning/midday runs so quick previews stay date-only and fast.
         # - Safely upserts, so reruns do not create duplicates.
         # - Pulls only missing/new final games unless force is used manually.
-        if run_type == "midnight":
+        if run_type in {"midnight", "manual"}:
             try:
                 from incremental_stats_collector import catchup_stats
 
@@ -656,6 +656,7 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
                 market="",
                 limit=5000,
                 save=True,
+                replace_date=True,
                 source_mode="canonical",
             )
         except Exception as board_error:
