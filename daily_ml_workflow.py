@@ -265,6 +265,9 @@ def main() -> None:
         date_label = today()
       payload = DailyWorkflowService(Settings.from_env(ROOT)).run(date_text=date_label)
       print(json.dumps(payload, indent=2, sort_keys=True))
+      status = str(payload.get("verificationSummary", {}).get("status") or payload.get("status") or "").lower()
+      if status == "failed":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

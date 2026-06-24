@@ -63,6 +63,7 @@ class CollectorVerificationService:
             f"propline_props_{target_date}_*.csv",
         )
         normalized_check = self._normalized_odds_check(target_date)
+        game_markets_check = self._game_markets_check(target_date)
         active_board_check = self._active_playerboard_check(selected_season, target_date)
         edge_board_check = self._edge_board_check(selected_season, target_date)
         default_date_check = self._default_date_check(selected_season, target_date)
@@ -101,6 +102,7 @@ class CollectorVerificationService:
                 "propsFile": props_check,
                 "oddsSnapshots": odds_check,
                 "normalizedOdds": normalized_check,
+                "gameMarkets": game_markets_check,
                 "activePlayerboard": active_board_check,
                 "edgeBoard": edge_board_check,
                 "defaultDate": default_date_check,
@@ -110,6 +112,7 @@ class CollectorVerificationService:
                 "propsRows": int(props_check.get("rows") or 0),
                 "oddsSnapshots": int(odds_check.get("count") or 0),
                 "normalizedOddsFiles": int(normalized_check.get("count") or 0),
+                "gameMarketRows": int(game_markets_check.get("rows") or 0),
                 "activePlayerboardRows": int(active_board_check.get("rows") or 0),
                 "edgeBoardRows": int(edge_board_check.get("rows") or 0),
             },
@@ -117,6 +120,7 @@ class CollectorVerificationService:
                 "propsFile": props_check.get("path", ""),
                 "latestOddsSnapshot": odds_check.get("latestPath", ""),
                 "latestNormalizedOdds": normalized_check.get("latestPath", ""),
+                "gameMarkets": game_markets_check.get("path", ""),
             },
             "runtime": {
                 "dbEnabled": runtime_check.get("dbEnabled", ""),
@@ -166,6 +170,16 @@ class CollectorVerificationService:
             "count": len(files),
             "latestPath": safe_relpath(latest, self.settings.root_dir) if latest is not None else "",
             "paths": [safe_relpath(path, self.settings.root_dir) for path in files[-10:]],
+        }
+
+    def _game_markets_check(self, date_label: str) -> dict[str, Any]:
+        path = self.settings.data_dir / "warehouse" / "normalized" / "game_markets" / f"game_markets_{date_label}.csv"
+        rows = _count_csv_rows(path)
+        return {
+            "ok": path.is_file() and rows > 0,
+            "exists": path.is_file(),
+            "rows": rows,
+            "path": safe_relpath(path, self.settings.root_dir),
         }
 
     def _active_playerboard_check(self, season: int, date_label: str) -> dict[str, Any]:

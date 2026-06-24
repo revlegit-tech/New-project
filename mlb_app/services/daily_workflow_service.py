@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from mlb_app.config import Settings
 from mlb_app.services.actionnetwork_snapshot_status_service import ActionNetworkSnapshotWorkflow, default_command_runner
+from mlb_app.services.collector_verification_service import CollectorVerificationService
 from mlb_app.services.mlb_truth_log_resolver import load_truth_logs
 from mlb_app.services.runtime_lock import runtime_lock
 from mlb_app.services.runtime_status_service import safe_relpath, sanitize_public, write_status_json
@@ -50,8 +52,10 @@ class DailyWorkflowService:
             warnings.extend(snapshot.get("warnings", []))
 
             steps.append({"name": "collect_propline_oddspapi", "status": "skipped", "reason": "not configured for scheduler wrapper"})
+            self._apply_safe_playerboard_defaults()
             steps.append(self._existing_or_skipped("build_playerboard", self.settings.data_dir / "playerboard" / f"playerboard_{season}.csv"))
             steps.append(self._existing_or_skipped("build_edge_board", self.settings.data_dir / "edge_board" / f"edge_board_{date_text}.json"))
+            collector_check = CollectorVerificationService(settings=self.settings).payload(date_label=date_text, season=season)
             truth = self._load_truth_logs(season)
             truth_available = bool(truth.source_dir) and truth.covers(date_text)
             steps.append(
@@ -93,9 +97,23 @@ class DailyWorkflowService:
                 steps.append({"name": "score_shadow_models", "status": "skipped", "reason": "missing registry/models or playerboard"})
 
             status = _overall_status(steps)
-            payload = self._payload(status, date_text, season, steps=steps, warnings=warnings)
+            payload = self._payload(
+                status,
+                date_text,
+                season,
+                steps=steps,
+                warnings=warnings,
+                collectorCheck={"status": collector_check.get("status"), "schemaVersion": collector_check.get("schemaVersion")},
+                verificationSummary=self._verification_summary(collector_check),
+            )
             write_status_json(self.status_path, payload)
             return payload
+
+    @staticmethod
+    def _apply_safe_playerboard_defaults() -> None:
+        os.environ.setdefault("PLAYERBOARD_BUILD_WORKERS", "1")
+        os.environ.setdefault("PLAYERBOARD_DAILY_BUILD_LIMIT", "1000")
+        os.environ.setdefault("PLAYERBOARD_DAILY_SOURCE_MODE", "propline")
 
     def _existing_or_skipped(self, name: str, path: Path) -> dict[str, Any]:
         if path.exists():
@@ -149,6 +167,23 @@ class DailyWorkflowService:
                 **extra,
             }
         )
+
+    def _verification_summary(self, collector_check: dict[str, Any]) -> dict[str, Any]:
+        counts = collector_check.get("counts") if isinstance(collector_check.get("counts"), dict) else {}
+        capability = collector_check.get("capabilitySummary") if isinstance(collector_check.get("capabilitySummary"), dict) else {}
+        return {
+            "date": collector_check.get("date", ""),
+            "propsRows": counts.get("propsRows", 0),
+            "oddsSnapshots": counts.get("oddsSnapshots", 0),
+            "gameMarketRows": counts.get("gameMarketRows", 0),
+            "playerboardRows": counts.get("activePlayerboardRows", 0),
+            "edgeBoardRows": counts.get("edgeBoardRows", 0),
+            "featureStoreReady": capability.get("featureStoreReady", False),
+            "readyForBoard": capability.get("readyForBoard", False),
+            "readyForBaselineTraining": capability.get("readyForBaselineTraining", False),
+            "readyForProductionTraining": capability.get("readyForProductionTraining", False),
+            "status": str(collector_check.get("status", "failed")).upper(),
+        }
 
 
 def _overall_status(steps: list[dict[str, Any]]) -> str:

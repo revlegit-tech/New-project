@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import copy
+import importlib
 import os
 import re
 import csv
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -74,6 +76,53 @@ DEFAULT_MARKETS = [
     "pitcher_earned_runs",
     "pitcher_earned_runs_alt",
 ]
+
+MARKET_CAPABILITY_MAP = {
+    "batter_hits": "model_supported",
+    "batter_hits_alt": "research_only",
+    "batter_total_bases": "model_supported",
+    "batter_total_bases_alt": "research_only",
+    "batter_home_runs": "research_only",
+    "batter_home_runs_alt": "research_only",
+    "batter_rbis": "research_only",
+    "batter_stolen_bases": "unsupported_skip",
+    "pitcher_strikeouts": "model_supported",
+    "pitcher_strikeouts_alt": "research_only",
+    "pitcher_hits_allowed": "research_only",
+    "pitcher_hits_allowed_alt": "research_only",
+    "pitcher_earned_runs": "research_only",
+    "pitcher_earned_runs_alt": "research_only",
+    "team_total_runs": "research_only",
+    "team_first_to_score": "research_only",
+    "moneyline": "research_only",
+    "moneyline_first_five": "research_only",
+    "run_line": "research_only",
+    "run_line_first_five": "research_only",
+    "run_line_first_inning": "research_only",
+    "run_line_second_inning": "research_only",
+    "run_line_third_inning": "research_only",
+    "run_line_fourth_inning": "research_only",
+    "run_line_fifth_inning": "research_only",
+    "run_line_sixth_inning": "research_only",
+    "run_line_seventh_inning": "research_only",
+    "run_line_eighth_inning": "research_only",
+    "run_line_ninth_inning": "research_only",
+    "game_total_runs": "research_only",
+    "first_five_total_runs": "research_only",
+    "first_inning_total_runs": "research_only",
+    "second_inning_total_runs": "research_only",
+    "third_inning_total_runs": "research_only",
+    "fourth_inning_total_runs": "research_only",
+    "fifth_inning_total_runs": "research_only",
+    "sixth_inning_total_runs": "research_only",
+    "seventh_inning_total_runs": "research_only",
+    "eighth_inning_total_runs": "research_only",
+    "ninth_inning_total_runs": "research_only",
+}
+
+
+def market_capability(market: Any) -> str:
+    return MARKET_CAPABILITY_MAP.get(normalize_market(market), "unsupported_skip")
 
 
 def clean(value: Any) -> str:
@@ -1441,17 +1490,263 @@ def odds_only_player_card(prop: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_playerboard(season: int = default_settings.current_season, date_label: str = "", market: str = "", limit: int = 5000, save: bool = True, replace_date: bool = False, source_mode: str = "auto") -> dict[str, Any]:
-    from mlb_app.domain.unified_prop_card import unified_prop_card
+def _card_cache_key(row: dict[str, Any], season: int, date_label: str) -> tuple[str, ...]:
+    return (
+        str(season),
+        clean(row.get("date"))[:10] or date_label,
+        clean(row.get("player")).casefold(),
+        canonical_team_abbr(row.get("team")),
+        canonical_team_abbr(row.get("opponent")),
+        normalize_market(row.get("market")),
+        base_market(row.get("market")),
+        canonical_prop_line(row),
+        side_for_prop(row),
+        clean(row.get("american_odds") or row.get("americanOdds")),
+        clean(row.get("pitcher")).casefold(),
+    )
 
+
+def _build_batter_summary_index(unified_module: Any, season: int) -> dict[str, dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in unified_module.regular_rows(unified_module.read_cached_rows(f"batter_game_logs_{season}.csv"), season):
+        groups.setdefault(unified_module.norm(row.get("player")), []).append(row)
+    out: dict[str, dict[str, Any]] = {}
+    for player, rows in groups.items():
+        games = len(rows)
+        ab = sum(to_float(row.get("atBats")) for row in rows)
+        pa = sum(to_float(row.get("plateAppearances")) for row in rows)
+        hits = sum(to_float(row.get("hits")) for row in rows)
+        hr = sum(to_float(row.get("homeRuns")) for row in rows)
+        tb = sum(to_float(row.get("totalBases")) for row in rows)
+        so = sum(to_float(row.get("strikeOuts")) for row in rows)
+        bb = sum(to_float(row.get("baseOnBalls")) for row in rows)
+        out[player] = {
+            "available": games > 0,
+            "games": games,
+            "plateAppearances": pa,
+            "atBats": ab,
+            "hits": hits,
+            "homeRuns": hr,
+            "totalBases": tb,
+            "strikeOuts": so,
+            "baseOnBalls": bb,
+            "avg": round(hits / ab, 3) if ab else 0,
+            "hitsPerGame": round(hits / games, 3) if games else 0,
+            "totalBasesPerGame": round(tb / games, 3) if games else 0,
+            "homeRunsPerGame": round(hr / games, 3) if games else 0,
+            "strikeoutsPerGame": round(so / games, 3) if games else 0,
+            "team": clean(rows[-1].get("team")) if rows else "",
+        }
+    return out
+
+
+def _build_pitcher_summary_index(unified_module: Any, season: int) -> dict[str, dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in unified_module.regular_rows(unified_module.read_cached_rows(f"pitcher_game_logs_{season}.csv"), season):
+        groups.setdefault(unified_module.norm(row.get("player")), []).append(row)
+    out: dict[str, dict[str, Any]] = {}
+    for player, rows in groups.items():
+        games = len(rows)
+        hits = sum(to_float(row.get("hits")) for row in rows)
+        er = sum(to_float(row.get("earnedRuns")) for row in rows)
+        runs = sum(to_float(row.get("runs")) for row in rows)
+        hr = sum(to_float(row.get("homeRuns")) for row in rows)
+        bb = sum(to_float(row.get("baseOnBalls")) for row in rows)
+        so = sum(to_float(row.get("strikeOuts")) for row in rows)
+        bf = sum(to_float(row.get("battersFaced")) for row in rows)
+        pitches = sum(to_float(row.get("pitchesThrown")) for row in rows)
+        out[player] = {
+            "available": games > 0,
+            "games": games,
+            "hitsAllowed": hits,
+            "earnedRuns": er,
+            "runs": runs,
+            "homeRunsAllowed": hr,
+            "baseOnBalls": bb,
+            "strikeOuts": so,
+            "battersFaced": bf,
+            "pitchesThrown": pitches,
+            "strikeoutsPerGame": round(so / games, 3) if games else 0,
+            "hitsAllowedPerGame": round(hits / games, 3) if games else 0,
+            "earnedRunsPerGame": round(er / games, 3) if games else 0,
+            "team": clean(rows[-1].get("team")) if rows else "",
+        }
+    return out
+
+
+def _build_team_summary_index(unified_module: Any, season: int) -> dict[str, dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in unified_module.regular_rows(unified_module.read_cached_rows(f"team_game_logs_{season}.csv"), season):
+        groups.setdefault(clean(row.get("team")).upper(), []).append(row)
+    out: dict[str, dict[str, Any]] = {}
+    for team, rows in groups.items():
+        games = len(rows)
+        runs = sum(to_float(row.get("runs")) for row in rows)
+        hits = sum(to_float(row.get("hits")) for row in rows)
+        hr = sum(to_float(row.get("homeRuns")) for row in rows)
+        so = sum(to_float(row.get("strikeOuts")) for row in rows)
+        p_runs = sum(to_float(row.get("pitchingRuns")) for row in rows)
+        p_hits = sum(to_float(row.get("pitchingHits")) for row in rows)
+        p_so = sum(to_float(row.get("pitchingStrikeOuts")) for row in rows)
+        out[team] = {
+            "available": games > 0,
+            "team": team,
+            "games": games,
+            "runsPerGame": round(runs / games, 3) if games else 0,
+            "hitsPerGame": round(hits / games, 3) if games else 0,
+            "homeRunsPerGame": round(hr / games, 3) if games else 0,
+            "strikeoutsPerGame": round(so / games, 3) if games else 0,
+            "runsAllowedPerGame": round(p_runs / games, 3) if games else 0,
+            "hitsAllowedPerGame": round(p_hits / games, 3) if games else 0,
+            "pitchingStrikeoutsPerGame": round(p_so / games, 3) if games else 0,
+        }
+    return out
+
+
+def build_playerboard(season: int = default_settings.current_season, date_label: str = "", market: str = "", limit: int = 5000, save: bool = True, replace_date: bool = False, source_mode: str = "auto") -> dict[str, Any]:
+    unified_module = importlib.import_module("mlb_app.domain.unified_prop_card")
+
+    started = time.perf_counter()
+    timings = {
+        "marketFilterMs": 0.0,
+        "unifiedPropCardMs": 0.0,
+        "hitProfileMs": 0.0,
+        "historyLookupMs": 0.0,
+        "contextJoinMs": 0.0,
+        "cardPostProcessMs": 0.0,
+    }
+    counters = {
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "hitProfileCacheHits": 0,
+        "hitProfileCacheMisses": 0,
+        "historyCacheHits": 0,
+        "historyCacheMisses": 0,
+        "contextCacheHits": 0,
+        "contextCacheMisses": 0,
+    }
     markets = [market] if market else DEFAULT_MARKETS
     load_limit = max(1, int(limit or 5000))
+    load_started = time.perf_counter()
     props = load_saved_props(date_label, markets=markets, limit=load_limit, source_mode=source_mode)
+    load_ms = (time.perf_counter() - load_started) * 1000.0
 
     cards = []
     errors = []
+    skipped: dict[str, Any] = {"unsupportedMarkets": {}, "filtered": {}}
+    hit_profile_cache: dict[tuple[str, ...], dict[str, Any]] = {}
+    unified_card_cache: dict[tuple[str, ...], dict[str, Any]] = {}
+    context_cache: dict[tuple[str, ...], dict[str, Any]] = {}
+    original_helpers: dict[str, Any] = {}
+
+    def elapsed_ms(start: float) -> float:
+        return (time.perf_counter() - start) * 1000.0
+
+    def add_timing(name: str, start: float) -> None:
+        timings[name] = timings.get(name, 0.0) + elapsed_ms(start)
+
+    def count_skip(bucket: str, key: Any) -> None:
+        normalized = normalize_market(key) if bucket == "unsupportedMarkets" else clean(key)
+        skipped.setdefault(bucket, {})
+        skipped[bucket][normalized] = int(skipped[bucket].get(normalized, 0)) + 1
+
+    def install_cached_helper(name: str, bucket: str, key_builder) -> None:
+        original = getattr(unified_module, name)
+        original_helpers[name] = original
+
+        def wrapper(*args, **kwargs):
+            key = (name, *key_builder(*args, **kwargs))
+            cached = context_cache.get(key)
+            if cached is not None:
+                if bucket == "historyLookupMs":
+                    counters["historyCacheHits"] += 1
+                else:
+                    counters["contextCacheHits"] += 1
+                return copy.deepcopy(cached)
+            if bucket == "historyLookupMs":
+                counters["historyCacheMisses"] += 1
+            else:
+                counters["contextCacheMisses"] += 1
+            call_started = time.perf_counter()
+            value = original(*args, **kwargs)
+            add_timing(bucket, call_started)
+            context_cache[key] = copy.deepcopy(value)
+            return value
+
+        setattr(unified_module, name, wrapper)
+
+    def install_unified_caches() -> None:
+        original_helpers["summarize_batter"] = getattr(unified_module, "summarize_batter")
+        original_helpers["summarize_pitcher"] = getattr(unified_module, "summarize_pitcher")
+        original_helpers["summarize_team"] = getattr(unified_module, "summarize_team")
+        index_started = time.perf_counter()
+        batter_index = _build_batter_summary_index(unified_module, season)
+        pitcher_index = _build_pitcher_summary_index(unified_module, season)
+        team_index = _build_team_summary_index(unified_module, season)
+        add_timing("historyLookupMs", index_started)
+
+        def summarize_batter_cached(player, requested_season):
+            key = unified_module.norm(player)
+            value = batter_index.get(key)
+            if value is not None:
+                counters["historyCacheHits"] += 1
+                return copy.deepcopy(value)
+            counters["historyCacheMisses"] += 1
+            return {"available": False, "games": 0, "plateAppearances": 0, "atBats": 0, "hits": 0, "homeRuns": 0, "totalBases": 0, "strikeOuts": 0, "baseOnBalls": 0, "avg": 0, "hitsPerGame": 0, "totalBasesPerGame": 0, "homeRunsPerGame": 0, "strikeoutsPerGame": 0, "team": ""}
+
+        def summarize_pitcher_cached(player, requested_season):
+            key = unified_module.norm(player)
+            value = pitcher_index.get(key)
+            if value is not None:
+                counters["historyCacheHits"] += 1
+                return copy.deepcopy(value)
+            counters["historyCacheMisses"] += 1
+            return {"available": False, "games": 0, "hitsAllowed": 0, "earnedRuns": 0, "runs": 0, "homeRunsAllowed": 0, "baseOnBalls": 0, "strikeOuts": 0, "battersFaced": 0, "pitchesThrown": 0, "strikeoutsPerGame": 0, "hitsAllowedPerGame": 0, "earnedRunsPerGame": 0, "team": ""}
+
+        def summarize_team_cached(team, requested_season):
+            key = clean(team).upper()
+            value = team_index.get(key)
+            if value is not None:
+                counters["historyCacheHits"] += 1
+                return copy.deepcopy(value)
+            counters["historyCacheMisses"] += 1
+            return {"available": False, "team": key, "games": 0, "runsPerGame": 0, "hitsPerGame": 0, "homeRunsPerGame": 0, "strikeoutsPerGame": 0, "runsAllowedPerGame": 0, "hitsAllowedPerGame": 0, "pitchingStrikeoutsPerGame": 0}
+
+        setattr(unified_module, "summarize_batter", summarize_batter_cached)
+        setattr(unified_module, "summarize_pitcher", summarize_pitcher_cached)
+        setattr(unified_module, "summarize_team", summarize_team_cached)
+        install_cached_helper("find_weather_feature", "contextJoinMs", lambda season, date, team, opponent: (str(season), clean(date)[:10], canonical_team_abbr(team), canonical_team_abbr(opponent)))
+        install_cached_helper("find_odds_movement_context", "contextJoinMs", lambda season, date, market, player, team, opponent, pitcher: (str(season), clean(date)[:10], normalize_market(market), clean(player).casefold(), canonical_team_abbr(team), canonical_team_abbr(opponent), clean(pitcher).casefold()))
+        install_cached_helper("find_savant_context", "historyLookupMs", lambda season, player, pitcher, market: (str(season), clean(player).casefold(), clean(pitcher).casefold(), normalize_market(market)))
+        install_cached_helper("all_data_predict", "contextJoinMs", lambda row: _card_cache_key(row, season, date_label))
+
+    def restore_unified_caches() -> None:
+        for name, original in original_helpers.items():
+            setattr(unified_module, name, original)
+
+    def cached_unified_prop_card(row: dict[str, Any]) -> dict[str, Any]:
+        key = _card_cache_key(row, season, date_label)
+        cached = unified_card_cache.get(key)
+        if cached is not None:
+            counters["cacheHits"] += 1
+            return copy.deepcopy(cached)
+        counters["cacheMisses"] += 1
+        call_started = time.perf_counter()
+        card = unified_module.unified_prop_card(row)
+        add_timing("unifiedPropCardMs", call_started)
+        unified_card_cache[key] = copy.deepcopy(card)
+        return card
 
     def attach_hit_profile(card: dict[str, Any], row_for_profile: dict[str, Any]) -> dict[str, Any]:
+        cache_key = _card_cache_key(row_for_profile, season, date_label)
+        cached = hit_profile_cache.get(cache_key)
+        if cached is not None:
+            counters["hitProfileCacheHits"] += 1
+            card["hitRates"] = copy.deepcopy(cached.get("hitRates") or {})
+            card["recentGames"] = copy.deepcopy(cached.get("recentGames") or [])
+            return card
+        counters["hitProfileCacheMisses"] += 1
+        hit_started = time.perf_counter()
         try:
             from mlb_app.domain.player_hit_rates import hit_profile_for_row, parse_date
             profile = hit_profile_for_row(row_for_profile, season, parse_date(clean(row_for_profile.get("date"))[:10] or date_label))
@@ -1468,20 +1763,45 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
         except Exception as error:
             card["hitRates"] = {"sourceStatus": "error", "error": str(error)}
             card["recentGames"] = []
+        hit_profile_cache[cache_key] = {
+            "hitRates": copy.deepcopy(card.get("hitRates") or {}),
+            "recentGames": copy.deepcopy(card.get("recentGames") or []),
+        }
+        add_timing("hitProfileMs", hit_started)
         return card
 
     def build_card(prop: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
-        prop = infer_missing_context(prop, season)
+        filter_started = time.perf_counter()
+        capability = market_capability(prop.get("market"))
+        add_timing("marketFilterMs", filter_started)
+        if capability == "unsupported_skip":
+            return None, {"type": "unsupported_market", "market": normalize_market(prop.get("market"))}
+
+        context_key = ("infer", str(season), clean(prop.get("date"))[:10] or date_label, clean(prop.get("player")).casefold(), normalize_market(prop.get("market")), canonical_team_abbr(prop.get("team")), canonical_team_abbr(prop.get("opponent")))
+        cached_context = context_cache.get(context_key)
+        if cached_context is not None:
+            counters["contextCacheHits"] += 1
+            prop = copy.deepcopy(cached_context)
+        else:
+            counters["contextCacheMisses"] += 1
+            context_started = time.perf_counter()
+            prop = infer_missing_context(prop, season)
+            add_timing("contextJoinMs", context_started)
+            context_cache[context_key] = copy.deepcopy(prop)
 
         if can_use_direct_team_game_card(prop):
             if not team_game_market_display_allowed(prop):
-                return None, "extreme_alt_line_filtered"
+                return None, {"type": "filtered", "reason": "extreme_alt_line_filtered", "market": normalize_market(prop.get("market"))}
+            post_started = time.perf_counter()
             card = team_game_prop_to_playerboard_card(prop)
+            add_timing("cardPostProcessMs", post_started)
             return attach_hit_profile(card, {**prop, **card, "date": clean(prop.get("date"))[:10] or date_label}), None
 
         if not prop.get("team") or not prop.get("opponent"):
             if clean(prop.get("americanOdds")):
+                post_started = time.perf_counter()
                 card = odds_only_player_card(prop)
+                add_timing("cardPostProcessMs", post_started)
                 return attach_hit_profile(card, {**prop, **card, "date": clean(prop.get("date"))[:10] or date_label}), None
             return None, None
 
@@ -1502,7 +1822,8 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
         }
 
         try:
-            card = unified_prop_card(row)
+            card = cached_unified_prop_card(row)
+            post_started = time.perf_counter()
             out = {
                 "player": card.get("player"),
                 "market": card.get("market"),
@@ -1531,6 +1852,7 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
                 "bookCount": prop.get("bookCount") or len(prop.get("books") or []),
                 "books": prop.get("books") or [],
             }
+            add_timing("cardPostProcessMs", post_started)
             return attach_hit_profile(out, row), None
         except Exception as error:
             return None, {
@@ -1542,29 +1864,51 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
     requested_workers = int(os.environ.get("PLAYERBOARD_BUILD_WORKERS", "1") or "1")
     max_workers = max(1, min(12, requested_workers, (os.cpu_count() or 4)))
 
-    if max_workers <= 1:
-        for prop in props:
-            card, error = build_card(prop)
-            if card:
-                cards.append(card)
-            if error:
-                errors.append(error)
-    else:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(build_card, prop) for prop in props]
-            for future in as_completed(futures):
-                card, error = future.result()
+    build_started = time.perf_counter()
+    install_unified_caches()
+    try:
+        if max_workers <= 1:
+            for prop in props:
+                card, error = build_card(prop)
                 if card:
                     cards.append(card)
                 if error:
-                    errors.append(error)
+                    if error.get("type") == "unsupported_market":
+                        count_skip("unsupportedMarkets", error.get("market"))
+                    elif error.get("type") == "filtered":
+                        count_skip("filtered", error.get("reason"))
+                    else:
+                        errors.append(error)
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(build_card, prop) for prop in props]
+                for future in as_completed(futures):
+                    card, error = future.result()
+                    if card:
+                        cards.append(card)
+                    if error:
+                        if error.get("type") == "unsupported_market":
+                            count_skip("unsupportedMarkets", error.get("market"))
+                        elif error.get("type") == "filtered":
+                            count_skip("filtered", error.get("reason"))
+                        else:
+                            errors.append(error)
+    finally:
+        restore_unified_caches()
+    build_ms = (time.perf_counter() - build_started) * 1000.0
 
     # Final aggregation after context inference/model card creation.
     # This collapses remaining book/alias duplicates into one clean prop card.
+    aggregate_started = time.perf_counter()
     cards = sorted(aggregate_book_prices(cards), key=rank_value, reverse=True)
+    aggregate_ms = (time.perf_counter() - aggregate_started) * 1000.0
 
     top_cards = cards[:limit]
+    save_started = time.perf_counter()
     saved = save_playerboard_snapshot(season, date_label, top_cards, replace_date=replace_date, market=market) if save and top_cards else None
+    save_ms = (time.perf_counter() - save_started) * 1000.0
+    total_ms = (time.perf_counter() - started) * 1000.0
+    elapsed_seconds = max(total_ms / 1000.0, 0.000001)
 
     return {
         "season": season,
@@ -1573,6 +1917,35 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
         "propsLoaded": len(props),
         "cardsBuilt": len(cards),
         "errors": errors[:10],
+        "skipped": skipped,
+        "timings": {
+            "loadPropsMs": round(load_ms, 3),
+            "buildCardsMs": round(build_ms, 3),
+            "marketFilterMs": round(timings["marketFilterMs"], 3),
+            "unifiedPropCardMs": round(timings["unifiedPropCardMs"], 3),
+            "hitProfileMs": round(timings["hitProfileMs"], 3),
+            "historyLookupMs": round(timings["historyLookupMs"], 3),
+            "contextJoinMs": round(timings["contextJoinMs"], 3),
+            "cardPostProcessMs": round(timings["cardPostProcessMs"], 3),
+            "aggregateMs": round(aggregate_ms, 3),
+            "saveMs": round(save_ms, 3),
+            "totalMs": round(total_ms, 3),
+        },
+        "performance": {
+            "propsPerSecond": round(len(props) / elapsed_seconds, 3),
+            "cardsPerSecond": round(len(cards) / elapsed_seconds, 3),
+            "workers": max_workers,
+            "loadLimit": load_limit,
+        },
+        "cacheHits": counters["cacheHits"],
+        "cacheMisses": counters["cacheMisses"],
+        "hitProfileCacheHits": counters["hitProfileCacheHits"],
+        "hitProfileCacheMisses": counters["hitProfileCacheMisses"],
+        "historyCacheHits": counters["historyCacheHits"],
+        "historyCacheMisses": counters["historyCacheMisses"],
+        "contextCacheHits": counters["contextCacheHits"],
+        "contextCacheMisses": counters["contextCacheMisses"],
+        "marketCapabilities": dict(MARKET_CAPABILITY_MAP),
         "saved": saved,
         "sourceMode": source_mode,
         "canonicalSourceFiles": [str(path) for path in canonical_prop_files(date_label)],

@@ -94,6 +94,7 @@ class DataSourceCapabilityService:
             "gameMarkets": self._glob_source(
                 name="gameMarkets",
                 patterns=[
+                    data / "warehouse" / "normalized" / "game_markets" / f"game_markets_{date_label}.csv",
                     data / "warehouse" / "game_context" / f"*{date_label}*",
                     data / "warehouse" / "game_odds" / f"*{date_label}*.csv",
                     data / "game_odds" / f"*{date_label}*.csv",
