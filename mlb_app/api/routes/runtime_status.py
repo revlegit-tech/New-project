@@ -5,10 +5,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from mlb_app.api.dependencies import get_blocking_work_limiter, get_container
-from mlb_app.api.models import CollectorCheckResponse
+from mlb_app.api.models import CollectorCheckResponse, DataSourceCapabilityResponse
 from mlb_app.container import AppContainer
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.collector_verification_service import CollectorVerificationService
+from mlb_app.services.data_source_capability_service import DataSourceCapabilityService
 from mlb_app.services.data_freshness_service import DataFreshnessService
 from mlb_app.services.runtime_status_service import RuntimeStatusService
 
@@ -43,6 +44,27 @@ async def collector_check(
         date_label=date,
         season=selected_season,
         route_name="/api/runtime/collector-check",
+    )
+
+
+@router.get(
+    "/runtime/data-source-capabilities",
+    response_model=DataSourceCapabilityResponse,
+    name="native_runtime_data_source_capabilities",
+)
+async def data_source_capabilities(
+    container: Annotated[AppContainer, Depends(get_container)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+    date: Annotated[str | None, Query()] = None,
+    season: Annotated[int | None, Query()] = None,
+) -> dict:
+    service = DataSourceCapabilityService(container.settings)
+    selected_season = season if season is not None else container.settings.current_season
+    return await limiter.run(
+        service.payload,
+        date_label=date,
+        season=selected_season,
+        route_name="/api/runtime/data-source-capabilities",
     )
 
 

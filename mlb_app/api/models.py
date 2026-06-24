@@ -662,6 +662,20 @@ class CollectorCheckResponse(StrictResponse):
     counts: dict[str, Any] = Field(default_factory=dict)
     files: dict[str, Any] = Field(default_factory=dict)
     runtime: dict[str, Any] = Field(default_factory=dict)
+    capabilitySummary: dict[str, Any] = Field(default_factory=dict)
+    recommendations: list[str] = Field(default_factory=list)
+
+
+class DataSourceCapabilityResponse(StrictResponse):
+    schemaVersion: str = "data-source-capability.v1"
+    status: str
+    season: int
+    date: str
+    resolvedDateMode: str = ""
+    sources: dict[str, Any] = Field(default_factory=dict)
+    featureGroups: dict[str, Any] = Field(default_factory=dict)
+    featureStoreContract: dict[str, Any] = Field(default_factory=dict)
+    featureAudit: dict[str, Any] = Field(default_factory=dict)
     recommendations: list[str] = Field(default_factory=list)
 
 

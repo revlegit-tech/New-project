@@ -9,6 +9,7 @@ from mlb_app.config import Settings, settings as default_settings
 from mlb_app.repositories.board_snapshot_repository import BoardSnapshotRepository
 from mlb_app.services.edge_board_service import EdgeBoardService
 from mlb_app.services.runtime_status_service import RuntimeStatusService, safe_relpath
+from mlb_app.services.data_source_capability_service import DataSourceCapabilityService
 
 SCHEMA_VERSION = "collector-check.v1"
 
@@ -66,6 +67,10 @@ class CollectorVerificationService:
         edge_board_check = self._edge_board_check(selected_season, target_date)
         default_date_check = self._default_date_check(selected_season, target_date)
         runtime_check = self._runtime_db_check()
+        capability_summary = DataSourceCapabilityService(self.settings).capability_summary(
+            date_label=target_date,
+            season=selected_season,
+        )
 
         status = classify_collector_state(
             props_rows=int(props_check.get("rows") or 0),
@@ -119,6 +124,7 @@ class CollectorVerificationService:
                 "databaseUrlConfigured": runtime_check.get("databaseUrlConfigured", False),
                 "ok": runtime_check.get("ok", False),
             },
+            "capabilitySummary": capability_summary,
             "recommendations": recommendations,
         }
 
