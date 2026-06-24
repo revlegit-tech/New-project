@@ -124,7 +124,7 @@ def before_game(date_label: str) -> None:
     print(f"Saved: {props.get('savedPath', '--')}")
 
     board = request_json(
-        f"/api/playerboard?season={season_from_date(date_label)}&date={urllib.parse.quote(date_label)}&limit=500&refresh=1&save=1",
+        f"/api/playerboard?season={season_from_date(date_label)}&date={urllib.parse.quote(date_label)}&limit=1000&refresh=1&save=1&replaceDate=1&sourceMode=propline",
     )
 
     print("")

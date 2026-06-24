@@ -1445,7 +1445,8 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
     from mlb_app.domain.unified_prop_card import unified_prop_card
 
     markets = [market] if market else DEFAULT_MARKETS
-    props = load_saved_props(date_label, markets=markets, limit=5000, source_mode=source_mode)
+    load_limit = max(1, int(limit or 5000))
+    props = load_saved_props(date_label, markets=markets, limit=load_limit, source_mode=source_mode)
 
     cards = []
     errors = []
@@ -1538,15 +1539,25 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
                 "error": str(error),
             }
 
-    max_workers = min(12, max(2, (os.cpu_count() or 4)))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(build_card, prop) for prop in props]
-        for future in as_completed(futures):
-            card, error = future.result()
+    requested_workers = int(os.environ.get("PLAYERBOARD_BUILD_WORKERS", "1") or "1")
+    max_workers = max(1, min(12, requested_workers, (os.cpu_count() or 4)))
+
+    if max_workers <= 1:
+        for prop in props:
+            card, error = build_card(prop)
             if card:
                 cards.append(card)
             if error:
                 errors.append(error)
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(build_card, prop) for prop in props]
+            for future in as_completed(futures):
+                card, error = future.result()
+                if card:
+                    cards.append(card)
+                if error:
+                    errors.append(error)
 
     # Final aggregation after context inference/model card creation.
     # This collapses remaining book/alias duplicates into one clean prop card.

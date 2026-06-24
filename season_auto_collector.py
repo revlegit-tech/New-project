@@ -650,14 +650,17 @@ def snapshot(date_label: str, run_type: str, include_savant: bool) -> dict[str, 
 
             # Automatically save the full ranked board for ML/backtesting.
             # This does not clutter prediction_history; it writes to data/playerboard.
+            playerboard_limit = int(os.environ.get("PLAYERBOARD_DAILY_BUILD_LIMIT", "1000") or "1000")
+            playerboard_source_mode = os.environ.get("PLAYERBOARD_DAILY_SOURCE_MODE", "propline") or "propline"
+
             summary["playerboard"] = build_playerboard(
                 season=int(date_label[:4]),
                 date_label=date_label,
                 market="",
-                limit=5000,
+                limit=playerboard_limit,
                 save=True,
                 replace_date=True,
-                source_mode="canonical",
+                source_mode=playerboard_source_mode,
             )
         except Exception as board_error:
             summary["playerboard"] = {"error": str(board_error)}
