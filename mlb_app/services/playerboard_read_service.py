@@ -196,6 +196,30 @@ class PlayerboardReadService:
         """Read from warehouse DB, then SQLite active snapshots, then CSV fallback."""
 
         selected_date = date_label
+
+        # Default app-open behavior: prefer the current local slate when it has
+        # an active serving snapshot, then fall back to the latest active saved
+        # board. This keeps manual historical dates intact while avoiding stale
+        # no-date defaults.
+        if not selected_date and self.snapshot_repository is not None:
+            today_label = datetime.now().astimezone().date().isoformat()
+            try:
+                today_result = self.snapshot_repository.read_active_playerboard(
+                    season=season,
+                    date_label=today_label,
+                    market=market,
+                    prop_key=prop_key,
+                )
+                if today_result is not None and today_result.rows:
+                    return today_result
+            except Exception:
+                pass
+
+            try:
+                selected_date = self.snapshot_repository.latest_active_date(season)
+            except Exception:
+                selected_date = ""
+
         if not selected_date and self.db_snapshot_repository is not None and self.settings.db_enabled:
             try:
                 selected_date = self.db_snapshot_repository.latest_snapshot_date(season=season)
