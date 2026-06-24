@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -72,6 +73,79 @@ def read_status_json(path: Path, *, root: Path) -> dict[str, Any]:
     return sanitize_public(payload)
 
 
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except Exception:
+        return False
+
+
+def _database_url_kind(value: str) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return "unset"
+    if text.startswith("sqlite:///"):
+        return "sqlite_file"
+    if text.startswith("sqlite://"):
+        return "sqlite"
+    if "postgres" in text:
+        return "postgres"
+    return "configured"
+
+
+def _live_runtime_payload(settings: Settings) -> dict[str, Any]:
+    root = settings.root_dir.resolve()
+    prefix = Path(sys.prefix).resolve()
+    base_prefix = Path(getattr(sys, "base_prefix", sys.prefix)).resolve()
+    executable_name = Path(sys.executable).name
+    pythonpath = os.environ.get("PYTHONPATH", "")
+    pythonpath_parts = [part for part in pythonpath.split(os.pathsep) if part]
+    pythonpath_includes_root = any(
+        Path(part).resolve() == root
+        for part in pythonpath_parts
+        if part
+    )
+
+    is_project_venv = _is_relative_to(prefix, root) and prefix.name.lower() == ".venv"
+    cwd_matches_root = Path.cwd().resolve() == root
+
+    warnings: list[str] = []
+    if not is_project_venv:
+        warnings.append("Runtime is not using the project .venv prefix.")
+    if not pythonpath_includes_root:
+        warnings.append("PYTHONPATH does not include the project root.")
+    if not cwd_matches_root:
+        warnings.append("Process working directory does not match the project root.")
+
+    return {
+        "schemaVersion": "runtime-live.v1",
+        "entrypoint": "mlb_app.asgi:app",
+        "python": {
+            "version": sys.version.split()[0],
+            "implementation": sys.implementation.name,
+            "executableName": executable_name,
+            "prefixKind": "project_venv" if is_project_venv else "external",
+            "prefixLabel": ".venv" if is_project_venv else "external",
+            "isProjectVenv": is_project_venv,
+            "basePrefixOutsideProject": not _is_relative_to(base_prefix, root),
+        },
+        "process": {
+            "cwdMatchesRoot": cwd_matches_root,
+            "pythonPathIncludesRoot": pythonpath_includes_root,
+        },
+        "environment": {
+            "dbEnabled": os.environ.get("DB_ENABLED", ""),
+            "dbFallbackToCsv": os.environ.get("DB_FALLBACK_TO_CSV", ""),
+            "gameMarketEnrichmentEnabled": os.environ.get("GAME_MARKET_ENRICHMENT_ENABLED", ""),
+            "teamGameMarketProjectionsEnabled": os.environ.get("TEAM_GAME_MARKET_PROJECTIONS_ENABLED", ""),
+            "databaseUrlKind": _database_url_kind(os.environ.get("DATABASE_URL", "")),
+            "databaseUrlConfigured": bool(os.environ.get("DATABASE_URL", "")),
+        },
+        "warnings": warnings,
+    }
+
+
 class RuntimeStatusService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -90,6 +164,7 @@ class RuntimeStatusService:
     def runtime_status(self) -> dict[str, Any]:
         launch = read_status_json(self.status_dir / "launch_bootstrap_status.json", root=self.settings.root_dir)
         runtime = read_status_json(self.status_dir / "runtime_status.json", root=self.settings.root_dir)
+        live_runtime = _live_runtime_payload(self.settings)
         statuses = [str(launch.get("status", "missing")), str(runtime.get("status", "missing"))]
         overall = "ok" if any(status == "success" for status in statuses) else "degraded"
         return sanitize_public(
@@ -99,6 +174,7 @@ class RuntimeStatusService:
                 "ok": overall == "ok",
                 "checkedAt": datetime.now(timezone.utc).isoformat(),
                 "runtime": runtime,
+                "liveRuntime": live_runtime,
                 "launchBootstrap": launch,
                 "environment": {
                     "dbEnabled": os.environ.get("DB_ENABLED", ""),
