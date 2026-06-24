@@ -77,7 +77,7 @@ class EdgeBoardService:
         return payload
 
     def _build_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
-        if not _bypass_board_cache(query):
+        if not _bypass_board_cache(query) and _query_value(query, "date"):
             db_payload = self._payload_from_database(query)
             if db_payload is not None:
                 return db_payload

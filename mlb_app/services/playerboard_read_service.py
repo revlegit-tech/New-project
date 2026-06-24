@@ -195,11 +195,18 @@ class PlayerboardReadService:
     def _read_result(self, *, season: int, date_label: str, market: str, prop_key: str = "") -> PlayerboardReadResult:
         """Read from warehouse DB, then SQLite active snapshots, then CSV fallback."""
 
+        selected_date = date_label
+        if not selected_date and self.db_snapshot_repository is not None and self.settings.db_enabled:
+            try:
+                selected_date = self.db_snapshot_repository.latest_snapshot_date(season=season)
+            except Exception:
+                selected_date = ""
+
         if self.db_snapshot_repository is not None and self.settings.db_enabled:
             try:
                 db_result = self.db_snapshot_repository.read_latest_playerboard(
                     season=season,
-                    date_label=date_label,
+                    date_label=selected_date,
                     market=market,
                     prop_key=prop_key,
                 )
@@ -213,13 +220,13 @@ class PlayerboardReadService:
         if self.snapshot_repository is not None:
             db_result = self.snapshot_repository.read_active_playerboard(
                 season=season,
-                date_label=date_label,
+                date_label=selected_date,
                 market=market,
                 prop_key=prop_key,
             )
             if db_result is not None:
                 return db_result
-        return self.repository.read_current_playerboard(season=season)
+        return self.repository.read_current_playerboard(season=season, date_label=selected_date, market=market)
 
     def _emit_snapshot_metrics(self, snapshot: PlayerboardSnapshot, *, build_ms: float) -> None:
         if self.metrics is None:
