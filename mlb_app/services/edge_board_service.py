@@ -12,6 +12,7 @@ from mlb_app.repositories.edge_board_snapshot_repository import EdgeBoardSnapsho
 from mlb_app.services.board_cache import BoardCache, BoardCacheBuildResult
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.model_card_service import ModelCardService
+from mlb_app.services.playerboard_builder import market_capability
 from mlb_app.services.playerboard_read_service import prop_key_for_row
 from mlb_app.services.playerboard_service import PlayerboardService
 
@@ -327,9 +328,17 @@ class EdgeBoardService:
         warnings = list(card.get("trustWarnings") or [])
         book = _clean(_first(row, "book", "sportsbook", "bestBook", "bookmaker", "sourceBook"))
         freshness = _row_freshness(row, board)
+        capability_status = _market_capability_status(market)
+        production_eligible = bool(card.get("productionReady") or _clean(card.get("productionStatus")).lower() == "production")
 
         enriched = dict(row)
         game_context = _game_context_for_row(row)
+        action_label = _safe_action_label(
+            decision_label=decision_label,
+            capability_status=capability_status,
+            freshness=freshness,
+            production_eligible=production_eligible,
+        )
         enriched.update(
             {
                 "id": _row_id(row, rank),
@@ -345,7 +354,10 @@ class EdgeBoardService:
                 "book": book or "Best available",
                 "gameTime": _clean(_first(row, "gameTime", "startTime", "commenceTime", "game_time")),
                 "decisionLabel": decision_label,
+                "actionLabel": action_label,
                 "decisionTone": _decision_tone(decision_label),
+                "marketCapabilityStatus": capability_status,
+                "modelProductionEligible": production_eligible,
                 "modelProbabilityPercent": _round_or_blank(probability),
                 "impliedProbabilityPercent": _round_or_blank(implied),
                 "edgePercent": _round_or_blank(edge),
@@ -379,6 +391,9 @@ class EdgeBoardService:
                     decision_label=decision_label,
                     warnings=warnings,
                     book=book or "Best available",
+                    market_capability_status=capability_status,
+                    action_label=action_label,
+                    production_eligible=production_eligible,
                 ),
                 "freshness": freshness,
             }
@@ -655,6 +670,9 @@ def _row_trust(
     decision_label: str,
     warnings: list[Any],
     book: str,
+    market_capability_status: str,
+    action_label: str,
+    production_eligible: bool,
 ) -> dict[str, Any]:
     confident = bool(card.get("canShowConfidentPick"))
     production_status = _clean(card.get("productionStatus") or "research_only")
@@ -681,14 +699,18 @@ def _row_trust(
             "tone": _readiness_tone(readiness, production_status, confident),
             "canShowConfidentPick": confident,
             "warnings": [_clean(item) for item in warnings[:6] if _clean(item)],
+            "modelProductionEligible": production_eligible,
         },
         "actionability": {
-            "label": _actionability_label(action_status, decision_label),
+            "label": action_label,
             "status": action_status,
             "suggestedStake": _suggested_stake(decision_label, confident),
             "stakeUnits": 0.25 if action_status == "actionable" else 0,
             "reason": _actionability_reason(action_status),
         },
+        "marketCapabilityStatus": market_capability_status,
+        "actionLabel": action_label,
+        "researchOnly": not production_eligible,
     }
 
 
@@ -748,6 +770,40 @@ def _actionability_reason(status: str) -> str:
     if status == "blocked":
         return "The row does not clear the model edge threshold."
     return "Research-only until data and model gates are satisfied."
+
+
+def _market_capability_status(market: Any) -> str:
+    status = market_capability(market)
+    if status == "unsupported_skip":
+        return "unsupported"
+    if status in {"model_supported", "research_only"}:
+        return status
+    return "unsupported"
+
+
+def _safe_action_label(
+    *,
+    decision_label: str,
+    capability_status: str,
+    freshness: dict[str, Any],
+    production_eligible: bool,
+) -> str:
+    freshness_status = _clean(freshness.get("status")).lower()
+    if capability_status == "unsupported":
+        return "Unsupported market"
+    if freshness_status in {"stale", "missing"}:
+        return "Data stale"
+    if capability_status == "research_only" or not production_eligible:
+        if decision_label == "Watchlist":
+            return "Watchlist"
+        if decision_label == "No bet":
+            return "No bet"
+        return "Research only"
+    if decision_label in {"Potential edge", "Model lean"}:
+        return "Model lean"
+    if decision_label == "Watchlist":
+        return "Watchlist"
+    return "No bet"
 
 
 def _freshness_status(freshness: dict[str, Any], board: dict[str, Any]) -> str:

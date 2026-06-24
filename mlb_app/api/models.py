@@ -73,7 +73,10 @@ class EdgeBoardRow(StrictPayload):
     gameTime: str | None = None
     readinessLabel: str = ""
     decisionLabel: str = ""
+    actionLabel: str | None = None
     decisionTone: str | None = None
+    marketCapabilityStatus: str | None = None
+    modelProductionEligible: bool | None = None
     productionStatus: str | None = None
     canShowConfidentPick: bool | None = None
     trainingRows: Any = None
@@ -679,6 +682,44 @@ class DataSourceCapabilityResponse(StrictResponse):
     recommendations: list[str] = Field(default_factory=list)
 
 
+class FeatureStoreMaterializerResponse(StrictResponse):
+    schemaVersion: str = "feature-store-materializer.v1"
+    status: str = "partial"
+    date: str
+    season: int
+    resolvedDateMode: str = ""
+    rows: int = 0
+    path: str = ""
+    pregameSafe: bool = True
+    labelsExcluded: bool = True
+    missingFeatureGroups: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    externalApiCallsMade: bool = False
+    modelTrainingTriggered: bool = False
+
+
+class ModelTrainingReadinessResponse(StrictResponse):
+    schemaVersion: str = "model-training-readiness.v1"
+    status: str = "ok"
+    date: str
+    season: int
+    resolvedDateMode: str = ""
+    readyForBaselineTraining: bool = False
+    readyForProductionTraining: bool = False
+    eligibleBaselineMarkets: list[str] = Field(default_factory=list)
+    eligibleProductionMarkets: list[str] = Field(default_factory=list)
+    modelTrainingTriggered: bool = False
+    externalApiCallsMade: bool = False
+    xgboostAvailable: bool = False
+    modelState: str = "research_only"
+    allowedModelStates: list[str] = Field(default_factory=list)
+    featureMatrix: dict[str, Any] = Field(default_factory=dict)
+    validation: dict[str, Any] = Field(default_factory=dict)
+    labelArtifacts: list[str] = Field(default_factory=list)
+    markets: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class EdgeBoardResponse(StrictResponse):
     status: str = "ok"
     schemaVersion: str | None = None
@@ -723,7 +764,10 @@ class ResearchReportCard(StrictPayload):
     modelProbabilityPercent: float | None = None
     impliedProbabilityPercent: float | None = None
     decisionLabel: str = ""
+    actionLabel: str | None = None
     readinessLabel: str = ""
+    marketCapabilityStatus: str | None = None
+    modelProductionEligible: bool | None = None
     suggestedStake: str = ""
     sourceRowRank: int = 0
     freshness: dict[str, Any] = Field(default_factory=dict)

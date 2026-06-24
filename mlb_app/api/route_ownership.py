@@ -65,6 +65,8 @@ ROUTE_OWNERSHIP: tuple[RouteOwnership, ...] = (
     RouteOwnership("GET", "/api/data/status", "FastAPI", "native_data_status", "none", "no_legacy_handler", "Collector freshness/status endpoint; compact public health contract."),
     RouteOwnership("GET", "/api/runtime/collector-check", "FastAPI", "native_runtime_collector_check", "none", "no_legacy_handler", "Read-only daily collector verification endpoint."),
     RouteOwnership("GET", "/api/runtime/data-source-capabilities", "FastAPI", "native_runtime_data_source_capabilities", "none", "no_legacy_handler", "Read-only data source and ML feature-store capability audit."),
+    RouteOwnership("GET", "/api/runtime/feature-store/status", "FastAPI", "native_runtime_feature_store_status", "none", "no_legacy_handler", "Read-only pregame feature matrix materialization status."),
+    RouteOwnership("GET", "/api/runtime/model-training/readiness", "FastAPI", "native_runtime_model_training_readiness", "none", "no_legacy_handler", "Read-only baseline/production model training readiness gates."),
     RouteOwnership("GET", "/api/grading/health", "FastAPI", "native_grading_health", "mlb_app.routes.data_health.grading_health", "delete", "Native grading health endpoint; service resolved from AppContainer."),
     RouteOwnership("GET", "/api/workflows/health", "FastAPI", "native_workflow_health", "mlb_app.routes.workflows.workflow_health", "delete", "Native workflow health endpoint; service resolved from AppContainer."),
     RouteOwnership("GET", "/api/prop-ml/status", "FastAPI", "native_prop_ml_status", "mlb_app.routes.health.prop_ml_status", "delete", "Native prop-ML status endpoint; service resolved from AppContainer."),

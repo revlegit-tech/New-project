@@ -5,12 +5,19 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from mlb_app.api.dependencies import get_blocking_work_limiter, get_container
-from mlb_app.api.models import CollectorCheckResponse, DataSourceCapabilityResponse
+from mlb_app.api.models import (
+    CollectorCheckResponse,
+    DataSourceCapabilityResponse,
+    FeatureStoreMaterializerResponse,
+    ModelTrainingReadinessResponse,
+)
 from mlb_app.container import AppContainer
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.collector_verification_service import CollectorVerificationService
 from mlb_app.services.data_source_capability_service import DataSourceCapabilityService
 from mlb_app.services.data_freshness_service import DataFreshnessService
+from mlb_app.services.feature_store_materializer import FeatureStoreMaterializer
+from mlb_app.services.model_training_readiness_service import ModelTrainingReadinessService
 from mlb_app.services.runtime_status_service import RuntimeStatusService
 
 router = APIRouter(prefix="/api", tags=["runtime"])
@@ -65,6 +72,52 @@ async def data_source_capabilities(
         date_label=date,
         season=selected_season,
         route_name="/api/runtime/data-source-capabilities",
+    )
+
+
+@router.get(
+    "/runtime/feature-store/status",
+    response_model=FeatureStoreMaterializerResponse,
+    name="native_runtime_feature_store_status",
+)
+async def feature_store_status(
+    container: Annotated[AppContainer, Depends(get_container)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+    date: Annotated[str | None, Query()] = None,
+    season: Annotated[int | None, Query()] = None,
+    materialize: Annotated[bool, Query()] = False,
+) -> dict:
+    service = FeatureStoreMaterializer(container.settings)
+    selected_season = season if season is not None else container.settings.current_season
+    return await limiter.run(
+        service.status,
+        date_label=date,
+        season=selected_season,
+        materialize=materialize,
+        route_name="/api/runtime/feature-store/status",
+    )
+
+
+@router.get(
+    "/runtime/model-training/readiness",
+    response_model=ModelTrainingReadinessResponse,
+    name="native_runtime_model_training_readiness",
+)
+async def model_training_readiness(
+    container: Annotated[AppContainer, Depends(get_container)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+    date: Annotated[str | None, Query()] = None,
+    season: Annotated[int | None, Query()] = None,
+    market: Annotated[str | None, Query()] = None,
+) -> dict:
+    service = ModelTrainingReadinessService(container.settings)
+    selected_season = season if season is not None else container.settings.current_season
+    return await limiter.run(
+        service.payload,
+        date_label=date,
+        season=selected_season,
+        market=market,
+        route_name="/api/runtime/model-training/readiness",
     )
 
 

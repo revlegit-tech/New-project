@@ -182,7 +182,10 @@ def _decorate_row(row: dict[str, Any]) -> dict[str, Any]:
         "modelProbabilityPercent": round(model_probability, 2) if model_probability else None,
         "impliedProbabilityPercent": round(implied_probability, 2) if implied_probability else None,
         "decisionLabel": _clean(row.get("decisionLabel")) or "Watchlist",
+        "actionLabel": _clean(row.get("actionLabel")) or _clean(row.get("decisionLabel")) or "Watchlist",
         "readinessLabel": _clean(row.get("readinessLabel")) or "Research only",
+        "marketCapabilityStatus": _clean(row.get("marketCapabilityStatus")) or "research_only",
+        "modelProductionEligible": bool(row.get("modelProductionEligible")),
         "suggestedStake": "Research only" if risk_bucket != "Fade" else "0u",
         "sourceRowRank": _int(row.get("rank"), 0),
         "freshness": row.get("freshness") if isinstance(row.get("freshness"), dict) else {},
@@ -222,6 +225,8 @@ def _summary(rows: list[dict[str, Any]], board: dict[str, Any]) -> dict[str, Any
         "boardDataConfidence": board.get("dataConfidence", "Missing"),
         "latestFullyGradedDate": board.get("latestFullyGradedDate", ""),
         "gameMarketMatchedRows": sum(1 for row in rows if (row.get("gameMarketContext") or {}).get("status") == "matched"),
+        "readyForBaselineTraining": bool(((board.get("trust") or {}).get("runtimeReadiness") or {}).get("readyForBaselineTraining")),
+        "readyForProductionTraining": bool(((board.get("trust") or {}).get("runtimeReadiness") or {}).get("readyForProductionTraining")),
     }
 
 
@@ -378,6 +383,8 @@ def _generated_reasons(row: dict[str, Any], *, score: int, grade: str, edge: flo
         reasons.append("Clears the strongest score bucket, but the app still labels it research-only until user review.")
     if odds:
         reasons.append(f"Current American odds captured as {_format_odds(odds)}; users should verify live book price before publishing.")
+    if not bool(row.get("modelProductionEligible")):
+        reasons.append("Model production eligibility is not confirmed; keep this as research-only context.")
     return reasons
 
 

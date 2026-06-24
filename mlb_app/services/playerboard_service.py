@@ -8,7 +8,9 @@ from mlb_app.repositories.playerboard_repository import PlayerboardRepository
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.model_readiness_service import ModelReadinessService
-from mlb_app.services.playerboard_builder import build_playerboard
+from mlb_app.services.data_source_capability_service import DataSourceCapabilityService
+from mlb_app.services.model_training_readiness_service import ModelTrainingReadinessService
+from mlb_app.services.playerboard_builder import build_playerboard, market_capability
 from mlb_app.services.playerboard_read_service import PlayerboardReadService, PlayerboardSnapshot
 from mlb_app.services.product_state_service import ProductStateService
 
@@ -83,7 +85,7 @@ class PlayerboardService:
     def _payload_from_snapshot(self, snapshot: PlayerboardSnapshot, *, market: str, limit: int) -> dict[str, Any]:
         rows = list(snapshot.rows)[:limit]
         health = snapshot.health.to_dict()
-        return {
+        payload = {
             "status": "ok",
             "season": snapshot.season,
             "date": snapshot.date,
@@ -113,6 +115,7 @@ class PlayerboardService:
             "sourceMeta": snapshot.source_meta(),
             "freshness": health.get("freshness", {}),
         }
+        return self._attach_runtime_trust(payload)
 
     def _attach_trust(self, payload: dict[str, Any], query: dict[str, list[str]]) -> dict[str, Any]:
         if not isinstance(payload, dict):
@@ -125,7 +128,7 @@ class PlayerboardService:
         enriched.setdefault("modelReadiness", health.get("modelReadiness", {}))
         enriched.setdefault("trust", health.get("trust", {}))
         enriched.setdefault("schemaVersion", PLAYERBOARD_SCHEMA_VERSION)
-        return enriched
+        return self._attach_runtime_trust(enriched)
 
     def _apply_game_market_enrichment(self, payload: dict[str, Any]) -> dict[str, Any]:
         rows = _list_rows(payload.get("rows") or payload.get("top") or [])
@@ -149,6 +152,7 @@ class PlayerboardService:
             ]
 
         enriched = dict(payload)
+        enriched_rows = [_annotate_market_trust(row) for row in enriched_rows]
         enriched["rows"] = enriched_rows
         if "top" in enriched:
             enriched["top"] = enriched_rows
@@ -159,6 +163,44 @@ class PlayerboardService:
         )
         enriched["meta"] = meta
         return enriched
+
+    def _attach_runtime_trust(self, payload: dict[str, Any]) -> dict[str, Any]:
+        date_label = _clean(payload.get("date"))
+        season = int(payload.get("season") or self.settings.current_season)
+        try:
+            capability = DataSourceCapabilityService(self.settings).capability_summary(date_label=date_label or None, season=season)
+        except Exception:
+            capability = {
+                "featureStoreReady": False,
+                "readyForBoard": False,
+                "readyForBaselineTraining": False,
+                "readyForProductionTraining": False,
+                "missingCriticalFeatureGroups": [],
+                "dataSourceCapabilityStatus": "partial",
+            }
+        try:
+            training = ModelTrainingReadinessService(self.settings).payload(date_label=date_label or None, season=season)
+        except Exception:
+            training = {"readyForBaselineTraining": False, "readyForProductionTraining": False, "eligibleProductionMarkets": []}
+        trust = dict(payload.get("trust") or {})
+        trust["runtimeReadiness"] = {
+            "collectorStatus": "unknown",
+            "dataSourceCapabilityStatus": capability.get("dataSourceCapabilityStatus", "partial"),
+            "featureStoreReady": bool(capability.get("featureStoreReady")),
+            "readyForBoard": bool(capability.get("readyForBoard")),
+            "readyForBaselineTraining": bool(training.get("readyForBaselineTraining") or capability.get("readyForBaselineTraining")),
+            "readyForProductionTraining": bool(training.get("readyForProductionTraining") or capability.get("readyForProductionTraining")),
+            "missingFeatureGroups": list(capability.get("missingCriticalFeatureGroups") or []),
+            "researchOnly": True,
+        }
+        payload = dict(payload)
+        payload["trust"] = trust
+        payload["modelReadiness"] = dict(payload.get("modelReadiness") or {}) | {
+            "readyForBaselineTraining": trust["runtimeReadiness"]["readyForBaselineTraining"],
+            "readyForProductionTraining": trust["runtimeReadiness"]["readyForProductionTraining"],
+            "eligibleProductionMarkets": list(training.get("eligibleProductionMarkets") or []),
+        }
+        return payload
 
     @staticmethod
     def _data_confidence(*, ok: bool, grading_state: str, rows: int) -> str:
@@ -207,3 +249,45 @@ def _game_market_enrichment_summary(rows: list[dict[str, Any]], *, enabled: bool
         "statusCounts": status_counts,
         "source": "historical_game_market_features",
     }
+
+
+def _market_capability_status(market: Any) -> str:
+    status = market_capability(market)
+    if status == "unsupported_skip":
+        return "unsupported"
+    if status in {"model_supported", "research_only"}:
+        return status
+    return "unsupported"
+
+
+def _action_label(row: dict[str, Any]) -> str:
+    capability = _market_capability_status(row.get("market"))
+    freshness = row.get("freshness") if isinstance(row.get("freshness"), dict) else {}
+    freshness_status = _clean(freshness.get("status")).lower()
+    if capability == "unsupported":
+        return "Unsupported market"
+    if freshness_status in {"stale", "missing"}:
+        return "Data stale"
+    if capability == "research_only":
+        return "Research only"
+    decision = _clean(row.get("decisionLabel"))
+    if decision in {"Model lean", "Potential edge"}:
+        return "Model lean"
+    if decision == "Watchlist":
+        return "Watchlist"
+    return "No bet"
+
+
+def _annotate_market_trust(row: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(row)
+    capability = _market_capability_status(enriched.get("market"))
+    enriched["marketCapabilityStatus"] = capability
+    enriched["actionLabel"] = _action_label(enriched)
+    if "modelProductionEligible" not in enriched:
+        enriched["modelProductionEligible"] = False
+    trust = dict(enriched.get("trust") or {})
+    trust["marketCapabilityStatus"] = capability
+    trust["actionLabel"] = enriched["actionLabel"]
+    trust.setdefault("researchOnly", capability != "model_supported" or not bool(enriched.get("modelProductionEligible")))
+    enriched["trust"] = trust
+    return enriched
