@@ -440,17 +440,57 @@ class DataHealthDashboardService:
     @staticmethod
     def _playerboard_warnings(playerboard: dict[str, Any]) -> list[str]:
         warnings: list[str] = []
+
+        def add(message: str) -> None:
+            text = str(message or "").strip()
+            if text and text not in warnings:
+                warnings.append(text)
+
+        def as_int(value: Any) -> int:
+            try:
+                return int(value or 0)
+            except (TypeError, ValueError):
+                return 0
+
         if not playerboard.get("exists"):
-            warnings.append("Playerboard file does not exist yet.")
+            add("Playerboard file does not exist yet.")
         if not playerboard.get("schemaOk"):
-            warnings.append(f"Schema issue: {playerboard.get('schemaIssue') or 'unknown'}")
+            add(f"Schema issue: {playerboard.get('schemaIssue') or 'unknown'}")
         if (playerboard.get("rowsLoaded") or 0) <= 0:
-            warnings.append("No playerboard rows loaded for this date/filter.")
+            add("No playerboard rows loaded for this date/filter.")
         if (playerboard.get("badShiftedRows") or 0) > 0:
-            warnings.append(f"{playerboard.get('badShiftedRows')} shifted rows detected.")
+            add(f"{playerboard.get('badShiftedRows')} shifted rows detected.")
         if (playerboard.get("missingMarketDisplayRows") or 0) > 0:
-            warnings.append(f"{playerboard.get('missingMarketDisplayRows')} rows missing market display labels.")
-        return warnings[:4]
+            add(f"{playerboard.get('missingMarketDisplayRows')} rows missing market display labels.")
+
+        for warning in playerboard.get("warnings") or []:
+            add(str(warning))
+
+        snapshot_group_count = as_int(playerboard.get("snapshotGroupCount"))
+        if snapshot_group_count > 1:
+            add(f"Multiple playerboard snapshot groups detected for this date ({snapshot_group_count}).")
+
+        rows_loaded = as_int(playerboard.get("rowsLoaded"))
+        date_rows = as_int(playerboard.get("dateRowsInFile"))
+        if rows_loaded > 10000 or (rows_loaded > 0 and date_rows > max(10000, rows_loaded * 2)):
+            add(f"Playerboard row count is unusually high for one slate ({date_rows} date rows, {rows_loaded} loaded rows).")
+
+        recent_age = playerboard.get("recentGamesAgeDays")
+        try:
+            recent_age_days = int(recent_age) if recent_age is not None else None
+        except (TypeError, ValueError):
+            recent_age_days = None
+
+        stale_recent_rows = as_int(playerboard.get("staleRecentGameRows"))
+        rows_with_recent = as_int(playerboard.get("rowsWithRecentGames"))
+        latest_recent = str(playerboard.get("latestRecentGameDate") or "")
+
+        if latest_recent and recent_age_days is not None and recent_age_days > 7:
+            add(f"Playerboard recentGames context appears stale; latest recent game date is {latest_recent}.")
+        if rows_with_recent and stale_recent_rows / rows_with_recent >= 0.25:
+            add(f"{stale_recent_rows} playerboard rows have stale recentGames context.")
+
+        return warnings[:6]
 
     @staticmethod
     def _combined_warnings(*payloads: dict[str, Any]) -> list[str]:
@@ -499,8 +539,16 @@ class DataHealthDashboardService:
             "date": payload.get("date"),
             "latestAvailableDate": payload.get("latestAvailableDate"),
             "rowsLoaded": payload.get("rowsLoaded"),
+            "dateRowsInFile": payload.get("dateRowsInFile"),
+            "snapshotGroupCount": payload.get("snapshotGroupCount"),
+            "snapshotGroups": payload.get("snapshotGroups", []),
+            "latestRecentGameDate": payload.get("latestRecentGameDate"),
+            "recentGamesAgeDays": payload.get("recentGamesAgeDays"),
+            "rowsWithRecentGames": payload.get("rowsWithRecentGames"),
+            "staleRecentGameRows": payload.get("staleRecentGameRows"),
             "marketsPresent": payload.get("marketsPresent", {}),
             "dataConfidence": payload.get("dataConfidence"),
+            "warnings": (payload.get("warnings") or [])[:10],
         }
 
     @staticmethod

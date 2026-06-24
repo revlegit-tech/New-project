@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 import pytest
@@ -243,6 +244,50 @@ def test_playerboard_service_returns_normalized_schema_metadata(tmp_path: Path) 
     assert payload["rowsLoaded"] == 1
     assert payload["marketsPresent"] == {"batter_hits_alt": 1}
 
+
+
+def test_playerboard_health_reports_snapshot_and_recent_game_diagnostics(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    repository = PlayerboardRepository(settings=settings)
+    path = repository.path_for_season(2026)
+
+    stale_row = _current_row() | {
+        "snapshotAt": "2026-06-23T18:00:00Z",
+        "date": "2026-06-23",
+        "market": "batter_hits",
+        "marketDisplay": "Batter Hits",
+        "line": "0.5",
+        "recentGames": json.dumps([{"date": "2026-05-06"}]),
+    }
+    fresh_row = _current_row() | {
+        "snapshotAt": "2026-06-23T23:00:00Z",
+        "date": "2026-06-23",
+        "market": "batter_total_bases",
+        "marketDisplay": "Batter Total Bases",
+        "line": "1.5",
+        "recentGames": json.dumps([{"date": "2026-06-22"}]),
+    }
+
+    _write_playerboard(path, PLAYERBOARD_FIELDS, [stale_row, fresh_row])
+
+    service = PlayerboardService(
+        repository=repository,
+        grading_service=FakeGradingService(),  # type: ignore[arg-type]
+        readiness_service=FakeReadinessService(),  # type: ignore[arg-type]
+        product_state_service=FakeProductStateService(),  # type: ignore[arg-type]
+        settings=settings,
+    )
+
+    payload = service.health_payload({"season": ["2026"], "date": ["2026-06-23"]})
+
+    assert payload["rowsLoaded"] == 2
+    assert payload["dateRowsInFile"] == 2
+    assert payload["snapshotGroupCount"] == 2
+    assert payload["latestRecentGameDate"] == "2026-06-22"
+    assert payload["rowsWithRecentGames"] == 2
+    assert payload["staleRecentGameRows"] == 1
+    assert any("Multiple playerboard snapshot groups" in warning for warning in payload["warnings"])
+    assert any("stale recentGames" in warning for warning in payload["warnings"])
 
 def test_playerboard_endpoint_returns_empty_saved_dict_without_snapshot(tmp_path: Path) -> None:
     settings = _settings(tmp_path)

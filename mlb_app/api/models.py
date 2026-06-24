@@ -773,6 +773,14 @@ class PlayerboardHealthResponse(StrictResponse):
     totalRowsInFile: int | None = None
     latestAvailableDate: str | None = None
     latestSnapshotAt: str | None = None
+    dateRowsInFile: int | None = None
+    snapshotGroupCount: int | None = None
+    snapshotGroups: list[str] = Field(default_factory=list)
+    latestRecentGameDate: str | None = None
+    recentGamesAgeDays: int | None = None
+    rowsWithRecentGames: int | None = None
+    staleRecentGameRows: int | None = None
+    warnings: list[str] = Field(default_factory=list)
     requestedDate: str | None = None
     date: str | None = None
     market: str | None = None

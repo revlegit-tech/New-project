@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from collections import Counter
 from datetime import datetime, timezone
@@ -252,6 +253,27 @@ class PlayerboardReadService:
         bad_shifted_rows = [row for row in selected_rows if playerboard_row_looks_shifted(row)]
         snapshots = sorted({_clean(row.get("snapshotAt")) for row in selected_rows if _clean(row.get("snapshotAt"))})
         latest_snapshot = snapshots[-1] if snapshots else ""
+        target_market = normalize_market_value(requested_market) if requested_market else ""
+        date_rows = [
+            row for row in all_rows
+            if _clean(row.get("date")) == selected_date
+            and (not target_market or normalize_market_value(row.get("market")) == target_market)
+        ]
+        date_snapshots = sorted({_clean(row.get("snapshotAt")) for row in date_rows if _clean(row.get("snapshotAt"))})
+        latest_recent_game_date, stale_recent_game_rows, rows_with_recent_games = _recent_games_diagnostics(
+            date_rows,
+            selected_date=selected_date,
+        )
+        recent_games_age_days = _date_age_days(selected_date, latest_recent_game_date)
+        health_warnings = _playerboard_health_warnings(
+            rows_loaded=len(selected_rows),
+            date_rows_in_file=len(date_rows),
+            snapshot_group_count=len(date_snapshots),
+            latest_recent_game_date=latest_recent_game_date,
+            recent_games_age_days=recent_games_age_days,
+            rows_with_recent_games=rows_with_recent_games,
+            stale_recent_game_rows=stale_recent_game_rows,
+        )
         validation = read_result.validation
         ok = bool(read_result.exists and validation.ok and len(selected_rows) > 0 and not bad_shifted_rows)
         data_confidence = self._data_confidence(ok=ok, grading_state=str(grading.get("state") or ""), rows=len(selected_rows))
@@ -274,13 +296,21 @@ class PlayerboardReadService:
             "expectedColumns": PLAYERBOARD_FIELDS,
             "rowsLoaded": len(selected_rows),
             "totalRowsInFile": read_result.total_rows,
+            "dateRowsInFile": len(date_rows),
             "marketsPresent": dict(sorted(market_counts.items())),
             "missingMarketDisplayRows": len(missing_market_display),
             "badShiftedRows": len(bad_shifted_rows),
             "latestSnapshotAt": latest_snapshot,
             "snapshots": snapshots[-10:],
+            "snapshotGroupCount": len(date_snapshots),
+            "snapshotGroups": date_snapshots[-10:],
             "sampleBadRows": bad_shifted_rows[:5],
             "sampleMissingMarketDisplayRows": missing_market_display[:5],
+            "latestRecentGameDate": latest_recent_game_date,
+            "recentGamesAgeDays": recent_games_age_days,
+            "rowsWithRecentGames": rows_with_recent_games,
+            "staleRecentGameRows": stale_recent_game_rows,
+            "warnings": health_warnings,
             "ok": ok,
             "productState": product_state,
             "grading": grading,
@@ -343,6 +373,99 @@ class PlayerboardReadService:
         else:
             label = "Today board: live odds / research mode"
         return {"label": label, "latestOddsTimestamp": latest_snapshot, "gradingState": grading_state}
+
+
+
+def _recent_games_diagnostics(rows: list[dict[str, Any]], *, selected_date: str) -> tuple[str, int, int]:
+    latest_dates: list[str] = []
+    stale_rows = 0
+    rows_with_recent_games = 0
+
+    for row in rows:
+        game_dates = _recent_game_dates(row.get("recentGames"))
+        if not game_dates:
+            continue
+
+        rows_with_recent_games += 1
+        latest = max(game_dates)
+        latest_dates.append(latest)
+
+        age_days = _date_age_days(selected_date, latest)
+        if age_days is not None and age_days > 7:
+            stale_rows += 1
+
+    return (max(latest_dates) if latest_dates else "", stale_rows, rows_with_recent_games)
+
+
+def _recent_game_dates(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+    elif isinstance(value, list):
+        parsed = value
+    else:
+        return []
+
+    dates: list[str] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        date_text = _clean(item.get("date"))[:10]
+        if _parse_date_label(date_text) is not None:
+            dates.append(date_text)
+    return dates
+
+
+def _date_age_days(selected_date: str, candidate_date: str) -> int | None:
+    selected = _parse_date_label(selected_date)
+    candidate = _parse_date_label(candidate_date)
+    if selected is None or candidate is None:
+        return None
+    return (selected - candidate).days
+
+
+def _parse_date_label(value: str) -> Any:
+    text = _clean(value)[:10]
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        return None
+
+
+def _playerboard_health_warnings(
+    *,
+    rows_loaded: int,
+    date_rows_in_file: int,
+    snapshot_group_count: int,
+    latest_recent_game_date: str,
+    recent_games_age_days: int | None,
+    rows_with_recent_games: int,
+    stale_recent_game_rows: int,
+) -> list[str]:
+    warnings: list[str] = []
+
+    if snapshot_group_count > 1:
+        warnings.append(f"Multiple playerboard snapshot groups detected for this date ({snapshot_group_count}).")
+
+    if rows_loaded > 10000 or (rows_loaded > 0 and date_rows_in_file > max(10000, rows_loaded * 2)):
+        warnings.append(
+            f"Playerboard row count is unusually high for one slate ({date_rows_in_file} date rows, {rows_loaded} loaded rows)."
+        )
+
+    if latest_recent_game_date and recent_games_age_days is not None and recent_games_age_days > 7:
+        warnings.append(f"Playerboard recentGames context appears stale; latest recent game date is {latest_recent_game_date}.")
+
+    if rows_with_recent_games and stale_recent_game_rows / rows_with_recent_games >= 0.25:
+        warnings.append(f"{stale_recent_game_rows} playerboard rows have stale recentGames context.")
+
+    return warnings[:6]
 
 
 def freshness_from_snapshot(*, selected_date: str, latest_snapshot: str, signature: FileSignature, rows: int) -> dict[str, Any]:
