@@ -1,7 +1,17 @@
 param(
   [string]$Project = "C:\Users\RevLe\OneDrive\Documents\New project",
-  [string]$Python = "C:\Users\RevLe\AppData\Local\Programs\Python\Python312\python.exe"
+  [string]$Python = ""
 )
+
+if (-not $Python) {
+  $Python = Join-Path $Project ".venv\Scripts\python.exe"
+}
+
+if (-not (Test-Path $Python)) {
+  throw "Missing project virtualenv Python: $Python"
+}
+
+$env:PYTHONPATH = $Project
 
 # Final autonomous schedule:
 # 06:00 ET -> current day: MLB + PropLine + weather + odds snapshot
