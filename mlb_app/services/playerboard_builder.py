@@ -1676,9 +1676,9 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
         setattr(unified_module, name, wrapper)
 
     def install_unified_caches() -> None:
-        original_helpers["summarize_batter"] = getattr(unified_module, "summarize_batter")
-        original_helpers["summarize_pitcher"] = getattr(unified_module, "summarize_pitcher")
-        original_helpers["summarize_team"] = getattr(unified_module, "summarize_team")
+        original_helpers["summarize_batter"] = unified_module.summarize_batter
+        original_helpers["summarize_pitcher"] = unified_module.summarize_pitcher
+        original_helpers["summarize_team"] = unified_module.summarize_team
         index_started = time.perf_counter()
         batter_index = _build_batter_summary_index(unified_module, season)
         pitcher_index = _build_pitcher_summary_index(unified_module, season)
@@ -1712,9 +1712,9 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
             counters["historyCacheMisses"] += 1
             return {"available": False, "team": key, "games": 0, "runsPerGame": 0, "hitsPerGame": 0, "homeRunsPerGame": 0, "strikeoutsPerGame": 0, "runsAllowedPerGame": 0, "hitsAllowedPerGame": 0, "pitchingStrikeoutsPerGame": 0}
 
-        setattr(unified_module, "summarize_batter", summarize_batter_cached)
-        setattr(unified_module, "summarize_pitcher", summarize_pitcher_cached)
-        setattr(unified_module, "summarize_team", summarize_team_cached)
+        unified_module.summarize_batter = summarize_batter_cached
+        unified_module.summarize_pitcher = summarize_pitcher_cached
+        unified_module.summarize_team = summarize_team_cached
         install_cached_helper("find_weather_feature", "contextJoinMs", lambda season, date, team, opponent: (str(season), clean(date)[:10], canonical_team_abbr(team), canonical_team_abbr(opponent)))
         install_cached_helper("find_odds_movement_context", "contextJoinMs", lambda season, date, market, player, team, opponent, pitcher: (str(season), clean(date)[:10], normalize_market(market), clean(player).casefold(), canonical_team_abbr(team), canonical_team_abbr(opponent), clean(pitcher).casefold()))
         install_cached_helper("find_savant_context", "historyLookupMs", lambda season, player, pitcher, market: (str(season), clean(player).casefold(), clean(pitcher).casefold(), normalize_market(market)))
