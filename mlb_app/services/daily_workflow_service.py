@@ -9,10 +9,13 @@ from typing import Any, Callable
 
 from mlb_app.config import Settings
 from mlb_app.services.actionnetwork_snapshot_status_service import ActionNetworkSnapshotWorkflow, default_command_runner
+from mlb_app.services.asof_feature_audit_service import AsofFeatureAuditService
 from mlb_app.services.collector_verification_service import CollectorVerificationService
+from mlb_app.services.feature_store_materializer import FeatureStoreMaterializer
 from mlb_app.services.mlb_truth_log_resolver import load_truth_logs
 from mlb_app.services.runtime_lock import runtime_lock
 from mlb_app.services.runtime_status_service import safe_relpath, sanitize_public, write_status_json
+from mlb_app.services.umpire_context_service import UmpireContextService
 
 StepRunner = Callable[[str, list[str]], subprocess.CompletedProcess[str]]
 
@@ -56,6 +59,9 @@ class DailyWorkflowService:
             steps.append(self._existing_or_skipped("build_playerboard", self.settings.data_dir / "playerboard" / f"playerboard_{season}.csv"))
             steps.append(self._existing_or_skipped("build_edge_board", self.settings.data_dir / "edge_board" / f"edge_board_{date_text}.json"))
             collector_check = CollectorVerificationService(settings=self.settings).payload(date_label=date_text, season=season)
+            feature_store_status = FeatureStoreMaterializer(self.settings).status(date_label=date_text, season=season, materialize=False)
+            asof_audit = AsofFeatureAuditService(self.settings).payload(date_label=date_text, season=season)
+            umpire_status = UmpireContextService(self.settings).status(date_label=date_text, season=season)
             truth = self._load_truth_logs(season)
             truth_available = bool(truth.source_dir) and truth.covers(date_text)
             steps.append(
@@ -105,6 +111,12 @@ class DailyWorkflowService:
                 warnings=warnings,
                 collectorCheck={"status": collector_check.get("status"), "schemaVersion": collector_check.get("schemaVersion")},
                 verificationSummary=self._verification_summary(collector_check),
+                dataCompletenessSummary=self._data_completeness_summary(
+                    collector_check=collector_check,
+                    feature_store_status=feature_store_status,
+                    asof_audit=asof_audit,
+                    umpire_status=umpire_status,
+                ),
             )
             write_status_json(self.status_path, payload)
             return payload
@@ -183,6 +195,43 @@ class DailyWorkflowService:
             "readyForBaselineTraining": capability.get("readyForBaselineTraining", False),
             "readyForProductionTraining": capability.get("readyForProductionTraining", False),
             "status": str(collector_check.get("status", "failed")).upper(),
+        }
+
+    def _data_completeness_summary(
+        self,
+        *,
+        collector_check: dict[str, Any],
+        feature_store_status: dict[str, Any],
+        asof_audit: dict[str, Any],
+        umpire_status: dict[str, Any],
+    ) -> dict[str, Any]:
+        checks = collector_check.get("checks") if isinstance(collector_check.get("checks"), dict) else {}
+        game_markets = checks.get("gameMarkets") if isinstance(checks.get("gameMarkets"), dict) else {}
+        return {
+            "schemaVersion": "daily-data-completeness.v1",
+            "date": collector_check.get("date", ""),
+            "gameMarkets": {
+                "status": "available" if game_markets.get("ok") else "missing",
+                "available": bool(game_markets.get("ok")),
+                "rows": int(game_markets.get("rows") or 0),
+            },
+            "umpire": {
+                "status": umpire_status.get("status", "neutral_fallback"),
+                "available": bool(umpire_status.get("available")),
+                "rows": int(umpire_status.get("rows") or 0),
+            },
+            "featureStore": {
+                "status": feature_store_status.get("status", "partial"),
+                "rows": int(feature_store_status.get("rows") or 0),
+                "pregameSafe": bool(feature_store_status.get("pregameSafe")),
+            },
+            "asOfAudit": {
+                "status": asof_audit.get("status", "ok"),
+                "pregameSafe": bool(asof_audit.get("pregameSafe")),
+                "blockedFieldsFound": list(asof_audit.get("blockedFieldsFound") or []),
+            },
+            "warnings": list(asof_audit.get("warnings") or []),
+            "recommendations": list(collector_check.get("recommendations") or []) + list(asof_audit.get("recommendations") or []),
         }
 
 

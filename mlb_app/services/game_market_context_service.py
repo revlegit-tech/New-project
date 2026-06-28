@@ -33,6 +33,34 @@ NORMALIZED_GAME_MARKET_FIELDS = (
     "raw_source",
 )
 
+CANONICAL_GAME_MARKET_FIELDS = (
+    "date",
+    "season",
+    "game_id",
+    "game_pk",
+    "home_team",
+    "away_team",
+    "team",
+    "opponent",
+    "market_type",
+    "open_moneyline",
+    "current_moneyline",
+    "open_total",
+    "current_total",
+    "open_run_line",
+    "current_run_line",
+    "team_total",
+    "no_vig_win_prob_open",
+    "no_vig_win_prob_current",
+    "line_movement",
+    "book_count_moneyline",
+    "book_count_total",
+    "book_count_runline",
+    "source",
+    "source_snapshot_at",
+    "quality_flags",
+)
+
 CANONICAL_GAME_MARKETS = {
     "h2h": "moneyline",
     "moneyline": "moneyline",
@@ -164,11 +192,12 @@ def normalize_game_market_payload(
 
 def write_normalized_game_markets(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = list(CANONICAL_GAME_MARKET_FIELDS) if rows and "market_type" in rows[0] else list(NORMALIZED_GAME_MARKET_FIELDS)
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(NORMALIZED_GAME_MARKET_FIELDS), extrasaction="ignore")
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
-            writer.writerow({field: row.get(field, "") for field in NORMALIZED_GAME_MARKET_FIELDS})
+            writer.writerow({field: row.get(field, "") for field in fieldnames})
 
 
 def normalize_game_market_file(input_path: Path, output_path: Path, *, date_label: str, season: int, source: str = "") -> dict[str, Any]:
@@ -251,7 +280,7 @@ def _row_from_outcome(
 def _context_payload(*, date_label: str, team: str, opponent: str, rows: list[dict[str, str]], artifact_exists: bool) -> dict[str, Any]:
     by_market: dict[str, list[dict[str, str]]] = {}
     for row in rows:
-        by_market.setdefault(str(row.get("market") or ""), []).append(row)
+        by_market.setdefault(str(row.get("market_type") or row.get("market") or ""), []).append(row)
     source_status = "missing"
     if rows:
         source_status = "ok" if by_market.get("moneyline") and by_market.get("game_total") and by_market.get("team_total") else "partial"
@@ -272,7 +301,19 @@ def _context_payload(*, date_label: str, team: str, opponent: str, rows: list[di
 
 
 def _first_market(by_market: dict[str, list[dict[str, str]]], key: str) -> dict[str, str]:
-    return dict((by_market.get(key) or [{}])[0])
+    row = dict((by_market.get(key) or [{}])[0])
+    if row and "market_type" in row:
+        row.setdefault("market", row.get("market_type", ""))
+        if key == "game_total":
+            row.setdefault("line", row.get("current_total", ""))
+        elif key == "run_line":
+            row.setdefault("line", row.get("current_run_line", ""))
+        elif key == "team_total":
+            row.setdefault("line", row.get("team_total", ""))
+        elif key == "moneyline":
+            row.setdefault("implied_probability", row.get("no_vig_win_prob_current", ""))
+        row.setdefault("snapshot_at", row.get("source_snapshot_at", ""))
+    return row
 
 
 def _team_for_side(side: str, *, home_team: str, away_team: str) -> str:

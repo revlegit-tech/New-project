@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from mlb_app.api.dependencies import get_blocking_work_limiter, get_container
 from mlb_app.api.models import (
+    AsofFeatureAuditResponse,
     BaselineModelStatusResponse,
     CollectorCheckResponse,
     DataSourceCapabilityResponse,
@@ -15,6 +16,7 @@ from mlb_app.api.models import (
     ModelTrainingReadinessResponse,
 )
 from mlb_app.container import AppContainer
+from mlb_app.services.asof_feature_audit_service import AsofFeatureAuditService
 from mlb_app.services.baseline_model_training_service import BaselineModelTrainingService
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.collector_verification_service import CollectorVerificationService
@@ -101,6 +103,27 @@ async def feature_store_status(
         season=selected_season,
         materialize=materialize,
         route_name="/api/runtime/feature-store/status",
+    )
+
+
+@router.get(
+    "/runtime/asof-feature-audit",
+    response_model=AsofFeatureAuditResponse,
+    name="native_runtime_asof_feature_audit",
+)
+async def asof_feature_audit(
+    container: Annotated[AppContainer, Depends(get_container)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+    date: Annotated[str | None, Query()] = None,
+    season: Annotated[int | None, Query()] = None,
+) -> dict:
+    service = AsofFeatureAuditService(container.settings)
+    selected_season = season if season is not None else container.settings.current_season
+    return await limiter.run(
+        service.payload,
+        date_label=date,
+        season=selected_season,
+        route_name="/api/runtime/asof-feature-audit",
     )
 
 

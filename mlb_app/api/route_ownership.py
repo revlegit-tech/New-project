@@ -66,6 +66,7 @@ ROUTE_OWNERSHIP: tuple[RouteOwnership, ...] = (
     RouteOwnership("GET", "/api/runtime/collector-check", "FastAPI", "native_runtime_collector_check", "none", "no_legacy_handler", "Read-only daily collector verification endpoint."),
     RouteOwnership("GET", "/api/runtime/data-source-capabilities", "FastAPI", "native_runtime_data_source_capabilities", "none", "no_legacy_handler", "Read-only data source and ML feature-store capability audit."),
     RouteOwnership("GET", "/api/runtime/feature-store/status", "FastAPI", "native_runtime_feature_store_status", "none", "no_legacy_handler", "Read-only pregame feature matrix materialization status."),
+    RouteOwnership("GET", "/api/runtime/asof-feature-audit", "FastAPI", "native_runtime_asof_feature_audit", "none", "no_legacy_handler", "Read-only pregame/as-of feature leakage audit."),
     RouteOwnership("GET", "/api/runtime/model-training/readiness", "FastAPI", "native_runtime_model_training_readiness", "none", "no_legacy_handler", "Read-only baseline/production model training readiness gates."),
     RouteOwnership("GET", "/api/runtime/baseline-model/status", "FastAPI", "native_runtime_baseline_model_status", "none", "no_legacy_handler", "Read-only baseline model artifact status."),
     RouteOwnership("GET", "/api/runtime/model-calibration/status", "FastAPI", "native_runtime_model_calibration_status", "none", "no_legacy_handler", "Read-only baseline model calibration artifact status."),

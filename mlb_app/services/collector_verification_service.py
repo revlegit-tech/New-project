@@ -10,6 +10,7 @@ from mlb_app.repositories.board_snapshot_repository import BoardSnapshotReposito
 from mlb_app.services.edge_board_service import EdgeBoardService
 from mlb_app.services.runtime_status_service import RuntimeStatusService, safe_relpath
 from mlb_app.services.data_source_capability_service import DataSourceCapabilityService
+from mlb_app.services.umpire_context_service import UmpireContextService
 
 SCHEMA_VERSION = "collector-check.v1"
 
@@ -64,6 +65,7 @@ class CollectorVerificationService:
         )
         normalized_check = self._normalized_odds_check(target_date)
         game_markets_check = self._game_markets_check(target_date)
+        umpire_check = UmpireContextService(self.settings).status(date_label=target_date, season=selected_season)
         active_board_check = self._active_playerboard_check(selected_season, target_date)
         edge_board_check = self._edge_board_check(selected_season, target_date)
         default_date_check = self._default_date_check(selected_season, target_date)
@@ -91,6 +93,10 @@ class CollectorVerificationService:
             runtime_check=runtime_check,
             status=status,
         )
+        if not game_markets_check.get("ok"):
+            recommendations.append("Normalized game-market artifact is missing; board can continue, but modeling quality is reduced.")
+        if not umpire_check.get("available"):
+            recommendations.append("Umpire context is using neutral fallback; this is optional for board readiness.")
 
         return {
             "schemaVersion": SCHEMA_VERSION,
@@ -103,6 +109,7 @@ class CollectorVerificationService:
                 "oddsSnapshots": odds_check,
                 "normalizedOdds": normalized_check,
                 "gameMarkets": game_markets_check,
+                "umpires": umpire_check,
                 "activePlayerboard": active_board_check,
                 "edgeBoard": edge_board_check,
                 "defaultDate": default_date_check,
@@ -113,6 +120,7 @@ class CollectorVerificationService:
                 "oddsSnapshots": int(odds_check.get("count") or 0),
                 "normalizedOddsFiles": int(normalized_check.get("count") or 0),
                 "gameMarketRows": int(game_markets_check.get("rows") or 0),
+                "umpireRows": int(umpire_check.get("rows") or 0),
                 "activePlayerboardRows": int(active_board_check.get("rows") or 0),
                 "edgeBoardRows": int(edge_board_check.get("rows") or 0),
             },
@@ -121,6 +129,7 @@ class CollectorVerificationService:
                 "latestOddsSnapshot": odds_check.get("latestPath", ""),
                 "latestNormalizedOdds": normalized_check.get("latestPath", ""),
                 "gameMarkets": game_markets_check.get("path", ""),
+                "umpires": (umpire_check.get("paths") or [""])[-1] if isinstance(umpire_check.get("paths"), list) else "",
             },
             "runtime": {
                 "dbEnabled": runtime_check.get("dbEnabled", ""),

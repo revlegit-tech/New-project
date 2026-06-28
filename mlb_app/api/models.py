@@ -698,6 +698,24 @@ class FeatureStoreMaterializerResponse(StrictResponse):
     modelTrainingTriggered: bool = False
 
 
+class AsofFeatureAuditResponse(StrictResponse):
+    schemaVersion: str = "asof-feature-audit.v1"
+    status: str = "ok"
+    date: str
+    season: int
+    resolvedDateMode: str = ""
+    pregameSafe: bool = True
+    labelsSeparated: bool = True
+    blockedFieldsFound: list[str] = Field(default_factory=list)
+    missingFeatureGroups: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    featureMatrix: dict[str, Any] = Field(default_factory=dict)
+    sourceTimestampAudit: dict[str, Any] = Field(default_factory=dict)
+    externalApiCallsMade: bool = False
+    modelTrainingTriggered: bool = False
+
+
 class ModelTrainingReadinessResponse(StrictResponse):
     schemaVersion: str = "model-training-readiness.v1"
     status: str = "ok"

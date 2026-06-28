@@ -64,6 +64,14 @@ class DataSourceCapabilityService:
             "readyForProductionTraining": bool(audit.get("readyForProductionTraining")),
             "missingCriticalFeatureGroups": list(audit.get("missingCriticalFeatureGroups") or []),
             "dataSourceCapabilityStatus": payload.get("status", "partial"),
+            "gameMarkets": {
+                "status": payload.get("sources", {}).get("gameMarkets", {}).get("status", "missing"),
+                "available": bool(payload.get("sources", {}).get("gameMarkets", {}).get("available")),
+            },
+            "umpires": {
+                "status": payload.get("sources", {}).get("umpires", {}).get("status", "missing"),
+                "available": bool(payload.get("sources", {}).get("umpires", {}).get("available")),
+            },
         }
 
     def _sources(self, date_label: str, season: int) -> dict[str, dict[str, Any]]:
@@ -260,6 +268,7 @@ class DataSourceCapabilityService:
     def _feature_groups(self, sources: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
         return {
             "market": self._group("market", ["proplineProps", "actionNetworkOdds"], sources, pregame_safe=True, critical=True),
+            "gameMarkets": self._group("gameMarkets", ["gameMarkets", "theOddsApi", "oddsPapi"], sources, pregame_safe=True, critical=False),
             "gameContext": self._group("gameContext", ["gameMarkets", "theOddsApi", "oddsPapi", "mlbStatsApi"], sources, pregame_safe=True, critical=True),
             "weather": self._group("weather", ["weather"], sources, pregame_safe=True, critical=True),
             "batterSavant": self._group("batterSavant", ["savant"], sources, pregame_safe=True, critical=True),
