@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from pathlib import Path
@@ -43,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         _print_dry_run(manifest)
     else:
+        _write_season_copy(manifest, output_dir, args.season or settings.current_season)
         print(json.dumps(manifest, indent=2, ensure_ascii=False))
     return 0
 
@@ -63,6 +65,26 @@ def _print_dry_run(manifest: dict[str, object]) -> None:
         print("  warnings:")
         for warning in warnings:  # type: ignore[union-attr]
             print(f"    - {warning}")
+
+
+def _write_season_copy(manifest: dict[str, object], output_dir: Path, season: int) -> None:
+    output_paths = manifest.get("output_paths") if isinstance(manifest.get("output_paths"), dict) else {}
+    csv_display = str(output_paths.get("csv") or "")
+    source = ROOT / csv_display if csv_display else output_dir / f"player_prop_labels_{manifest.get('date')}.csv"
+    if not source.is_file():
+        return
+    target = ROOT / "data" / "training" / f"player_prop_labels_{season}.csv"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with source.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = [dict(row) for row in csv.DictReader(handle)]
+        fieldnames = list(rows[0].keys()) if rows else []
+    if not fieldnames:
+        return
+    with target.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    manifest.setdefault("output_paths", {})["season_csv"] = str(target.relative_to(ROOT)).replace("\\", "/")  # type: ignore[index]
 
 
 if __name__ == "__main__":

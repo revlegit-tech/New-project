@@ -17,6 +17,7 @@ from mlb_app.services.player_prop_label_schema import (
     LABEL_SCHEMA_VERSION,
     assert_label_not_in_features,
     label_field_names,
+    normalize_result,
 )
 from mlb_app.services.player_prop_market_stat_mapper import (
     grade_over_under,
@@ -207,6 +208,8 @@ class PlayerPropLabelBuilderService:
             "graded_at": graded_at.isoformat(),
             "date": _clean(feature.get("date"))[:10] or date_label,
             "season": _clean(feature.get("season")) or int(season),
+            "game_pk": _clean(feature.get("game_pk") or feature.get("gamePk")),
+            "player_id": _clean(feature.get("player_id") or feature.get("playerId")),
             "source_row_id": _clean(feature.get("source_row_id")) or _clean(feature.get("prop_key")),
             "prop_key": _clean(feature.get("prop_key")),
             "player": _clean(feature.get("player")),
@@ -224,6 +227,8 @@ class PlayerPropLabelBuilderService:
             "label_reason": "Missing market mapping." if not market else f"Unsupported market: {market}",
             "stat_source": "",
             "stat_key": stat_key or "",
+            "source_file": _clean(feature.get("rawSource") or feature.get("source_file") or feature.get("source")),
+            "label_quality_flags": "",
         }
         if not is_supported_market(market) or stat_key is None:
             return _only_label_fields(base)
@@ -251,11 +256,12 @@ class PlayerPropLabelBuilderService:
             )
             return _only_label_fields(base)
         graded = grade_over_under(actual, line, str(base["side"]))
+        result = normalize_result(graded["result"], hit=graded["hit"], push=graded["push"], void=graded["void"])
         base.update(
             {
                 "line": line,
                 "actual_value": actual,
-                "result": graded["result"],
+                "result": result,
                 "hit": graded["hit"],
                 "push": graded["push"],
                 "void": graded["void"],
@@ -298,8 +304,8 @@ class PlayerPropLabelBuilderService:
             "feature_row_count": len(feature_rows),
             "graded_count": int(status_counts.get("graded", 0)),
             "ungraded_count": sum(1 for row in rows if _clean(row.get("result")) == "ungraded"),
-            "win_count": int(result_counts.get("win", 0)),
-            "loss_count": int(result_counts.get("loss", 0)),
+            "win_count": int(result_counts.get("hit", 0) + result_counts.get("win", 0)),
+            "loss_count": int(result_counts.get("miss", 0) + result_counts.get("loss", 0)),
             "push_count": int(result_counts.get("push", 0)),
             "void_count": int(result_counts.get("void", 0)),
             "market_counts": dict(sorted(market_counts.items())),

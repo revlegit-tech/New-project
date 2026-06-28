@@ -6,12 +6,14 @@ from fastapi import APIRouter, Depends, Query
 
 from mlb_app.api.dependencies import get_blocking_work_limiter, get_container
 from mlb_app.api.models import (
+    BaselineModelStatusResponse,
     CollectorCheckResponse,
     DataSourceCapabilityResponse,
     FeatureStoreMaterializerResponse,
     ModelTrainingReadinessResponse,
 )
 from mlb_app.container import AppContainer
+from mlb_app.services.baseline_model_training_service import BaselineModelTrainingService
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.collector_verification_service import CollectorVerificationService
 from mlb_app.services.data_source_capability_service import DataSourceCapabilityService
@@ -118,6 +120,29 @@ async def model_training_readiness(
         season=selected_season,
         market=market,
         route_name="/api/runtime/model-training/readiness",
+    )
+
+
+@router.get(
+    "/runtime/baseline-model/status",
+    response_model=BaselineModelStatusResponse,
+    name="native_runtime_baseline_model_status",
+)
+async def baseline_model_status(
+    container: Annotated[AppContainer, Depends(get_container)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+    date: Annotated[str | None, Query()] = None,
+    season: Annotated[int | None, Query()] = None,
+    market: Annotated[str, Query()] = "batter_hits",
+) -> dict:
+    service = BaselineModelTrainingService(container.settings)
+    selected_season = season if season is not None else container.settings.current_season
+    return await limiter.run(
+        service.status,
+        date_label=date,
+        season=selected_season,
+        market=market,
+        route_name="/api/runtime/baseline-model/status",
     )
 
 

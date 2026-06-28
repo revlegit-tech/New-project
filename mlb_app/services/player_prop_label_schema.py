@@ -10,6 +10,8 @@ LABEL_FIELDS: tuple[str, ...] = (
     "graded_at",
     "date",
     "season",
+    "game_pk",
+    "player_id",
     "source_row_id",
     "prop_key",
     "player",
@@ -27,9 +29,11 @@ LABEL_FIELDS: tuple[str, ...] = (
     "label_reason",
     "stat_source",
     "stat_key",
+    "source_file",
+    "label_quality_flags",
 )
 
-SUPPORTED_RESULTS: frozenset[str] = frozenset({"win", "loss", "push", "void", "ungraded"})
+SUPPORTED_RESULTS: frozenset[str] = frozenset({"hit", "miss", "win", "loss", "push", "void", "ungraded"})
 SUPPORTED_LABEL_STATUSES: frozenset[str] = frozenset(
     {
         "graded",
@@ -48,6 +52,8 @@ FEATURE_SAFE_LABEL_ID_FIELDS: frozenset[str] = frozenset(
     {
         "date",
         "season",
+        "game_pk",
+        "player_id",
         "source_row_id",
         "prop_key",
         "player",
@@ -69,23 +75,25 @@ def normalize_result(result: Any = "", *, hit: Any = None, push: Any = None, voi
         return "push"
     if hit is not None:
         if _truthy(hit):
-            return "win"
+            return "hit"
         if _falsey(hit):
-            return "loss"
+            return "miss"
 
     text = str(result or "").strip().lower()
     aliases = {
-        "won": "win",
-        "winner": "win",
-        "hit": "win",
-        "cash": "win",
-        "true": "win",
-        "1": "win",
-        "lost": "loss",
-        "loser": "loss",
-        "miss": "loss",
-        "false": "loss",
-        "0": "loss",
+        "win": "hit",
+        "won": "hit",
+        "winner": "hit",
+        "hit": "hit",
+        "cash": "hit",
+        "true": "hit",
+        "1": "hit",
+        "loss": "miss",
+        "lost": "miss",
+        "loser": "miss",
+        "miss": "miss",
+        "false": "miss",
+        "0": "miss",
         "tie": "push",
         "pushed": "push",
         "cancelled": "void",

@@ -720,6 +720,20 @@ class ModelTrainingReadinessResponse(StrictResponse):
     warnings: list[str] = Field(default_factory=list)
 
 
+class BaselineModelStatusResponse(StrictResponse):
+    schemaVersion: str = "baseline-model-status.v1"
+    date: str
+    season: int
+    market: str
+    modelState: str = "unavailable"
+    artifactExists: bool = False
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    modelTrainingTriggered: bool = False
+    externalApiCallsMade: bool = False
+    readyForProductionTraining: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
 class EdgeBoardResponse(StrictResponse):
     status: str = "ok"
     schemaVersion: str | None = None

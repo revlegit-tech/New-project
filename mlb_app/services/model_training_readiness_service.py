@@ -16,6 +16,7 @@ from mlb_app.services.data_source_capability_service import (
     resolve_date_mode,
 )
 from mlb_app.services.feature_store_materializer import FeatureStoreMaterializer
+from mlb_app.services.player_prop_label_builder_service import DEFAULT_LABEL_OUTPUT_RELATIVE_DIR
 from mlb_app.services.runtime_status_service import safe_relpath
 
 SCHEMA_VERSION = "model-training-readiness.v1"
@@ -57,6 +58,7 @@ class ModelTrainingReadinessService:
         selected_market = str(market or "").strip()
         if selected_market:
             market_rows = {key: value for key, value in market_rows.items() if key == selected_market}
+            market_rows.setdefault(selected_market, {"labelRows": 0, "hitRows": 0, "missRows": 0, "pushRows": 0, "voidRows": 0})
 
         markets = [
             self._market_payload(
@@ -136,6 +138,8 @@ class ModelTrainingReadinessService:
             reasons.append("Feature matrix contains postgame label/outcome fields.")
         elif not leakage_ok:
             reasons.append("Leakage policy cannot be verified until the feature matrix exists.")
+        if missing_critical:
+            reasons.append(f"Critical feature groups are missing: {', '.join(missing_critical)}.")
         baseline = bool(label_rows >= self.baseline_min_rows and two_class and feature_matrix_exists and leakage_ok)
         if label_rows < self.production_min_rows_per_market:
             reasons.append(f"Label rows below production market threshold: {label_rows} < {self.production_min_rows_per_market}.")
@@ -143,8 +147,6 @@ class ModelTrainingReadinessService:
             reasons.append("Calibration artifacts are missing.")
         if not backtest_available:
             reasons.append("Backtest artifacts are missing.")
-        if missing_critical:
-            reasons.append(f"Critical feature groups are missing: {', '.join(missing_critical)}.")
         production = bool(
             baseline
             and label_rows >= self.production_min_rows_per_market
@@ -167,8 +169,9 @@ class ModelTrainingReadinessService:
 
     def _label_files(self, season: int, date_label: str) -> list[Path]:
         patterns = [
-            self.settings.data_dir / "labels" / f"*{season}*.csv",
-            self.settings.data_dir / "training" / f"*{season}*.csv",
+            self.settings.data_dir / "labels" / f"player_prop_labels_{season}.csv",
+            self.settings.data_dir / "training" / f"player_prop_labels_{season}.csv",
+            self.settings.data_dir / DEFAULT_LABEL_OUTPUT_RELATIVE_DIR / f"player_prop_labels_{date_label}.csv",
             self.settings.data_dir / "warehouse" / "normalized" / "actionnetwork" / f"*labels*{date_label}*.csv",
         ]
         files: list[Path] = []
@@ -264,17 +267,24 @@ class ModelTrainingReadinessService:
 
 
 def _label_status(row: dict[str, Any]) -> str:
-    hit = _clean(row.get("hit") or row.get("target") or row.get("is_hit")).lower()
+    hit = _clean(_first_present(row, "hit", "target", "is_hit", "target_hit")).lower()
     result = _clean(row.get("result") or row.get("outcome") or row.get("status") or row.get("label")).lower()
-    if hit in {"1", "true", "yes", "hit", "win", "won"} or result in {"hit", "win", "won", "over"}:
-        return "hit"
-    if hit in {"0", "false", "no", "miss", "loss", "lost"} or result in {"miss", "loss", "lost", "under"}:
-        return "miss"
     if result == "push":
         return "push"
     if result in {"void", "cancelled", "canceled", "no_action"}:
         return "void"
+    if hit in {"1", "true", "yes", "hit", "win", "won"} or result in {"hit", "win", "won", "over"}:
+        return "hit"
+    if hit in {"0", "false", "no", "miss", "loss", "lost"} or result in {"miss", "loss", "lost", "under"}:
+        return "miss"
     return "void"
+
+
+def _first_present(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in row and row[key] is not None and str(row[key]).strip() != "":
+            return row[key]
+    return ""
 
 
 def _xgboost_available() -> bool:
