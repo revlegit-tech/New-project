@@ -10,6 +10,8 @@ from mlb_app.api.models import (
     CollectorCheckResponse,
     DataSourceCapabilityResponse,
     FeatureStoreMaterializerResponse,
+    ModelBacktestStatusResponse,
+    ModelCalibrationStatusResponse,
     ModelTrainingReadinessResponse,
 )
 from mlb_app.container import AppContainer
@@ -19,6 +21,8 @@ from mlb_app.services.collector_verification_service import CollectorVerificatio
 from mlb_app.services.data_source_capability_service import DataSourceCapabilityService
 from mlb_app.services.data_freshness_service import DataFreshnessService
 from mlb_app.services.feature_store_materializer import FeatureStoreMaterializer
+from mlb_app.services.model_backtest_service import ModelBacktestService
+from mlb_app.services.model_calibration_service import ModelCalibrationService
 from mlb_app.services.model_training_readiness_service import ModelTrainingReadinessService
 from mlb_app.services.runtime_status_service import RuntimeStatusService
 
@@ -143,6 +147,52 @@ async def baseline_model_status(
         season=selected_season,
         market=market,
         route_name="/api/runtime/baseline-model/status",
+    )
+
+
+@router.get(
+    "/runtime/model-calibration/status",
+    response_model=ModelCalibrationStatusResponse,
+    name="native_runtime_model_calibration_status",
+)
+async def model_calibration_status(
+    container: Annotated[AppContainer, Depends(get_container)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+    date: Annotated[str | None, Query()] = None,
+    season: Annotated[int | None, Query()] = None,
+    market: Annotated[str, Query()] = "batter_hits",
+) -> dict:
+    service = ModelCalibrationService(container.settings)
+    selected_season = season if season is not None else container.settings.current_season
+    return await limiter.run(
+        service.status,
+        date_label=date,
+        season=selected_season,
+        market=market,
+        route_name="/api/runtime/model-calibration/status",
+    )
+
+
+@router.get(
+    "/runtime/model-backtest/status",
+    response_model=ModelBacktestStatusResponse,
+    name="native_runtime_model_backtest_status",
+)
+async def model_backtest_status(
+    container: Annotated[AppContainer, Depends(get_container)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+    date: Annotated[str | None, Query()] = None,
+    season: Annotated[int | None, Query()] = None,
+    market: Annotated[str, Query()] = "batter_hits",
+) -> dict:
+    service = ModelBacktestService(container.settings)
+    selected_season = season if season is not None else container.settings.current_season
+    return await limiter.run(
+        service.status,
+        date_label=date,
+        season=selected_season,
+        market=market,
+        route_name="/api/runtime/model-backtest/status",
     )
 
 

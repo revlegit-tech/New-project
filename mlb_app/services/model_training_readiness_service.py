@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import json
 import os
 from collections import defaultdict
 from pathlib import Path
@@ -16,6 +17,8 @@ from mlb_app.services.data_source_capability_service import (
     resolve_date_mode,
 )
 from mlb_app.services.feature_store_materializer import FeatureStoreMaterializer
+from mlb_app.services.model_backtest_service import MIN_BACKTEST_ROWS
+from mlb_app.services.model_calibration_service import MIN_CALIBRATION_ROWS
 from mlb_app.services.player_prop_label_builder_service import DEFAULT_LABEL_OUTPUT_RELATIVE_DIR
 from mlb_app.services.runtime_status_service import safe_relpath
 
@@ -51,8 +54,6 @@ class ModelTrainingReadinessService:
         leakage = self._leakage_check(feature_path)
         capability_audit = self.capabilities.audit_feature_availability(target_date, selected_season)
         missing_critical = list(capability_audit.get("missingCriticalFeatureGroups") or [])
-        calibration_available = self._has_artifacts("calibration")
-        backtest_available = self._has_artifacts("backtests")
         label_files = self._label_files(selected_season, target_date)
         market_rows = self._market_rows(label_files)
         selected_market = str(market or "").strip()
@@ -66,14 +67,14 @@ class ModelTrainingReadinessService:
                 counts=counts,
                 feature_matrix_exists=feature_path.is_file(),
                 leakage_ok=leakage["ok"],
-                calibration_available=calibration_available,
-                backtest_available=backtest_available,
                 missing_critical=missing_critical,
             )
             for name, counts in sorted(market_rows.items())
         ]
         ready_baseline = any(item["baselineEligible"] for item in markets)
         ready_production = any(item["productionEligible"] for item in markets)
+        calibration_available = any(item["calibrationStatus"] == "ready" for item in markets)
+        backtest_available = any(item["backtestStatus"] == "ready" for item in markets)
         model_state = self._model_state(
             xgboost_available=_xgboost_available(),
             ready_baseline=ready_baseline,
@@ -121,13 +122,32 @@ class ModelTrainingReadinessService:
         counts: dict[str, int],
         feature_matrix_exists: bool,
         leakage_ok: bool,
-        calibration_available: bool,
-        backtest_available: bool,
         missing_critical: list[str],
     ) -> dict[str, Any]:
+        artifact_dir = self._baseline_artifact_dir(market_name)
+        calibration = _read_json(artifact_dir / "calibration.json")
+        backtest = _read_json(artifact_dir / "backtest_metrics.json")
+        baseline_artifact_exists = (artifact_dir / "model.joblib").is_file() or (artifact_dir / "model.pkl").is_file()
+        feature_columns_manifest_exists = (artifact_dir / "feature_columns.json").is_file()
+        calibration_available = bool(
+            calibration
+            and (artifact_dir / "calibration.json").is_file()
+            and calibration.get("brierScore") is not None
+            and calibration.get("logLoss") is not None
+            and int(calibration.get("sampleCount") or 0) >= MIN_CALIBRATION_ROWS
+        )
+        backtest_available = bool(
+            backtest
+            and (artifact_dir / "backtest_metrics.json").is_file()
+            and int(backtest.get("evaluatedRows") or 0) >= MIN_BACKTEST_ROWS
+        )
         label_rows = counts["labelRows"]
         two_class = counts["hitRows"] > 0 and counts["missRows"] > 0
         reasons: list[str] = []
+        if not baseline_artifact_exists:
+            reasons.append("Baseline model artifact is missing.")
+        if not feature_columns_manifest_exists:
+            reasons.append("Feature columns manifest is missing.")
         if label_rows < self.baseline_min_rows:
             reasons.append(f"Label rows below baseline threshold: {label_rows} < {self.baseline_min_rows}.")
         if not two_class:
@@ -148,7 +168,9 @@ class ModelTrainingReadinessService:
         if not backtest_available:
             reasons.append("Backtest artifacts are missing.")
         production = bool(
-            baseline
+            baseline_artifact_exists
+            and feature_columns_manifest_exists
+            and baseline
             and label_rows >= self.production_min_rows_per_market
             and calibration_available
             and backtest_available
@@ -162,7 +184,11 @@ class ModelTrainingReadinessService:
             "pushRows": counts["pushRows"],
             "voidRows": counts["voidRows"],
             "twoClassTarget": two_class,
+            "baselineArtifactExists": baseline_artifact_exists,
+            "featureColumnsManifestExists": feature_columns_manifest_exists,
             "baselineEligible": baseline,
+            "calibrationStatus": "ready" if calibration_available else "missing",
+            "backtestStatus": "ready" if backtest_available else "missing",
             "productionEligible": production,
             "reasons": reasons,
         }
@@ -213,12 +239,14 @@ class ModelTrainingReadinessService:
         blocked = sorted(set(header).intersection(postgame_label_names()))
         return {"ok": not blocked, "blockedFieldsFound": blocked}
 
+    def _baseline_artifact_dir(self, market: str) -> Path:
+        return self.settings.data_dir / "models" / "baseline" / _safe_market(market)
+
     def _has_artifacts(self, kind: str) -> bool:
-        directories = [self.settings.data_dir / kind]
-        if kind == "calibration":
-            directories.extend([self.settings.model_dir, self.settings.data_dir / "models"])
-        patterns = ("*.json", "*.csv")
-        return any(path.is_file() for directory in directories if directory.exists() for pattern in patterns for path in directory.glob(pattern))
+        """Compatibility hook for older readiness tests; production gates are market-specific."""
+
+        directories = [self.settings.data_dir / kind, self.settings.data_dir / "models"]
+        return any(path.is_file() for directory in directories if directory.exists() for path in directory.rglob("*"))
 
     def _warnings(
         self,
@@ -301,3 +329,17 @@ def _int_from_env(name: str, fallback: int) -> int:
 
 def _clean(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _safe_market(value: str) -> str:
+    return "".join(char if char.isalnum() or char == "_" else "_" for char in _clean(value)) or "unknown"
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}

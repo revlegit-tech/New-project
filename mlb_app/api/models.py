@@ -734,6 +734,32 @@ class BaselineModelStatusResponse(StrictResponse):
     warnings: list[str] = Field(default_factory=list)
 
 
+class ModelCalibrationStatusResponse(StrictResponse):
+    schemaVersion: str = "model-calibration-status.v1"
+    date: str
+    season: int
+    market: str
+    artifactExists: bool = False
+    calibrationStatus: str = "missing"
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    modelTrainingTriggered: bool = False
+    externalApiCallsMade: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ModelBacktestStatusResponse(StrictResponse):
+    schemaVersion: str = "model-backtest-status.v1"
+    date: str
+    season: int
+    market: str
+    artifactExists: bool = False
+    backtestStatus: str = "missing"
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    modelTrainingTriggered: bool = False
+    externalApiCallsMade: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
 class EdgeBoardResponse(StrictResponse):
     status: str = "ok"
     schemaVersion: str | None = None
