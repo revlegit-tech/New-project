@@ -9,6 +9,7 @@ returns probability, fair odds, edge, and expected value for one prop row.
 import csv
 import json
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
