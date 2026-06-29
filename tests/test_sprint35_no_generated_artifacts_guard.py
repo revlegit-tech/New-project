@@ -23,7 +23,13 @@ def test_generated_artifact_guard_catches_data_feature_and_model_outputs(tmp_pat
 
 
 def test_backup_artifact_guard_catches_backup_and_phasebackup_files(tmp_path: Path) -> None:
-    for name in ("table.backup_20260624.csv", "context.phasebackup_20260624.csv"):
+    for name in (
+        "table.backup_20260624.csv",
+        "context.phasebackup_20260624.csv",
+        "game_context_2026-06-27.csv.phase18v6_backup_20260627T000000Z",
+        "something.phase99_backup_test",
+        "artifact.phasefoo_backup_test",
+    ):
         path = tmp_path / "data" / "warehouse" / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("backup\n", encoding="utf-8")
@@ -31,7 +37,10 @@ def test_backup_artifact_guard_catches_backup_and_phasebackup_files(tmp_path: Pa
     offenders = [path.as_posix() for path in iter_backup_files(tmp_path)]
 
     assert offenders == [
+        "data/warehouse/artifact.phasefoo_backup_test",
         "data/warehouse/context.phasebackup_20260624.csv",
+        "data/warehouse/game_context_2026-06-27.csv.phase18v6_backup_20260627T000000Z",
+        "data/warehouse/something.phase99_backup_test",
         "data/warehouse/table.backup_20260624.csv",
     ]
 
@@ -42,4 +51,12 @@ def test_guards_ignore_workflow_artifacts(tmp_path: Path) -> None:
     path.write_text("artifact\n", encoding="utf-8")
 
     assert find_generated_artifacts(tmp_path) == []
+    assert iter_backup_files(tmp_path) == []
+
+
+def test_backup_guard_does_not_flag_validator_source_file(tmp_path: Path) -> None:
+    path = tmp_path / "tools" / "validate_backup_files.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("source\n", encoding="utf-8")
+
     assert iter_backup_files(tmp_path) == []

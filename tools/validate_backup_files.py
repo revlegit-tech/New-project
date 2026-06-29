@@ -1,22 +1,21 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
-IGNORED_PARTS = {".git", ".venv", "node_modules", ".pytest_cache", ".pytest_tmp", ".ruff_cache", "workflow-artifacts"}
-BACKUP_MARKERS = (
-    ".backup_",
-    ".phasebackup",
-    "_phasebackup",
-    ".phase19_backup_",
-    ".phase20_backup_",
-    ".phase20v2_backup_",
-    ".phase20v3_backup_",
-    ".phase21_backup",
-    ".phase21v2_backup_",
-    ".phase22_backup_",
-    ".phase22v2_backup_",
-)
+IGNORED_PARTS = {
+    ".git",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    ".pytest_cache",
+    ".pytest_tmp",
+    ".ruff_cache",
+    "workflow-artifacts",
+}
+ALLOWED_SOURCE_FILENAMES = {"validate_backup_files.py"}
+BACKUP_NAME_PATTERN = re.compile(r"backup|(^|[._-])phase[^/\\]*backup", re.IGNORECASE)
 
 
 def iter_backup_files(root: Path) -> list[Path]:
@@ -28,8 +27,10 @@ def iter_backup_files(root: Path) -> list[Path]:
         relative = path.relative_to(root)
         if any(part in IGNORED_PARTS for part in relative.parts):
             continue
-        name = path.name.lower()
-        if any(marker in name for marker in BACKUP_MARKERS):
+        name = path.name
+        if name.lower() in ALLOWED_SOURCE_FILENAMES:
+            continue
+        if BACKUP_NAME_PATTERN.search(name):
             offenders.append(relative)
     return sorted(offenders, key=lambda item: item.as_posix())
 

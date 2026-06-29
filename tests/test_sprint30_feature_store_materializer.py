@@ -67,17 +67,39 @@ def test_feature_store_status_route_is_read_only_and_safe(tmp_path: Path, monkey
     def forbidden(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("feature-store status must not train models")
 
+    def forbidden_materialize(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("feature-store status must not materialize feature files")
+
     monkeypatch.setattr("mlb_app.services.model_training_service.ModelTrainingService.train_market", forbidden)
+    monkeypatch.setattr(FeatureStoreMaterializer, "materialize", forbidden_materialize)
     settings = make_settings(tmp_path)
     client = TestClient(create_app(container=AppContainer(settings=settings)), client=("127.0.0.1", 50000))
+    date_label = "2026-06-27"
 
-    response = client.get("/api/runtime/feature-store/status?date=today&season=2026")
+    response = client.get(f"/api/runtime/feature-store/status?date={date_label}&season=2026&materialize=true")
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["schemaVersion"] == "feature-store-materializer.v1"
+    assert payload["date"] == date_label
     assert payload["pregameSafe"] is True
     assert payload["labelsExcluded"] is True
     assert payload["externalApiCallsMade"] is False
     assert payload["modelTrainingTriggered"] is False
-    assert not (settings.data_dir / "features" / "prop_features_2026-06-24.csv").exists()
+    assert not (settings.data_dir / "features" / f"prop_features_{date_label}.csv").exists()
+
+
+def test_feature_store_status_materialize_false_is_inspect_only(tmp_path: Path, monkeypatch) -> None:
+    def forbidden_materialize(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("materialize=False status must remain inspect-only")
+
+    monkeypatch.setattr(FeatureStoreMaterializer, "materialize", forbidden_materialize)
+    settings = make_settings(tmp_path)
+    date_label = "2026-06-27"
+
+    result = FeatureStoreMaterializer(settings).status(date_label=date_label, season=2026, materialize=False)
+
+    assert result["schemaVersion"] == "feature-store-materializer.v1"
+    assert result["externalApiCallsMade"] is False
+    assert result["modelTrainingTriggered"] is False
+    assert not (settings.data_dir / "features" / f"prop_features_{date_label}.csv").exists()

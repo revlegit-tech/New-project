@@ -112,7 +112,6 @@ async def feature_store_status(
     limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
     date: Annotated[str | None, Query()] = None,
     season: Annotated[int | None, Query()] = None,
-    materialize: Annotated[bool, Query()] = False,
 ) -> dict:
     service = FeatureStoreMaterializer(container.settings)
     selected_season = season if season is not None else container.settings.current_season
@@ -120,7 +119,7 @@ async def feature_store_status(
         service.status,
         date_label=date,
         season=selected_season,
-        materialize=materialize,
+        materialize=False,
         route_name="/api/runtime/feature-store/status",
     )
 
