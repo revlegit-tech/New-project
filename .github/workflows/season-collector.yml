@@ -116,6 +116,8 @@ jobs:
           PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
         shell: bash
         run: |
+          set -o pipefail
+
           RUN_TYPE="${{ steps.mode.outputs.run_type }}"
           INCLUDE_SAVANT="${{ steps.mode.outputs.include_savant }}"
           EXECUTE_FULL="${{ steps.mode.outputs.execute_full }}"
@@ -125,7 +127,19 @@ jobs:
 
           if [ "${{ github.event_name }}" = "schedule" ] || [ "$EXECUTE_FULL" != "true" ]; then
             echo "Running bounded safe daily workflow for $RUN_DATE ($RUN_TYPE)."
+            set +e
             timeout 20m python daily_ml_workflow.py --date "$RUN_DATE" run-daily | tee "workflow-artifacts/collector-run.log"
+            COLLECTOR_EXIT=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$COLLECTOR_EXIT" -ne 0 ]; then
+              echo "::warning::Safe daily collector exited $COLLECTOR_EXIT; continuing degraded so logs/artifacts can be inspected."
+              echo "collector_exit=$COLLECTOR_EXIT" > "workflow-artifacts/collector-status.env"
+              echo "collector_mode=degraded" >> "workflow-artifacts/collector-status.env"
+            else
+              echo "collector_exit=0" > "workflow-artifacts/collector-status.env"
+              echo "collector_mode=ok" >> "workflow-artifacts/collector-status.env"
+            fi
           else
             CMD=(python season_auto_collector.py snapshot --run-type "$RUN_TYPE" --date "$RUN_DATE")
             if [ "$INCLUDE_SAVANT" = "true" ]; then

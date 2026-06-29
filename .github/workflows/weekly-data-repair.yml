@@ -25,6 +25,10 @@ on:
 permissions:
   contents: read
 
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  PYTHONUNBUFFERED: "1"
+
 jobs:
   repair:
     runs-on: ubuntu-latest
@@ -93,7 +97,13 @@ jobs:
         shell: bash
         run: |
           REPAIR_DATE="${{ steps.repair_date.outputs.repair_date }}"
+          set +e
           python scripts/scheduled_weekly_repair.py --date "$REPAIR_DATE" | tee -a "workflow-artifacts/weekly-repair.log"
+          SUMMARY_EXIT=${PIPESTATUS[0]}
+          set -e
+          if [ "$SUMMARY_EXIT" -ne 0 ]; then
+            echo "::warning::Weekly repair summary refresh exited $SUMMARY_EXIT; preserving earlier workflow result and uploaded logs."
+          fi
 
       - name: Package repair outputs artifact
         if: always()
