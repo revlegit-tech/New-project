@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
+from mlb_app.contracts.feature_store_schema import postgame_label_names, pregame_feature_names
 from mlb_app.services.data_source_capability_service import resolve_date_mode
 from mlb_app.services.runtime_status_service import safe_relpath
 
@@ -60,6 +61,16 @@ class ModelCalibrationService:
         warnings: list[str] = []
         if not model_exists:
             warnings.append("Baseline model artifact is missing for this market.")
+        if not rows and model_exists:
+            scored = _baseline_model_probability_rows(
+                settings=self.settings,
+                artifact_dir=artifact_dir,
+                date_label=target_date,
+                season=selected_season,
+                market=selected_market,
+            )
+            rows = scored["rows"]
+            warnings.extend(scored["warnings"])
         if not rows:
             warnings.append("No labels with probability estimates were found for calibration.")
         if len(rows) and len(rows) < MIN_CALIBRATION_ROWS:
@@ -177,6 +188,88 @@ def _probability_rows(files: list[Path], market: str) -> list[dict[str, float]]:
     return rows
 
 
+def _baseline_model_probability_rows(
+    *,
+    settings: Settings,
+    artifact_dir: Path,
+    date_label: str,
+    season: int,
+    market: str,
+    purpose: str = "calibration",
+) -> dict[str, Any]:
+    from mlb_app.services.baseline_model_training_service import BaselineModelTrainingService
+
+    warnings: list[str] = []
+    feature_columns_path = artifact_dir / "feature_columns.json"
+    model_path = artifact_dir / "model.joblib"
+    if not model_path.is_file():
+        warnings.append("Baseline model artifact is missing for this market.")
+        return {"rows": [], "warnings": warnings}
+    feature_columns = _feature_columns_manifest(feature_columns_path)
+    if not feature_columns:
+        warnings.append("Feature columns manifest is missing or invalid for this market.")
+        return {"rows": [], "warnings": warnings}
+    blocked = sorted(set(feature_columns).intersection(postgame_label_names()))
+    allowed = set(pregame_feature_names())
+    non_pregame = sorted(column for column in feature_columns if column not in allowed)
+    if blocked or non_pregame:
+        warnings.append("Feature columns manifest contains non-pregame or postgame label fields.")
+        return {"rows": [], "warnings": warnings}
+
+    joined = BaselineModelTrainingService(settings)._joined_rows(
+        target_date=date_label,
+        season=season,
+        market=market,
+        label_files=_readiness_label_artifacts(settings=settings, date_label=date_label, season=season, market=market),
+    )
+    if not joined:
+        warnings.append(f"No joined feature rows with labels were found for {purpose}.")
+        return {"rows": [], "warnings": warnings}
+
+    try:
+        import joblib
+        import numpy as np
+
+        model = joblib.load(model_path)
+        matrix = np.asarray([[_float_for_model(row.get(column)) for column in feature_columns] for row in joined], dtype=float)
+        probabilities = model.predict_proba(matrix)[:, 1]
+    except Exception as exc:
+        warnings.append(f"Baseline model scoring failed for {purpose}: {exc}")
+        return {"rows": [], "warnings": warnings}
+
+    rows = [
+        {"target": float(row["__target"]), "probability": max(0.0, min(1.0, float(probability)))}
+        for row, probability in zip(joined, probabilities, strict=False)
+    ]
+    return {"rows": rows, "warnings": warnings}
+
+
+def _feature_columns_manifest(path: Path) -> list[str]:
+    payload = _read_json_or_list(path)
+    if isinstance(payload, list):
+        return [_clean(item) for item in payload if _clean(item)]
+    if isinstance(payload, dict):
+        columns = payload.get("featureColumns") or payload.get("feature_columns") or payload.get("columns")
+        if isinstance(columns, list):
+            return [_clean(item) for item in columns if _clean(item)]
+    return []
+
+
+def _readiness_label_artifacts(*, settings: Settings, date_label: str, season: int, market: str) -> list[str]:
+    from mlb_app.services.baseline_model_training_service import BaselineModelTrainingService
+
+    artifacts: list[str] = []
+    try:
+        readiness = BaselineModelTrainingService(settings).readiness.payload(date_label=date_label, season=season, market=market)
+        artifacts.extend(str(path) for path in readiness.get("labelArtifacts") or [])
+    except Exception:
+        pass
+    warehouse_csv = settings.data_dir / "warehouse" / "ml_labels" / f"player_prop_labels_{date_label}.csv"
+    if warehouse_csv.is_file():
+        artifacts.append(safe_relpath(warehouse_csv, settings.root_dir))
+    return _dedupe(artifacts)
+
+
 def _baseline_model_exists(artifact_dir: Path) -> bool:
     return (artifact_dir / "model.joblib").is_file() or (artifact_dir / "model.pkl").is_file()
 
@@ -234,12 +327,27 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {}
 
 
+def _read_json_or_list(path: Path) -> Any:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, (dict, list)) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
 def _float(value: Any) -> float | None:
     try:
         text = _clean(value)
         return float(text) if text else None
     except (TypeError, ValueError):
         return None
+
+
+def _float_for_model(value: Any) -> float:
+    number = _float(value)
+    return number if number is not None else 0.0
 
 
 def _safe_market(value: str) -> str:
