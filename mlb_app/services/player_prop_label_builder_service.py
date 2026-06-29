@@ -46,6 +46,83 @@ STAT_ALIASES: dict[str, tuple[str, ...]] = {
     "hitsAllowed": ("hitsAllowed", "hits_allowed", "hits", "h"),
     "earnedRuns": ("earnedRuns", "earned_runs", "er"),
 }
+PLAYER_MARKET_SUFFIXES: tuple[str, ...] = (
+    "Strikeouts Thrown",
+    "Hits Allowed",
+    "Earned Runs",
+    "Outs Recorded",
+    "Pitching Outs",
+)
+TEAM_ALIASES: dict[str, str] = {
+    "ARI": "ARI",
+    "ARIZONA DIAMONDBACKS": "ARI",
+    "ATL": "ATL",
+    "ATLANTA BRAVES": "ATL",
+    "BAL": "BAL",
+    "BALTIMORE ORIOLES": "BAL",
+    "BOS": "BOS",
+    "BOSTON RED SOX": "BOS",
+    "CHC": "CHC",
+    "CHICAGO CUBS": "CHC",
+    "CIN": "CIN",
+    "CINCINNATI REDS": "CIN",
+    "CLE": "CLE",
+    "CLEVELAND GUARDIANS": "CLE",
+    "COL": "COL",
+    "COLORADO ROCKIES": "COL",
+    "CWS": "CWS",
+    "CHICAGO WHITE SOX": "CWS",
+    "DET": "DET",
+    "DETROIT TIGERS": "DET",
+    "HOU": "HOU",
+    "HOUSTON ASTROS": "HOU",
+    "KCR": "KCR",
+    "KC": "KCR",
+    "KANSAS CITY ROYALS": "KCR",
+    "LAA": "LAA",
+    "LOS ANGELES ANGELS": "LAA",
+    "LAD": "LAD",
+    "LOS ANGELES DODGERS": "LAD",
+    "MIA": "MIA",
+    "MIAMI MARLINS": "MIA",
+    "MIL": "MIL",
+    "MILWAUKEE BREWERS": "MIL",
+    "MIN": "MIN",
+    "MINNESOTA TWINS": "MIN",
+    "NYM": "NYM",
+    "NEW YORK METS": "NYM",
+    "NYY": "NYY",
+    "NEW YORK YANKEES": "NYY",
+    "ATH": "ATH",
+    "OAK": "ATH",
+    "OAKLAND ATHLETICS": "ATH",
+    "ATHLETICS": "ATH",
+    "PHI": "PHI",
+    "PHILADELPHIA PHILLIES": "PHI",
+    "PIT": "PIT",
+    "PITTSBURGH PIRATES": "PIT",
+    "SDP": "SDP",
+    "SD": "SDP",
+    "SAN DIEGO PADRES": "SDP",
+    "SEA": "SEA",
+    "SEATTLE MARINERS": "SEA",
+    "SFG": "SFG",
+    "SF": "SFG",
+    "SAN FRANCISCO GIANTS": "SFG",
+    "STL": "STL",
+    "ST. LOUIS CARDINALS": "STL",
+    "ST LOUIS CARDINALS": "STL",
+    "TBR": "TBR",
+    "TB": "TBR",
+    "TAMPA BAY RAYS": "TBR",
+    "TEX": "TEX",
+    "TEXAS RANGERS": "TEX",
+    "TOR": "TOR",
+    "TORONTO BLUE JAYS": "TOR",
+    "WSN": "WSN",
+    "WAS": "WSN",
+    "WASHINGTON NATIONALS": "WSN",
+}
 
 
 @dataclass(frozen=True)
@@ -241,6 +318,8 @@ class PlayerPropLabelBuilderService:
             date_label=str(base["date"]),
             player=str(base["player"]),
             team=str(base["team"]),
+            opponent=str(base["opponent"]),
+            player_id=str(base["player_id"]),
         )
         if match.status != "ok":
             base.update({"label_status": match.status, "label_reason": match.reason, "stat_source": match.source})
@@ -491,29 +570,40 @@ class _StatLogs:
             warnings.append(f"No pitcher season logs found for {season}.")
         return cls(batter_rows, pitcher_rows, batter_source, pitcher_source, warnings)
 
-    def find(self, *, market: str, date_label: str, player: str, team: str) -> _LogMatch:
+    def find(self, *, market: str, date_label: str, player: str, team: str, opponent: str = "", player_id: str = "") -> _LogMatch:
         rows = self.pitcher_rows if _clean(market).startswith("pitcher") else self.batter_rows
         source = self.pitcher_source if _clean(market).startswith("pitcher") else self.batter_source
         if not rows:
             return _LogMatch("missing_player", "No season log rows are available for this market family.", {}, source)
-        candidates = []
-        target = _norm(player)
-        target_team = _clean(team).upper()
-        for row in rows:
-            if _clean(row.get("date"))[:10] != date_label[:10]:
-                continue
-            if _norm(row.get("player")) != target:
-                continue
-            row_team = _clean(row.get("team")).upper()
-            if target_team and row_team and row_team != target_team:
-                continue
-            candidates.append(row)
-        if not candidates:
+        date_rows = [row for row in rows if _clean(row.get("date"))[:10] == date_label[:10]]
+        target_id = _player_id(player_id)
+        if target_id:
+            id_candidates = [row for row in date_rows if _player_id(row.get("playerId") or row.get("player_id")) == target_id]
+            id_match = _single_match(id_candidates, source)
+            if id_match is not None:
+                return id_match
+
+        target = _player_norm(player)
+        name_candidates = [row for row in date_rows if _player_norm(row.get("player")) == target]
+        if not name_candidates:
             return _LogMatch("missing_player", "No player game log matched the feature row.", {}, source)
-        unique = {_match_identity(row) for row in candidates}
-        if len(unique) > 1:
-            return _LogMatch("ambiguous_match", "Multiple player game logs matched the feature row.", {}, source)
-        return _LogMatch("ok", "Matched player game log.", candidates[0], source)
+
+        target_team = _team_alias(team)
+        team_candidates = [row for row in name_candidates if target_team and _team_alias(row.get("team")) == target_team]
+        team_match = _single_match(team_candidates, source)
+        if team_match is not None:
+            return team_match
+
+        target_opponent = _team_alias(opponent)
+        opponent_candidates = [row for row in name_candidates if target_opponent and _team_alias(row.get("team")) == target_opponent]
+        opponent_match = _single_match(opponent_candidates, source)
+        if opponent_match is not None:
+            return opponent_match
+
+        name_match = _single_match(name_candidates, source)
+        if name_match is not None:
+            return name_match
+        return _LogMatch("ambiguous_match", "Multiple player game logs matched the feature row.", {}, source)
 
 
 def _first_existing_rows(paths: Sequence[Path]) -> tuple[list[dict[str, str]], str]:
@@ -634,7 +724,40 @@ def _safe_mtime(path: Path) -> float:
 
 
 def _match_identity(row: Mapping[str, Any]) -> tuple[str, str, str, str]:
-    return (_clean(row.get("date"))[:10], _norm(row.get("player")), _clean(row.get("team")).upper(), _clean(row.get("gamePk")))
+    return (_clean(row.get("date"))[:10], _player_norm(row.get("player")), _team_alias(row.get("team")), _clean(row.get("gamePk")))
+
+
+def _single_match(candidates: Sequence[dict[str, str]], source: str) -> _LogMatch | None:
+    if not candidates:
+        return None
+    unique = {_match_identity(row) for row in candidates}
+    if len(unique) > 1:
+        return _LogMatch("ambiguous_match", "Multiple player game logs matched the feature row.", {}, source)
+    return _LogMatch("ok", "Matched player game log.", candidates[0], source)
+
+
+def _player_norm(value: Any) -> str:
+    return _norm(_strip_player_market_suffix(value))
+
+
+def _strip_player_market_suffix(value: Any) -> str:
+    text = _clean(value)
+    for suffix in PLAYER_MARKET_SUFFIXES:
+        pattern = rf"\s+{re.escape(suffix)}$"
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+    return text
+
+
+def _team_alias(value: Any) -> str:
+    text = _clean(value).upper().replace(".", "")
+    text = " ".join(text.split())
+    if not text:
+        return ""
+    return TEAM_ALIASES.get(text, text)
+
+
+def _player_id(value: Any) -> str:
+    return _clean(value).lstrip("#")
 
 
 def _norm(value: Any) -> str:

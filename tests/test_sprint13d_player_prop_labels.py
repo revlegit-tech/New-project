@@ -15,7 +15,7 @@ from mlb_app.services.backtest_dataset_builder_service import BacktestDatasetBui
 from mlb_app.services.backtest_readiness_service import BacktestReadinessService
 from mlb_app.services.ml_feature_export_service import MLFeatureExportService
 from mlb_app.services.ml_feature_schema import filter_safe_features
-from mlb_app.services.player_prop_label_builder_service import PlayerPropLabelBuilderService
+from mlb_app.services.player_prop_label_builder_service import PlayerPropLabelBuilderService, _StatLogs
 from mlb_app.services.player_prop_label_schema import assert_label_not_in_features
 from mlb_app.services.player_prop_market_stat_mapper import grade_over_under, market_to_stat_key
 
@@ -153,6 +153,10 @@ def write_batter_logs(settings: Settings, rows: list[dict[str, Any]]) -> None:
     write_csv(settings.data_dir / "cloud" / "season_logs" / "batter_game_logs_2026.csv", rows)
 
 
+def write_pitcher_logs(settings: Settings, rows: list[dict[str, Any]]) -> None:
+    write_csv(settings.data_dir / "cloud" / "season_logs" / "pitcher_game_logs_2026.csv", rows)
+
+
 def write_feature_json(settings: Settings, date_label: str, rows: list[dict[str, Any]]) -> None:
     path = settings.data_dir / "warehouse" / "ml_features" / f"player_prop_features_{date_label}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -237,6 +241,120 @@ def test_missing_stat_becomes_missing_stat(tmp_path: Path) -> None:
     result = label_service.build_label_rows(date_label="2026-06-22", include_ungraded=True)
 
     assert result.rows[0]["label_status"] == "missing_stat"
+
+
+def test_stat_log_find_matches_full_team_name_to_abbreviation(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_batter_logs(settings, [{"date": "2026-06-22", "player": "Aaron Judge", "team": "NYY", "playerId": "592450", "hits": "2"}])
+    logs = _StatLogs.load(settings, 2026)
+
+    match = logs.find(market="batter_hits", date_label="2026-06-22", player="Aaron Judge", team="NEW YORK YANKEES")
+
+    assert match.status == "ok"
+    assert match.row["hits"] == "2"
+
+
+def test_stat_log_find_falls_back_to_unique_player_when_feature_team_is_wrong(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_batter_logs(settings, [{"date": "2026-06-22", "player": "Vladimir Guerrero Jr.", "team": "TOR", "hits": "1"}])
+    logs = _StatLogs.load(settings, 2026)
+
+    match = logs.find(market="batter_hits", date_label="2026-06-22", player="Vladimir Guerrero Jr.", team="HOUSTON ASTROS")
+
+    assert match.status == "ok"
+    assert match.row["team"] == "TOR"
+
+
+def test_stat_log_find_player_id_wins_with_team_mismatch(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_batter_logs(
+        settings,
+        [
+            {"date": "2026-06-22", "player": "Same Name", "team": "NYY", "playerId": "111", "hits": "0"},
+            {"date": "2026-06-22", "player": "Same Name", "team": "TOR", "playerId": "222", "hits": "2"},
+        ],
+    )
+    logs = _StatLogs.load(settings, 2026)
+
+    match = logs.find(market="batter_hits", date_label="2026-06-22", player="Same Name", team="HOUSTON ASTROS", player_id="222")
+
+    assert match.status == "ok"
+    assert match.row["team"] == "TOR"
+
+
+def test_stat_log_find_strips_pitcher_market_suffix(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_pitcher_logs(settings, [{"date": "2026-06-22", "player": "Kodai Senga", "team": "NYM", "strikeOuts": "6"}])
+    logs = _StatLogs.load(settings, 2026)
+
+    match = logs.find(
+        market="pitcher_strikeouts_alt",
+        date_label="2026-06-22",
+        player="Kodai Senga Strikeouts Thrown",
+        team="CHICAGO CUBS",
+        opponent="NEW YORK METS",
+    )
+
+    assert match.status == "ok"
+    assert match.row["strikeOuts"] == "6"
+
+
+def test_stat_log_find_duplicate_name_candidates_are_ambiguous(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_batter_logs(
+        settings,
+        [
+            {"date": "2026-06-22", "player": "Duplicate Player", "team": "NYY", "hits": "1"},
+            {"date": "2026-06-22", "player": "Duplicate Player", "team": "DET", "hits": "2"},
+        ],
+    )
+    logs = _StatLogs.load(settings, 2026)
+
+    match = logs.find(market="batter_hits", date_label="2026-06-22", player="Duplicate Player", team="HOUSTON ASTROS")
+
+    assert match.status == "ambiguous_match"
+
+
+def test_stat_log_find_truly_missing_player_returns_missing_player(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_batter_logs(settings, [{"date": "2026-06-22", "player": "Aaron Judge", "team": "NYY", "hits": "2"}])
+    logs = _StatLogs.load(settings, 2026)
+
+    match = logs.find(market="batter_hits", date_label="2026-06-22", player="Missing Player", team="NEW YORK YANKEES")
+
+    assert match.status == "missing_player"
+
+
+def test_label_builder_mixed_fixture_produces_hit_and_miss_labels(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_batter_logs(
+        settings,
+        [
+            {"date": "2026-06-22", "player": "Aaron Judge", "team": "NYY", "hits": "2"},
+            {"date": "2026-06-22", "player": "Vladimir Guerrero Jr.", "team": "TOR", "hits": "0"},
+        ],
+    )
+    _, label_service, _ = services(
+        settings,
+        [
+            prop_row(propKey="judge-hits", id="judge-hits", player="Aaron Judge", team="NEW YORK YANKEES", market="batter_hits", line="0.5"),
+            prop_row(
+                propKey="vladdy-hits",
+                id="vladdy-hits",
+                player="Vladimir Guerrero Jr.",
+                team="HOUSTON ASTROS",
+                opponent="TORONTO BLUE JAYS",
+                market="batter_hits",
+                line="0.5",
+            ),
+        ],
+    )
+
+    result = label_service.build_label_rows(date_label="2026-06-22", include_ungraded=True)
+
+    assert [row["label_status"] for row in result.rows] == ["graded", "graded"]
+    assert [row["hit"] for row in result.rows] == [True, False]
+    assert [row["result"] for row in result.rows] == ["hit", "miss"]
 
 
 def test_label_builder_dry_run_does_not_write_files(tmp_path: Path) -> None:
