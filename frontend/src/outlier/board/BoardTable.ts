@@ -8,6 +8,7 @@ export interface BoardTableRenderOptions {
   rows: OutlierBoardRow[];
   selectedIndex: number;
   freshnessFallback: string;
+  emptyState?: { title: string; copy: string };
   resetScroll?: boolean;
   rowHeight?: number;
   overscanRows?: number;
@@ -72,7 +73,8 @@ class BoardTableController {
     if (!this.rows.length) {
       this.table = null;
       this.tbody = null;
-      clear(this.host, [h("div", { className: "ob-empty" }, [h("strong", { text: "No props match these filters" }), h("span", { text: "Adjust market, side, date, or search." })])]);
+      const empty = options.emptyState || { title: "No props match these filters", copy: "Adjust market, side, date, or search." };
+      clear(this.host, [h("div", { className: "ob-empty" }, [h("strong", { text: empty.title }), h("span", { text: empty.copy })])]);
       this.lastWindow = createVirtualWindow({ rowCount: 0, scrollTop: 0, viewportHeight: 0, rowHeight: this.rowHeight, overscanRows: this.overscanRows });
       return this.result();
     }

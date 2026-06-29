@@ -49,6 +49,25 @@ export interface TrustChip {
   title: string;
 }
 
+export interface RowTrustSummary {
+  actionLabel: string;
+  marketCapabilityStatus: string;
+  modelProductionEligible: boolean;
+  productionStatus: string;
+  calibrationStatus: string;
+  backtestStatus: string;
+  freshnessStatus: string;
+  gameMarketStatus: string;
+  missingDataCount: number;
+  warningCount: number;
+  canShowConfidentPick: boolean;
+  hasCriticalMissingData: boolean;
+  actionabilityReason: string;
+  productionEligibleReason: string;
+  missingFeatureGroups: string[];
+  missingDataSummary: string;
+}
+
 export function rowPropIdentity(row: OutlierBoardRow): NormalizedPropIdentity {
   const identity = objectValue(row.trust?.propIdentity);
   return {
@@ -110,12 +129,13 @@ export function rowActionability(row: OutlierBoardRow): NormalizedActionability 
   const decision = text(row.decisionLabel ?? row.recommendation ?? "", "");
   const status = normalizeActionabilityStatus(actionability.status, decision, readiness, edge.edgePercent);
   const label = text(actionability.label ?? actionabilityLabel(status, decision), actionabilityLabel(status, decision));
-  const stakeUnits = typeof actionability.stakeUnits === "number" ? actionability.stakeUnits : status === "actionable" ? 0.25 : 0;
+  const productionEligible = Boolean(row.modelProductionEligible ?? objectValue(row.trust?.readiness).modelProductionEligible);
+  const stakeUnits = productionEligible && typeof actionability.stakeUnits === "number" ? actionability.stakeUnits : 0;
   return {
     label,
     status,
     tone: actionabilityTone(status),
-    suggestedStake: text(actionability.suggestedStake ?? row.suggestedStake ?? (status === "actionable" ? "0.25u capped" : "Research only"), "Research only"),
+    suggestedStake: productionEligible ? text(actionability.suggestedStake ?? row.suggestedStake ?? "Research only", "Research only") : "0u until production eligible",
     stakeUnits,
     reason: text(actionability.reason ?? firstReason(row) ?? "", ""),
   };
@@ -137,7 +157,76 @@ export function rowTrustCopy(row: OutlierBoardRow): string {
 }
 
 export function rowTrustChips(row: OutlierBoardRow): TrustChip[] {
-  return [modelTrustChip(row), featureCoverageChip(row), actionNetworkTrustChip(row)].filter(Boolean) as TrustChip[];
+  return [
+    actionLabelChip(row),
+    marketCapabilityChip(row),
+    productionEligibilityChip(row),
+    productionStatusChip(row),
+    calibrationChip(row),
+    backtestChip(row),
+    freshnessChip(row),
+    gameMarketChip(row),
+    missingDataChip(row),
+    warningChip(row),
+    modelTrustChip(row),
+    featureCoverageChip(row),
+    actionNetworkTrustChip(row),
+  ].filter(Boolean) as TrustChip[];
+}
+
+export function rowTrustSummary(row: OutlierBoardRow): RowTrustSummary {
+  const trust = objectValue(row.trust);
+  const readiness = objectValue(trust.readiness);
+  const actionability = objectValue(trust.actionability);
+  const freshness = rowFreshness(row, "Unknown");
+  const missingFeatureGroups = arrayText(row.missingFeatureGroups ?? readiness.missingFeatureGroups);
+  const missingDataCount = integer(row.missingDataCount ?? readiness.missingDataCount ?? missingFeatureGroups.length);
+  const warningCount = integer(row.warningCount ?? (Array.isArray(row.trustWarnings) ? row.trustWarnings.length : readiness.warnings instanceof Array ? readiness.warnings.length : 0));
+  const productionStatus = normalizedStatus(row.productionStatus ?? readiness.status ?? row.modelState);
+  const calibrationStatus = normalizedStatus(row.calibrationStatus ?? readiness.calibrationStatus ?? trust.calibrationStatus);
+  const backtestStatus = normalizedStatus(row.backtestStatus ?? readiness.backtestStatus ?? trust.backtestStatus);
+  const marketCapabilityStatus = normalizedStatus(row.marketCapabilityStatus ?? trust.marketCapabilityStatus);
+  return {
+    actionLabel: text(row.actionLabel ?? trust.actionLabel ?? actionability.label, "Research only"),
+    marketCapabilityStatus,
+    modelProductionEligible: Boolean(row.modelProductionEligible ?? readiness.modelProductionEligible),
+    productionStatus,
+    calibrationStatus,
+    backtestStatus,
+    freshnessStatus: normalizedStatus(freshness.status),
+    gameMarketStatus: normalizedStatus(row.game_market_enrichment_status ?? row.gameMarketStatus),
+    missingDataCount,
+    warningCount,
+    canShowConfidentPick: Boolean(row.canShowConfidentPick ?? readiness.canShowConfidentPick),
+    hasCriticalMissingData: missingDataCount > 0,
+    actionabilityReason: text(row.actionabilityReason ?? actionability.reason, "Research only because production model gates have not passed."),
+    productionEligibleReason: text(row.productionEligibleReason, ""),
+    missingFeatureGroups,
+    missingDataSummary: text(row.missingDataSummary, missingDataCount ? "Missing data is present." : "No critical missing feature groups reported."),
+  };
+}
+
+export function rowIsTrustedMarket(row: OutlierBoardRow): boolean {
+  const summary = rowTrustSummary(row);
+  return summary.modelProductionEligible &&
+    summary.canShowConfidentPick &&
+    summary.freshnessStatus !== "stale" &&
+    summary.freshnessStatus !== "missing" &&
+    summary.marketCapabilityStatus !== "unsupported" &&
+    !summary.hasCriticalMissingData;
+}
+
+export function trustStatusLabel(value: unknown): string {
+  const raw = normalizedStatus(value);
+  if (!raw) return "Any";
+  if (raw === "research_only") return "Research only";
+  if (raw === "model_supported") return "Model supported";
+  if (raw === "production_candidate") return "Experimental";
+  return raw.split("_").filter(Boolean).map((part) => part[0].toUpperCase() + part.slice(1)).join(" ");
+}
+
+export function uniqueTrustValues(rows: OutlierBoardRow[], getter: (row: OutlierBoardRow) => unknown): string[] {
+  return Array.from(new Set(rows.map((row) => normalizedStatus(getter(row))).filter(Boolean))).sort();
 }
 
 export function modelTrustChip(row: OutlierBoardRow): TrustChip {
@@ -147,6 +236,81 @@ export function modelTrustChip(row: OutlierBoardRow): TrustChip {
   if (status === "shadow") return { label: "Model Shadow", tone: "watch", title: "Shadow model is visible but cannot alter board ranking." };
   if (status === "candidate") return { label: "Production Gated", tone: "watch", title: "Candidate model has not cleared promotion gates." };
   return { label: "Model Unavailable", tone: "risk", title: "No production model is available for this row." };
+}
+
+function actionLabelChip(row: OutlierBoardRow): TrustChip {
+  const label = rowTrustSummary(row).actionLabel || "Research only";
+  const raw = label.toLowerCase();
+  if (raw.includes("unsupported")) return { label: "Unsupported market", tone: "risk", title: "Unsupported market for model scoring." };
+  if (raw.includes("stale")) return { label: "Data stale", tone: "risk", title: "Data stale; review after the next collector run." };
+  if (raw.includes("no bet")) return { label: "No bet", tone: "risk", title: "This row does not clear the current research threshold." };
+  if (raw.includes("model lean")) return { label: "Model lean", tone: "watch", title: "Positive model lean, still research-first." };
+  if (raw.includes("watch")) return { label: "Watchlist", tone: "watch", title: "Watchlist row for manual review." };
+  return { label: "Research only", tone: "watch", title: "Research only because production gates have not passed." };
+}
+
+function marketCapabilityChip(row: OutlierBoardRow): TrustChip {
+  const status = rowTrustSummary(row).marketCapabilityStatus;
+  if (status === "unsupported") return { label: "Unsupported market", tone: "risk", title: "No supported model scoring for this market." };
+  if (status === "model_supported") return { label: "Model supported", tone: "good", title: "This market has model support." };
+  return { label: "Research only", tone: "watch", title: "Market remains research-only." };
+}
+
+function productionEligibilityChip(row: OutlierBoardRow): TrustChip {
+  const summary = rowTrustSummary(row);
+  if (summary.modelProductionEligible && summary.canShowConfidentPick) {
+    return { label: "Production eligible", tone: "good", title: summary.productionEligibleReason || "Production eligibility gates passed." };
+  }
+  return { label: "Research only", tone: "watch", title: summary.productionEligibleReason || "Production model gates have not passed." };
+}
+
+function productionStatusChip(row: OutlierBoardRow): TrustChip | null {
+  const status = rowTrustSummary(row).productionStatus;
+  if (!status) return null;
+  if (status === "production") return { label: "Production eligible", tone: "good", title: "Production status is active." };
+  if (status.includes("baseline")) return { label: "Baseline trained", tone: "watch", title: "Baseline model exists but production gates still apply." };
+  if (status.includes("experimental") || status.includes("candidate")) return { label: "Experimental", tone: "watch", title: "Experimental model state." };
+  return { label: trustStatusLabel(status), tone: "watch", title: "Model state." };
+}
+
+function calibrationChip(row: OutlierBoardRow): TrustChip | null {
+  const status = rowTrustSummary(row).calibrationStatus;
+  if (!status) return null;
+  if (["ready", "ok", "passed", "calibrated"].includes(status)) return { label: "Calibrated", tone: "good", title: "Calibration artifact is ready." };
+  return { label: "Calibration needed", tone: "watch", title: "Calibration needed before production eligibility." };
+}
+
+function backtestChip(row: OutlierBoardRow): TrustChip | null {
+  const status = rowTrustSummary(row).backtestStatus;
+  if (!status) return null;
+  if (["ready", "ok", "passed"].includes(status)) return { label: "Backtest ready", tone: "good", title: "Backtest artifact is ready." };
+  return { label: "Backtest needed", tone: "watch", title: "Backtest needed before production eligibility." };
+}
+
+function freshnessChip(row: OutlierBoardRow): TrustChip {
+  const freshness = rowFreshness(row, "Unknown");
+  if (freshness.status.includes("stale") || freshness.status.includes("missing")) return { label: "Data stale", tone: "risk", title: freshness.source || "Freshness warning." };
+  if (freshness.status.includes("fresh")) return { label: "Fresh", tone: "good", title: freshness.source || "Freshness is within the configured window." };
+  return { label: freshness.label, tone: freshness.tone, title: freshness.source || "Freshness status." };
+}
+
+function gameMarketChip(row: OutlierBoardRow): TrustChip | null {
+  const status = rowTrustSummary(row).gameMarketStatus;
+  if (!status) return null;
+  if (status === "matched" || status === "available") return { label: "Game markets ready", tone: "good", title: "Game market context matched." };
+  return { label: "Game markets missing", tone: "watch", title: "Game market context missing; edge confidence is reduced." };
+}
+
+function missingDataChip(row: OutlierBoardRow): TrustChip | null {
+  const summary = rowTrustSummary(row);
+  if (!summary.missingDataCount) return null;
+  return { label: `Missing data ${summary.missingDataCount}`, tone: "risk", title: summary.missingDataSummary };
+}
+
+function warningChip(row: OutlierBoardRow): TrustChip | null {
+  const count = rowTrustSummary(row).warningCount;
+  if (!count) return null;
+  return { label: `Warnings ${count}`, tone: "watch", title: `${count} trust warning${count === 1 ? "" : "s"}.` };
 }
 
 export function featureCoverageChip(row: OutlierBoardRow): TrustChip | null {
@@ -181,6 +345,19 @@ export function badgeToneClass(tone: TrustTone | "positive" | "neutral" | "negat
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function normalizedStatus(value: unknown): string {
+  return text(value, "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+}
+
+function integer(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
+}
+
+function arrayText(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => text(item, "")).filter(Boolean) : [];
 }
 
 function normalizeTone(value: unknown, fallback: TrustTone): TrustTone {
@@ -226,7 +403,7 @@ function normalizeActionabilityStatus(value: unknown, decision: string, readines
 
 function actionabilityLabel(status: ActionabilityStatus, decision: string): string {
   if (decision && status !== "research_only") return decision;
-  if (status === "actionable") return "Actionable";
+  if (status === "actionable") return "Model lean";
   if (status === "watchlist") return "Watchlist";
   if (status === "blocked") return "No bet";
   return "Research only";

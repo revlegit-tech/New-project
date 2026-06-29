@@ -10,7 +10,7 @@ import { registerKeyboardShortcuts } from "./app/keyboard";
 import { renderBoardTable } from "./board";
 import { edgeValue, OutlierBoardRow, rowMarketKey, rowPlayer } from "./board/utils";
 import { DetailRailController, renderDetailRailShell } from "./detail-rail";
-import { freshnessSeverity } from "./trust";
+import { freshnessSeverity, rowIsTrustedMarket, rowTrustSummary, trustStatusLabel, uniqueTrustValues } from "./trust";
 import { loadResearchReport, renderResearchReport, renderResearchReportError, renderResearchReportLoading } from "./research-report";
 
 const appState = createInitialOutlierState();
@@ -84,11 +84,27 @@ function renderFilters() {
     const node = option(item.key, item.label);
     market.append(node);
   });
+  const action = h("select", { id: "actionLabelFilter", className: "ob-select", attrs: { "aria-label": "Action label filter" } }, [option("", "Any action")]);
+  const capability = h("select", { id: "marketCapabilityFilter", className: "ob-select", attrs: { "aria-label": "Market capability filter" } }, [option("", "Any capability")]);
+  const production = h("select", { id: "productionEligibleFilter", className: "ob-select", attrs: { "aria-label": "Production eligibility filter" } }, [option("", "Any eligibility"), option("true", "Production eligible"), option("false", "Research only")]);
+  const modelState = h("select", { id: "productionStatusFilter", className: "ob-select", attrs: { "aria-label": "Model state filter" } }, [option("", "Any model state")]);
+  const calibration = h("select", { id: "calibrationStatusFilter", className: "ob-select", attrs: { "aria-label": "Calibration status filter" } }, [option("", "Any calibration")]);
+  const backtest = h("select", { id: "backtestStatusFilter", className: "ob-select", attrs: { "aria-label": "Backtest status filter" } }, [option("", "Any backtest")]);
+  const freshness = h("select", { id: "freshnessStatusFilter", className: "ob-select", attrs: { "aria-label": "Freshness status filter" } }, [option("", "Any freshness")]);
   return h("div", { className: "ob-filter-grid" }, [
     market,
     h("input", { id: "playerFilter", className: "ob-input", value: "", attrs: { type: "search", placeholder: "Search player, team, opponent", "aria-label": "Search board" } }),
     h("select", { id: "sideFilter", className: "ob-select", attrs: { "aria-label": "Side filter" } }, [option("", "Over / Under"), option("over", "Over"), option("under", "Under")]),
     h("input", { id: "dateFilter", className: "ob-input", value: appState.date, attrs: { type: "date", "aria-label": "Slate date" } }),
+    action,
+    capability,
+    production,
+    modelState,
+    calibration,
+    backtest,
+    freshness,
+    h("label", { className: "ob-check" }, [h("input", { id: "missingDataOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Missing data only" })]),
+    h("label", { className: "ob-check" }, [h("input", { id: "trustedMarketsOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Trusted markets only" })]),
     renderDensityToggle(),
   ]);
 }
@@ -137,6 +153,51 @@ function bindEvents() {
     }
     if (target.id === "sideFilter") {
       appState.side = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "actionLabelFilter") {
+      appState.actionLabel = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "marketCapabilityFilter") {
+      appState.marketCapabilityStatus = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "productionEligibleFilter") {
+      appState.modelProductionEligible = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "productionStatusFilter") {
+      appState.productionStatus = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "calibrationStatusFilter") {
+      appState.calibrationStatus = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "backtestStatusFilter") {
+      appState.backtestStatus = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "freshnessStatusFilter") {
+      appState.freshnessStatus = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "missingDataOnlyFilter") {
+      appState.missingDataOnly = target.checked;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "trustedMarketsOnlyFilter") {
+      appState.trustedMarketsOnly = target.checked;
       applyFilters();
       renderBoard({ resetScroll: true });
     }
@@ -207,6 +268,7 @@ async function loadBoard() {
     appState.boardTrust = payload?.trust || null;
     appState.selectedIndex = -1;
     lastBoardSource = payload?.source?.label || payload?.source?.path || "EdgeBoard";
+    syncTrustFilters();
     applyFilters();
     renderBoard({ resetScroll: true });
     detailRail.close();
@@ -241,10 +303,20 @@ function applyFilters() {
   const q = appState.query.trim().toLowerCase();
   appState.filteredRows = appState.rows.filter((row: OutlierBoardRow) => {
     const marketOk = !appState.market || rowMarketKey(row) === appState.market;
+    const trust = rowTrustSummary(row);
     const sideText = String(row.trust?.propIdentity?.side || row.side || row.rawLabel || "").toLowerCase();
     const sideOk = !appState.side || sideText.includes(appState.side) || (!sideText && appState.side === "over");
     const haystack = [row.trust?.propIdentity?.player, row.player, row.playerName, row.trust?.propIdentity?.team, row.team, row.trust?.propIdentity?.opponent, row.opponent, row.marketDisplay, row.trust?.propIdentity?.market, row.market].map((part) => String(part || "").toLowerCase()).join(" ");
-    return marketOk && sideOk && (!q || haystack.includes(q));
+    const actionOk = !appState.actionLabel || normalizeFilter(trust.actionLabel) === appState.actionLabel;
+    const capabilityOk = !appState.marketCapabilityStatus || trust.marketCapabilityStatus === appState.marketCapabilityStatus;
+    const productionOk = !appState.modelProductionEligible || String(trust.modelProductionEligible) === appState.modelProductionEligible;
+    const modelOk = !appState.productionStatus || trust.productionStatus === appState.productionStatus;
+    const calibrationOk = !appState.calibrationStatus || trust.calibrationStatus === appState.calibrationStatus;
+    const backtestOk = !appState.backtestStatus || trust.backtestStatus === appState.backtestStatus;
+    const freshnessOk = !appState.freshnessStatus || trust.freshnessStatus === appState.freshnessStatus;
+    const missingOk = !appState.missingDataOnly || trust.missingDataCount > 0;
+    const trustedOk = !appState.trustedMarketsOnly || rowIsTrustedMarket(row);
+    return marketOk && sideOk && actionOk && capabilityOk && productionOk && modelOk && calibrationOk && backtestOk && freshnessOk && missingOk && trustedOk && (!q || haystack.includes(q));
   });
   if (appState.selectedIndex >= appState.filteredRows.length) appState.selectedIndex = -1;
 }
@@ -256,6 +328,9 @@ function renderBoard(options: { resetScroll?: boolean } = {}) {
     rows: appState.filteredRows,
     selectedIndex: appState.selectedIndex,
     freshnessFallback: severity.label,
+    emptyState: appState.trustedMarketsOnly
+      ? { title: "No rows are currently production eligible.", copy: "Trusted markets require production eligibility, confident-pick visibility, fresh data, supported markets, and no critical missing data." }
+      : currentEmptyState(),
     rowHeight: densityRowHeight(appState.density),
     resetScroll: options.resetScroll,
   });
@@ -396,6 +471,30 @@ function updateDensityControls() {
 }
 function renderLoading() { clear(document.getElementById("boardHost"), [h("div", { className: "ob-empty" }, [h("strong", { text: "Loading board" }), h("span", { text: "Fetching EdgeBoard rows and trust metadata." })])]); }
 function option(value: string, label: string) { const node = h("option", { text: label }); node.value = value; return node; }
+function normalizeFilter(value: unknown) { return String(value || "").toLowerCase().trim().replace(/[\s-]+/g, "_"); }
+function syncTrustFilters() {
+  fillSelect("actionLabelFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).actionLabel), "Any action");
+  fillSelect("marketCapabilityFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).marketCapabilityStatus), "Any capability");
+  fillSelect("productionStatusFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).productionStatus), "Any model state");
+  fillSelect("calibrationStatusFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).calibrationStatus), "Any calibration");
+  fillSelect("backtestStatusFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).backtestStatus), "Any backtest");
+  fillSelect("freshnessStatusFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).freshnessStatus), "Any freshness");
+}
+function fillSelect(id: string, values: string[], allLabel: string) {
+  const select = document.getElementById(id);
+  if (!(select instanceof HTMLSelectElement)) return;
+  const current = select.value;
+  select.replaceChildren(option("", allLabel), ...values.map((value) => option(value, trustStatusLabel(value))));
+  select.value = values.includes(current) ? current : "";
+}
+function currentEmptyState() {
+  if (appState.missingDataOnly) return { title: "No rows with missing data", copy: "Feature matrix and missing-data warnings are clear for the current filter set." };
+  if (appState.freshnessStatus === "stale" || appState.freshnessStatus === "missing") return { title: "No stale rows", copy: "Data stale warnings are not present for the current filter set." };
+  if (appState.marketCapabilityStatus === "unsupported") return { title: "No unsupported markets", copy: "Unsupported market rows are not present for the current filter set." };
+  if (appState.calibrationStatus === "missing") return { title: "No calibration-missing rows", copy: "Model calibration missing rows are not present for the current filter set." };
+  if (appState.backtestStatus === "missing") return { title: "No backtest-missing rows", copy: "Backtest missing rows are not present for the current filter set." };
+  return { title: "No props match these filters", copy: "Adjust market, side, date, trust status, or search." };
+}
 function setMeta(copy: string) { const meta = document.getElementById("boardMeta"); if (meta) meta.textContent = copy; }
 function exposureCopy() { const units = number(appState.exposure?.totalStakeUnits, 0).toFixed(2); return `0u research pick saved. ${units}u active exposure. Research-only picks stay at 0u.`; }
 function updateExposure() { const target = document.getElementById("exposureSummary"); if (target) target.textContent = exposureCopy(); }

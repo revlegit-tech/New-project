@@ -29,7 +29,7 @@ export function renderBoardRow(row: OutlierBoardRow, options: BoardRowRenderOpti
   const readiness = rowReadiness(row);
   const freshness = rowFreshness(row, options.freshnessFallback);
   const actionability = rowActionability(row);
-  const chips = rowTrustChips(row).slice(0, 3);
+  const chips = rowTrustChips(row).slice(0, 6);
   const market = rowMarketKey(row) || identity.market;
   const sideLine = [identity.side, text(rowLine(row), "")].filter(Boolean).join(" ");
   return h("tr", {

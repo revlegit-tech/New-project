@@ -15,6 +15,14 @@ export interface ResearchReportCard {
   edgePercent?: number;
   decisionLabel?: string;
   readinessLabel?: string;
+  actionLabel?: string;
+  marketCapabilityStatus?: string;
+  modelProductionEligible?: boolean;
+  calibrationStatus?: string;
+  backtestStatus?: string;
+  missingDataCount?: number;
+  warningCount?: number;
+  actionabilityReason?: string;
   reasons?: string[];
 }
 
@@ -83,13 +91,39 @@ export function renderResearchReport(host: HTMLElement | null, report: ResearchR
       reportStat("Positive edges", summary.positiveEdgeRows),
       reportStat("Core", summary.coreRows),
       reportStat("Lotto", summary.lottoRows),
-      reportStat("Starter", `$${text(pricing.starterMonthlyUsd, "29")}/mo`),
+      reportStat("Production eligible", summary.productionEligibleRows),
+      reportStat("Missing data", summary.missingDataRows),
     ]),
+    renderReadinessSummary(report),
     h("div", { className: "ob-report-sections" }, sections.map(renderSection)),
     h("div", { className: "ob-report-footer" }, [
       h("strong", { text: "Publishing guardrail" }),
-      h("span", { text: text(product.disclaimer, "Research only. No guarantees. Verify live sportsbook lines and use responsible bankroll rules.") }),
+      h("span", { text: text(product.disclaimer, "Research only. Outcomes are uncertain. Verify live sportsbook lines and use responsible bankroll rules.") }),
     ]),
+  ]);
+}
+
+function renderReadinessSummary(report: ResearchReportPayload): HTMLElement {
+  const summary = report.summary || {};
+  const trust = report.trust || {};
+  const runtime = typeof trust.runtimeReadiness === "object" && trust.runtimeReadiness ? trust.runtimeReadiness as Record<string, unknown> : {};
+  const gameMarkets = report.gameMarketEnrichment || {};
+  const eligibleProduction = Array.isArray(summary.eligibleProductionMarkets) ? summary.eligibleProductionMarkets.length : 0;
+  return h("article", { className: "ob-report-readiness" }, [
+    h("h3", { text: "Readiness summary" }),
+    h("div", { className: "ob-report-stats" }, [
+      reportStat("Daily collector", text(runtime.collectorStatus ?? summary.collectorStatus, "not reported")),
+      reportStat("Data sources", text(runtime.dataSourceCapabilityStatus ?? summary.boardDataConfidence, "missing")),
+      reportStat("Feature store", runtime.featureStoreReady === true ? "ready" : "not ready"),
+      reportStat("Model readiness", runtime.readyForProductionTraining === true ? "production ready" : "research only"),
+      reportStat("Calibration", compactCounts(summary.calibrationStatusCounts)),
+      reportStat("Backtest", compactCounts(summary.backtestStatusCounts)),
+      reportStat("Baseline markets", Array.isArray(summary.eligibleBaselineMarkets) ? summary.eligibleBaselineMarkets.length : 0),
+      reportStat("Production markets", eligibleProduction || "0"),
+      reportStat("Game markets", text(gameMarkets.matchedRows, "0")),
+      reportStat("Umpire", text(summary.umpireStatus, "not reported")),
+    ]),
+    h("p", { className: "ob-muted", text: eligibleProduction ? "Production eligible markets are listed by the readiness contract." : "No markets are production eligible yet." }),
   ]);
 }
 
@@ -117,8 +151,12 @@ function renderCard(card: ResearchReportCard): HTMLElement {
       h("span", { className: "ob-pill", text: `${text(card.score, "0")}/100` }),
       h("span", { className: "ob-pill", text: formatOdds(card.americanOdds) }),
       h("span", { className: "ob-pill", text: signedPercent(card.edgePercent) }),
+      h("span", { className: "ob-pill", text: text(card.actionLabel, "Research only") }),
+      h("span", { className: "ob-pill", text: card.modelProductionEligible ? "Production eligible" : "Research only" }),
+      h("span", { className: "ob-pill", text: `Cal ${text(card.calibrationStatus, "missing")}` }),
+      h("span", { className: "ob-pill", text: `BT ${text(card.backtestStatus, "missing")}` }),
     ]),
-    h("p", { className: "ob-muted", text: reason }),
+    h("p", { className: "ob-muted", text: text(card.actionabilityReason, reason) }),
   ]);
 }
 
@@ -131,4 +169,10 @@ function gradeTone(grade: unknown): string {
   if (raw.startsWith("a")) return "is-good";
   if (raw.startsWith("b") || raw.startsWith("c")) return "is-watch";
   return "is-risk";
+}
+
+function compactCounts(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "missing";
+  const entries = Object.entries(value as Record<string, unknown>).filter(([, count]) => Number(count) > 0);
+  return entries.length ? entries.map(([key, count]) => `${key}:${count}`).join(" ") : "missing";
 }

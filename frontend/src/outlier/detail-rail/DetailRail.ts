@@ -2,7 +2,7 @@ import { jsonFetch } from "../../shared/api/client";
 import { clear, h } from "../../shared/components/dom";
 import { formatOdds, number, percent, signedPercent, text } from "../../shared/formatting";
 import { marketLabel } from "../../shared/markets/markets";
-import { badgeToneClass, freshnessSeverity, rowActionability, rowFreshness, rowReadiness, rowTrustChips, rowTrustCopy } from "../trust";
+import { badgeToneClass, freshnessSeverity, rowActionability, rowFreshness, rowReadiness, rowTrustChips, rowTrustCopy, rowTrustSummary, trustStatusLabel } from "../trust";
 import {
   edgeValue,
   matchup,
@@ -89,6 +89,7 @@ export class DetailRailController {
     const readiness = rowReadiness(row);
     const freshness = rowFreshness(row, severity.label);
     const actionability = rowActionability(row);
+    const summary = rowTrustSummary(row);
     clear(rail, [
       h("article", { className: "ob-rail-card" }, [
         h("p", { className: "ob-kicker", text: "Detail rail" }),
@@ -106,6 +107,21 @@ export class DetailRailController {
         h("p", { text: rowTrustCopy(row) }),
         h("div", { className: "ob-chip-row is-rail" }, rowTrustChips(row).map((chip) => h("span", { className: `ob-pill ob-pill-mini ${badgeToneClass(chip.tone)}`, attrs: { title: chip.title }, text: chip.label }))),
         h("div", { className: "ob-stat-grid" }, [stat("Readiness", readiness.label), stat("Freshness", freshness.label), stat("Action", actionability.label), stat("Implied", percent(rowImpliedProbability(row))), stat("Request", text(context.requestId, "latest"))]),
+      ]),
+      h("article", { className: "ob-rail-card" }, [
+        h("h3", { text: "Why it appears" }),
+        h("p", { text: summary.actionabilityReason }),
+        h("div", { className: "ob-stat-grid" }, [
+          stat("Prop", `${rowPlayer(row)} / ${marketLabel(rowMarketKey(row))}`),
+          stat("Market readiness", trustStatusLabel(summary.marketCapabilityStatus)),
+          stat("Model state", trustStatusLabel(summary.productionStatus)),
+          stat("Production", summary.modelProductionEligible ? "Production eligible" : "Research only"),
+          stat("Calibration", trustStatusLabel(summary.calibrationStatus || "missing")),
+          stat("Backtest", trustStatusLabel(summary.backtestStatus || "missing")),
+          stat("Game markets", trustStatusLabel(summary.gameMarketStatus || "missing")),
+          stat("Missing groups", summary.missingFeatureGroups.length ? summary.missingFeatureGroups.join(", ") : "None reported"),
+        ]),
+        h("p", { className: "ob-muted", text: summary.missingDataSummary }),
       ]),
       renderRowTrustDetail(row, context.status),
       renderServerDetail(state),
@@ -125,17 +141,21 @@ function renderRowTrustDetail(row: OutlierBoardRow, status: unknown): HTMLElemen
   const actionnetwork = objectValue(trust.actionnetwork);
   const runtime = objectValue(trust.runtime);
   const severity = freshnessSeverity(status);
+  const summary = rowTrustSummary(row);
   return h("article", { className: "ob-rail-card" }, [
     h("h3", { text: "Model & source trust" }),
     h("div", { className: "ob-stat-grid" }, [
       stat("Model", text(model.modelStatus ?? model.status ?? row.modelStatus, "unavailable")),
       stat("Version", text(model.modelVersion ?? model.version, "none")),
       stat("Coverage", text(model.featureCoverage ?? row.featureCoverage, "unknown")),
-      stat("Calibrated", Boolean(model.calibrated ?? row.calibrated) ? "yes" : "no"),
+      stat("Calibrated", trustStatusLabel(summary.calibrationStatus || (Boolean(model.calibrated ?? row.calibrated) ? "ready" : "missing"))),
+      stat("Backtest", trustStatusLabel(summary.backtestStatus || "missing")),
       stat("Snapshot", text(actionnetwork.snapshotFreshness ?? actionnetwork.status, "unknown")),
       stat("Labels", text(actionnetwork.trainableEligibility ?? actionnetwork.labelQuality, "not trainable")),
       stat("Workflow", text(runtime.workflowStatus, severity.label)),
       stat("Runtime", text(runtime.runtimeStatus, severity.label)),
+      stat("As-of audit", text(row.asOfAuditStatus ?? runtime.asOfAuditStatus, "not reported")),
+      stat("Umpire", text(row.umpireStatus ?? row.umpire_context_status, "neutral fallback")),
     ]),
   ]);
 }

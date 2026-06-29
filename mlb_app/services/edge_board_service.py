@@ -330,6 +330,9 @@ class EdgeBoardService:
         freshness = _row_freshness(row, board)
         capability_status = _market_capability_status(market)
         production_eligible = bool(card.get("productionReady") or _clean(card.get("productionStatus")).lower() == "production")
+        missing_feature_groups = _missing_feature_groups(row, card)
+        calibration_status = _clean((card.get("calibration") or {}).get("status")) or "missing"
+        backtest_status = _clean((card.get("backtest") or {}).get("status")) or "missing"
 
         enriched = dict(row)
         game_context = _game_context_for_row(row)
@@ -369,16 +372,43 @@ class EdgeBoardService:
                 "positiveRows": int(card.get("positiveRows") or 0),
                 "negativeRows": int(card.get("negativeRows") or 0),
                 "latestGradedDate": latest_graded,
-                "calibrationStatus": _clean((card.get("calibration") or {}).get("status")) or "uncalibrated",
+                "calibrationStatus": calibration_status,
+                "backtestStatus": backtest_status,
+                "missingFeatureGroups": missing_feature_groups,
+                "missingDataCount": len(missing_feature_groups),
+                "missingDataSummary": _missing_data_summary(missing_feature_groups),
                 "warningCount": len(warnings),
                 "trustWarnings": warnings[:6],
                 "reasons": _reasons(row, card, edge, probability, implied, latest_graded),
-                "suggestedStake": _suggested_stake(decision_label, bool(card.get("canShowConfidentPick"))),
+                "suggestedStake": _suggested_stake(
+                    decision_label,
+                    bool(card.get("canShowConfidentPick")),
+                    production_eligible=production_eligible,
+                ),
+                "productionEligibleReason": _production_eligible_reason(
+                    production_eligible=production_eligible,
+                    capability_status=capability_status,
+                    freshness=freshness,
+                    calibration_status=calibration_status,
+                    backtest_status=backtest_status,
+                    missing_feature_groups=missing_feature_groups,
+                ),
+                "actionabilityReason": _actionability_reason_for_row(
+                    production_eligible=production_eligible,
+                    capability_status=capability_status,
+                    freshness=freshness,
+                    calibration_status=calibration_status,
+                    backtest_status=backtest_status,
+                    missing_feature_groups=missing_feature_groups,
+                    game_market_status=_clean(row.get("game_market_enrichment_status")),
+                ),
                 "modelCard": {
                     "market": card.get("market") or market,
                     "readinessLabel": readiness,
                     "productionStatus": card.get("productionStatus") or "research_only",
                     "canShowConfidentPick": bool(card.get("canShowConfidentPick")),
+                    "calibrationStatus": calibration_status,
+                    "backtestStatus": backtest_status,
                 },
                 "trust": _row_trust(
                     row=row,
@@ -394,6 +424,10 @@ class EdgeBoardService:
                     market_capability_status=capability_status,
                     action_label=action_label,
                     production_eligible=production_eligible,
+                    missing_feature_groups=missing_feature_groups,
+                    calibration_status=calibration_status,
+                    backtest_status=backtest_status,
+                    freshness=freshness,
                 ),
                 "freshness": freshness,
             }
@@ -650,8 +684,8 @@ def _decision_tone(label: str) -> str:
     return "muted"
 
 
-def _suggested_stake(label: str, confident: bool) -> str:
-    if label == "Potential edge" and confident:
+def _suggested_stake(label: str, confident: bool, *, production_eligible: bool = False) -> str:
+    if label == "Potential edge" and confident and production_eligible:
         return "0.25u capped"
     if label in {"Watchlist", "Model lean"}:
         return "Research only"
@@ -673,10 +707,23 @@ def _row_trust(
     market_capability_status: str,
     action_label: str,
     production_eligible: bool,
+    missing_feature_groups: list[str],
+    calibration_status: str,
+    backtest_status: str,
+    freshness: dict[str, Any],
 ) -> dict[str, Any]:
     confident = bool(card.get("canShowConfidentPick"))
     production_status = _clean(card.get("productionStatus") or "research_only")
-    action_status = _actionability_status(decision_label, confident, edge)
+    action_status = _actionability_status(decision_label, confident and production_eligible, edge)
+    actionability_reason = _actionability_reason_for_row(
+        production_eligible=production_eligible,
+        capability_status=market_capability_status,
+        freshness=freshness,
+        calibration_status=calibration_status,
+        backtest_status=backtest_status,
+        missing_feature_groups=missing_feature_groups,
+        game_market_status=_clean(row.get("game_market_enrichment_status")),
+    )
     return {
         "propIdentity": {
             "player": _clean(_first(row, "player", "playerName", "name")),
@@ -700,16 +747,23 @@ def _row_trust(
             "canShowConfidentPick": confident,
             "warnings": [_clean(item) for item in warnings[:6] if _clean(item)],
             "modelProductionEligible": production_eligible,
+            "calibrationStatus": calibration_status,
+            "backtestStatus": backtest_status,
+            "missingFeatureGroups": missing_feature_groups,
+            "missingDataCount": len(missing_feature_groups),
         },
         "actionability": {
             "label": action_label,
             "status": action_status,
-            "suggestedStake": _suggested_stake(decision_label, confident),
+            "suggestedStake": _suggested_stake(decision_label, confident, production_eligible=production_eligible),
             "stakeUnits": 0.25 if action_status == "actionable" else 0,
-            "reason": _actionability_reason(action_status),
+            "reason": actionability_reason,
         },
         "marketCapabilityStatus": market_capability_status,
         "actionLabel": action_label,
+        "calibrationStatus": calibration_status,
+        "backtestStatus": backtest_status,
+        "missingDataSummary": _missing_data_summary(missing_feature_groups),
         "researchOnly": not production_eligible,
     }
 
@@ -770,6 +824,78 @@ def _actionability_reason(status: str) -> str:
     if status == "blocked":
         return "The row does not clear the model edge threshold."
     return "Research-only until data and model gates are satisfied."
+
+
+def _actionability_reason_for_row(
+    *,
+    production_eligible: bool,
+    capability_status: str,
+    freshness: dict[str, Any],
+    calibration_status: str,
+    backtest_status: str,
+    missing_feature_groups: list[str],
+    game_market_status: str,
+) -> str:
+    freshness_status = _clean(freshness.get("status")).lower()
+    if capability_status == "unsupported":
+        return "Unsupported market for model scoring."
+    if freshness_status in {"stale", "missing"}:
+        return "Data stale; review after the next collector run."
+    if calibration_status not in {"ready", "calibrated", "ok", "passed"}:
+        return "Calibration needed before production eligibility."
+    if backtest_status not in {"ready", "ok", "passed"}:
+        return "Backtest needed before production eligibility."
+    if missing_feature_groups:
+        return "Missing data reduces model confidence."
+    if game_market_status and game_market_status not in {"matched", "available"}:
+        return "Game market context missing; edge confidence is reduced."
+    if not production_eligible:
+        return "Research only because production model gates have not passed."
+    return "Production eligibility gates are visible; still verify current context manually."
+
+
+def _production_eligible_reason(
+    *,
+    production_eligible: bool,
+    capability_status: str,
+    freshness: dict[str, Any],
+    calibration_status: str,
+    backtest_status: str,
+    missing_feature_groups: list[str],
+) -> str:
+    if production_eligible:
+        return "Production eligible because configured model, calibration, backtest, and data gates passed."
+    return _actionability_reason_for_row(
+        production_eligible=False,
+        capability_status=capability_status,
+        freshness=freshness,
+        calibration_status=calibration_status,
+        backtest_status=backtest_status,
+        missing_feature_groups=missing_feature_groups,
+        game_market_status="",
+    )
+
+
+def _missing_feature_groups(row: dict[str, Any], card: dict[str, Any]) -> list[str]:
+    values: list[Any] = []
+    for source in (
+        row.get("missingFeatureGroups"),
+        row.get("missingCriticalFeatureGroups"),
+        row.get("missingData"),
+        card.get("missingFeatureGroups"),
+        (card.get("featureSchema") or {}).get("missingFeatureGroups") if isinstance(card.get("featureSchema"), dict) else None,
+    ):
+        if isinstance(source, list):
+            values.extend(source)
+    return _unique(_clean(value) for value in values if _clean(value))
+
+
+def _missing_data_summary(groups: list[str]) -> str:
+    if not groups:
+        return "No critical missing feature groups reported."
+    preview = ", ".join(groups[:3])
+    suffix = f" and {len(groups) - 3} more" if len(groups) > 3 else ""
+    return f"Missing data: {preview}{suffix}."
 
 
 def _market_capability_status(market: Any) -> str:

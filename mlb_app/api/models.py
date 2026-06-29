@@ -84,6 +84,12 @@ class EdgeBoardRow(StrictPayload):
     negativeRows: Any = None
     latestGradedDate: str | None = None
     calibrationStatus: str | None = None
+    backtestStatus: str | None = None
+    missingFeatureGroups: list[str] = Field(default_factory=list)
+    missingDataCount: int | None = None
+    missingDataSummary: str | None = None
+    productionEligibleReason: str | None = None
+    actionabilityReason: str | None = None
     warningCount: int | None = None
     trustWarnings: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
@@ -826,6 +832,12 @@ class ResearchReportCard(StrictPayload):
     readinessLabel: str = ""
     marketCapabilityStatus: str | None = None
     modelProductionEligible: bool | None = None
+    calibrationStatus: str | None = None
+    backtestStatus: str | None = None
+    missingDataCount: int | None = None
+    warningCount: int | None = None
+    productionEligibleReason: str | None = None
+    actionabilityReason: str | None = None
     suggestedStake: str = ""
     sourceRowRank: int = 0
     freshness: dict[str, Any] = Field(default_factory=dict)

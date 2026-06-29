@@ -79,7 +79,7 @@ class EdgeReportService:
             _section(
                 key="lotto_builder",
                 title="Lotto Builder",
-                description="High-upside rows for parlays/ladders. They are explicitly not marked as safe straight bets.",
+                description="High-variance rows for optional deeper review. They are explicitly research-first.",
                 cards=_limit(_lotto_candidates(ranked), 6),
             ),
             _section(
@@ -99,7 +99,7 @@ class EdgeReportService:
                 "name": "RevLegit MLB Edge",
                 "positioning": "MLB-only prop research report generated from the production EdgeBoard.",
                 "delivery": ["Free preview", "Paid daily board", "Discord-ready report", "Dashboard drilldown"],
-                "disclaimer": "Research only. No guaranteed outcomes. Use responsible bankroll rules and verify sportsbook lines before acting.",
+                "disclaimer": "Research only. Outcomes are uncertain. Use responsible bankroll rules and verify sportsbook lines before acting.",
             },
             "summary": _summary(rows, board),
             "sections": sections,
@@ -186,6 +186,12 @@ def _decorate_row(row: dict[str, Any]) -> dict[str, Any]:
         "readinessLabel": _clean(row.get("readinessLabel")) or "Research only",
         "marketCapabilityStatus": _clean(row.get("marketCapabilityStatus")) or "research_only",
         "modelProductionEligible": bool(row.get("modelProductionEligible")),
+        "calibrationStatus": _clean(row.get("calibrationStatus")) or "missing",
+        "backtestStatus": _clean(row.get("backtestStatus")) or "missing",
+        "missingDataCount": _int(row.get("missingDataCount"), 0),
+        "warningCount": _int(row.get("warningCount"), len(warnings)),
+        "productionEligibleReason": _clean(row.get("productionEligibleReason")),
+        "actionabilityReason": _clean(row.get("actionabilityReason")),
         "suggestedStake": "Research only" if risk_bucket != "Fade" else "0u",
         "sourceRowRank": _int(row.get("rank"), 0),
         "freshness": row.get("freshness") if isinstance(row.get("freshness"), dict) else {},
@@ -227,6 +233,13 @@ def _summary(rows: list[dict[str, Any]], board: dict[str, Any]) -> dict[str, Any
         "gameMarketMatchedRows": sum(1 for row in rows if (row.get("gameMarketContext") or {}).get("status") == "matched"),
         "readyForBaselineTraining": bool(((board.get("trust") or {}).get("runtimeReadiness") or {}).get("readyForBaselineTraining")),
         "readyForProductionTraining": bool(((board.get("trust") or {}).get("runtimeReadiness") or {}).get("readyForProductionTraining")),
+        "eligibleBaselineMarkets": list(((board.get("modelReadiness") or {}).get("eligibleBaselineMarkets")) or []),
+        "eligibleProductionMarkets": list(((board.get("modelReadiness") or {}).get("eligibleProductionMarkets")) or []),
+        "productionEligibleRows": sum(1 for row in rows if bool(row.get("modelProductionEligible"))),
+        "calibrationStatusCounts": dict(Counter(_clean(row.get("calibrationStatus")) or "missing" for row in rows)),
+        "backtestStatusCounts": dict(Counter(_clean(row.get("backtestStatus")) or "missing" for row in rows)),
+        "missingDataRows": sum(1 for row in rows if _int(row.get("missingDataCount"), 0) > 0),
+        "warningRows": sum(1 for row in rows if _int(row.get("warningCount"), 0) > 0),
     }
 
 
@@ -242,7 +255,7 @@ def _game_market_enrichment_summary(rows: list[dict[str, Any]]) -> dict[str, Any
 
 def _publish_plan() -> list[dict[str, str]]:
     return [
-        {"step": "Free preview", "cadence": "Daily morning", "copy": "Post one HR/K/TB teaser with reasoning and no guarantee language."},
+        {"step": "Free preview", "cadence": "Daily morning", "copy": "Post one HR/K/TB teaser with reasoning and research-first language."},
         {"step": "Paid board", "cadence": "After lineup/odds review", "copy": "Publish full sections, fades, and confidence grades to paid members."},
         {"step": "Final update", "cadence": "1-2 hours before first pitch", "copy": "Refresh lines, scratches, and weather flags before users act."},
         {"step": "Results tracker", "cadence": "After games finish", "copy": "Grade all official research picks honestly, including losses and CLV notes."},
@@ -378,7 +391,7 @@ def _generated_reasons(row: dict[str, Any], *, score: int, grade: str, edge: flo
     else:
         reasons.append("Modeled edge is non-positive, so this belongs in the fade/avoid workflow.")
     if risk_bucket == "Lotto":
-        reasons.append("High-variance bucket; better suited for small-stake ladders/parlays than core straight play.")
+        reasons.append("High-variance bucket; keep it in deeper review rather than the core research group.")
     elif risk_bucket == "Core":
         reasons.append("Clears the strongest score bucket, but the app still labels it research-only until user review.")
     if odds:
