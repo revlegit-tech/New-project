@@ -21,6 +21,14 @@ on:
         options:
           - "false"
           - "true"
+      execute_full_collection:
+        description: "Run the full season_auto_collector path. Scheduled runs always use safe daily mode."
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
   schedule:
     # GitHub cron uses UTC.
@@ -38,6 +46,10 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PHASE18_MARKETS: "pitcher_strikeouts,batter_hits,batter_total_bases,batter_home_runs,batter_rbis,batter_stolen_bases,batter_walks,batter_singles,batter_doubles,batter_runs,batter_2plus_hits,batter_2plus_home_runs,batter_2plus_rbis,batter_3plus_rbis,pitcher_outs,pitcher_hits_allowed,pitcher_earned_runs"
+  PLAYERBOARD_BUILD_WORKERS: "1"
+  PLAYERBOARD_DAILY_BUILD_LIMIT: "1000"
+  PLAYERBOARD_DAILY_SOURCE_MODE: "propline"
+  PYTHONUNBUFFERED: "1"
 
 jobs:
   collect:
@@ -64,6 +76,7 @@ jobs:
         run: |
           RUN_TYPE="${{ github.event.inputs.run_type }}"
           INCLUDE_SAVANT="${{ github.event.inputs.include_savant }}"
+          EXECUTE_FULL="${{ github.event.inputs.execute_full_collection }}"
 
           if [ -z "$RUN_TYPE" ]; then
             HOUR_ET=$(TZ=America/New_York date +"%H")
@@ -83,8 +96,20 @@ jobs:
             fi
           fi
 
+          if [ -z "$EXECUTE_FULL" ]; then
+            EXECUTE_FULL="false"
+          fi
+
+          if [ "$RUN_TYPE" = "midnight" ]; then
+            RUN_DATE=$(TZ=America/New_York date -d "yesterday" +"%Y-%m-%d")
+          else
+            RUN_DATE=$(TZ=America/New_York date +"%Y-%m-%d")
+          fi
+
           echo "run_type=$RUN_TYPE" >> "$GITHUB_OUTPUT"
           echo "include_savant=$INCLUDE_SAVANT" >> "$GITHUB_OUTPUT"
+          echo "execute_full=$EXECUTE_FULL" >> "$GITHUB_OUTPUT"
+          echo "run_date=$RUN_DATE" >> "$GITHUB_OUTPUT"
 
       - name: Run collector
         env:
@@ -93,21 +118,25 @@ jobs:
         run: |
           RUN_TYPE="${{ steps.mode.outputs.run_type }}"
           INCLUDE_SAVANT="${{ steps.mode.outputs.include_savant }}"
+          EXECUTE_FULL="${{ steps.mode.outputs.execute_full }}"
+          RUN_DATE="${{ steps.mode.outputs.run_date }}"
 
-          if [ "$RUN_TYPE" = "midnight" ]; then
-            CMD="python season_auto_collector.py snapshot --run-type midnight --date-offset -1"
+          mkdir -p data/status data/health workflow-artifacts
+
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "$EXECUTE_FULL" != "true" ]; then
+            echo "Running bounded safe daily workflow for $RUN_DATE ($RUN_TYPE)."
+            timeout 20m python daily_ml_workflow.py --date "$RUN_DATE" run-daily | tee "workflow-artifacts/collector-run.log"
           else
-            CMD="python season_auto_collector.py snapshot --run-type $RUN_TYPE"
+            CMD=(python season_auto_collector.py snapshot --run-type "$RUN_TYPE" --date "$RUN_DATE")
+            if [ "$INCLUDE_SAVANT" = "true" ]; then
+              CMD+=(--include-savant)
+            fi
+            echo "${CMD[@]}"
+            timeout 35m "${CMD[@]}" | tee "workflow-artifacts/collector-run.log"
           fi
-
-          if [ "$INCLUDE_SAVANT" = "true" ]; then
-            CMD="$CMD --include-savant"
-          fi
-
-          echo "$CMD"
-          eval "$CMD"
 
       - name: Run current-day OddsPapi team props
+        if: ${{ steps.mode.outputs.execute_full == 'true' && github.event_name != 'schedule' }}
         env:
           ODDSPAPI_KEY: ${{ secrets.ODDSPAPI_KEY }}
         shell: bash
@@ -121,13 +150,13 @@ jobs:
           TOMORROW=$(TZ=America/New_York date -d "$TODAY + 1 day" +"%Y-%m-%d")
 
           echo "Pulling OddsPapi team props for $TODAY to $TOMORROW"
-          python oddspapi_team_backfill.py --from-date "$TODAY" --to-date "$TOMORROW" --max-fixtures 20 || {
+          timeout 10m python oddspapi_team_backfill.py --from-date "$TODAY" --to-date "$TOMORROW" --max-fixtures 20 || {
             echo "OddsPapi team prop pull failed; continuing collector."
             exit 0
           }
 
           echo "Flattening current-day OddsPapi game markets"
-          python oddspapi_current_game_markets_latest.py --from-date "$TODAY" --to-date "$TOMORROW" || {
+          timeout 10m python oddspapi_current_game_markets_latest.py --from-date "$TODAY" --to-date "$TOMORROW" || {
             echo "OddsPapi game market flattening failed; continuing collector."
           }
 
@@ -143,6 +172,8 @@ jobs:
         run: |
           mkdir -p workflow-artifacts
           mkdir -p data/odds data/warehouse/odds_snapshots data/warehouse/raw data/warehouse/summaries data/warehouse/logs data/health/collector_manifests data/edge_board
+          python tools/validate_backup_files.py --root .
+          python tools/validate_generated_artifacts.py --root . || true
           tar -czf "workflow-artifacts/season-collector-${{ github.run_id }}.tgz" \
             data/cloud \
             data/cache/savant \

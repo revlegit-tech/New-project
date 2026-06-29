@@ -80,3 +80,4 @@ def test_feature_store_status_route_is_read_only_and_safe(tmp_path: Path, monkey
     assert payload["labelsExcluded"] is True
     assert payload["externalApiCallsMade"] is False
     assert payload["modelTrainingTriggered"] is False
+    assert not (settings.data_dir / "features" / "prop_features_2026-06-24.csv").exists()

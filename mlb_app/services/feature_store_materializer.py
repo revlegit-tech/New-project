@@ -44,7 +44,7 @@ class FeatureStoreMaterializer:
         selected_season = int(season or self.settings.current_season)
         path = self.feature_path(target_date)
         warnings: list[str] = []
-        if materialize or not path.is_file():
+        if materialize:
             result = self.materialize(date_label=target_date, season=selected_season, limit=limit)
             warnings.extend(result.get("warnings") or [])
         rows = _count_csv_rows(path)

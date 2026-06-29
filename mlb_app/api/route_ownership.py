@@ -64,6 +64,7 @@ ROUTE_OWNERSHIP: tuple[RouteOwnership, ...] = (
     RouteOwnership("GET", "/api/data-health/dashboard", "FastAPI", "native_data_health_dashboard", "mlb_app.routes.data_health.data_health_dashboard", "delete", "Native data-health dashboard endpoint; service resolved from AppContainer."),
     RouteOwnership("GET", "/api/data/status", "FastAPI", "native_data_status", "none", "no_legacy_handler", "Collector freshness/status endpoint; compact public health contract."),
     RouteOwnership("GET", "/api/runtime/collector-check", "FastAPI", "native_runtime_collector_check", "none", "no_legacy_handler", "Read-only daily collector verification endpoint."),
+    RouteOwnership("GET", "/api/runtime/daily-health", "FastAPI", "native_runtime_daily_health", "none", "no_legacy_handler", "Read-only daily operational health endpoint for scheduled collector and repair status."),
     RouteOwnership("GET", "/api/runtime/data-source-capabilities", "FastAPI", "native_runtime_data_source_capabilities", "none", "no_legacy_handler", "Read-only data source and ML feature-store capability audit."),
     RouteOwnership("GET", "/api/runtime/feature-store/status", "FastAPI", "native_runtime_feature_store_status", "none", "no_legacy_handler", "Read-only pregame feature matrix materialization status."),
     RouteOwnership("GET", "/api/runtime/asof-feature-audit", "FastAPI", "native_runtime_asof_feature_audit", "none", "no_legacy_handler", "Read-only pregame/as-of feature leakage audit."),

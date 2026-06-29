@@ -11,6 +11,10 @@ on:
         description: "Include heavier Savant/BvP sync. Use true only when needed."
         required: false
         default: "false"
+      execute:
+        description: "Actually execute repair work. Scheduled runs stay dry-run."
+        required: false
+        default: "false"
 
   schedule:
     # GitHub cron is UTC.
@@ -61,80 +65,35 @@ jobs:
         run: |
           python -m py_compile playerboard.py playerboard_backtest.py model_audit.py ml_export.py season_auto_collector.py
 
-      - name: Run full catch-up repair
+      - name: Run safe weekly repair contract
         shell: bash
-        env:
-          PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
         run: |
           REPAIR_DATE="${{ steps.repair_date.outputs.repair_date }}"
-          INCLUDE_SAVANT="${{ github.event.inputs.include_savant }}"
+          EXECUTE="${{ github.event.inputs.execute }}"
 
-          if [ "$INCLUDE_SAVANT" = "true" ]; then
-            python season_auto_collector.py snapshot --run-type midnight --date "$REPAIR_DATE" --include-savant
+          mkdir -p data/health workflow-artifacts
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "$EXECUTE" != "true" ]; then
+            python scripts/scheduled_weekly_repair.py --date "$REPAIR_DATE" | tee "workflow-artifacts/weekly-repair.log"
           else
-            python season_auto_collector.py snapshot --run-type midnight --date "$REPAIR_DATE"
+            python scripts/scheduled_weekly_repair.py --date "$REPAIR_DATE" --execute | tee "workflow-artifacts/weekly-repair.log"
           fi
 
+      - name: Validate source-tree safety
+        run: |
+          python tools/validate_backup_files.py --root .
+          python tools/validate_generated_artifacts.py --root . || true
+
       - name: Run smoke tests after repair
+        if: ${{ github.event.inputs.execute == 'true' }}
         run: |
           python -m unittest discover -s tests -p "test_smoke.py" -v
 
-      - name: Build repair summary
+      - name: Keep repair summary current
         if: always()
         shell: bash
         run: |
           REPAIR_DATE="${{ steps.repair_date.outputs.repair_date }}"
-
-          python - <<'PY'
-          import json
-          from datetime import datetime, timezone
-          from pathlib import Path
-
-          repair_date = "${{ steps.repair_date.outputs.repair_date }}"
-          season = int(repair_date[:4])
-
-          summary = {
-              "checkedAt": datetime.now(timezone.utc).isoformat(),
-              "date": repair_date,
-              "season": season,
-              "workflow": "weekly-data-repair",
-              "ok": True,
-              "files": {},
-              "warnings": [],
-          }
-
-          paths = [
-              f"data/warehouse/season_logs/batter_game_logs_{season}.csv",
-              f"data/warehouse/season_logs/pitcher_game_logs_{season}.csv",
-              f"data/warehouse/season_logs/team_game_logs_{season}.csv",
-              f"data/cloud/season_logs/batter_game_logs_{season}.csv",
-              f"data/cloud/season_logs/pitcher_game_logs_{season}.csv",
-              f"data/cloud/season_logs/team_game_logs_{season}.csv",
-              f"data/backtests/playerboard_backtest_{season}.csv",
-              f"data/ml/playerboard_training_{season}.csv",
-          ]
-
-          for item in paths:
-              path = Path(item)
-              summary["files"][item] = {
-                  "exists": path.exists(),
-                  "size": path.stat().st_size if path.exists() else 0,
-              }
-              if not path.exists():
-                  summary["warnings"].append(f"Missing expected file: {item}")
-
-          out_dir = Path("data/health")
-          out_dir.mkdir(parents=True, exist_ok=True)
-
-          out_path = out_dir / f"weekly_repair_{repair_date}.json"
-          latest_path = out_dir / "latest_weekly_repair.json"
-
-          text = json.dumps(summary, indent=2, sort_keys=True)
-          out_path.write_text(text + "\n", encoding="utf-8")
-          latest_path.write_text(text + "\n", encoding="utf-8")
-
-          print(text)
-          PY
+          python scripts/scheduled_weekly_repair.py --date "$REPAIR_DATE" | tee -a "workflow-artifacts/weekly-repair.log"
 
       - name: Package repair outputs artifact
         if: always()

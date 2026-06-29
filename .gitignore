@@ -229,6 +229,7 @@ data/**/*.sqlite3-shm
 
 data/backups/
 data/edge_board/
+data/features/
 data/health/
 data/cloud/summaries/games_*.json
 data/ml/

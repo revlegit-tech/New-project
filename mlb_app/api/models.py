@@ -675,6 +675,25 @@ class CollectorCheckResponse(StrictResponse):
     recommendations: list[str] = Field(default_factory=list)
 
 
+class DailyHealthResponse(StrictResponse):
+    schemaVersion: str = "daily-health.v1"
+    date: str
+    season: int
+    overallStatus: str
+    servingSafe: bool
+    boardAvailable: bool
+    featureStoreAvailable: bool
+    modelReadinessAvailable: bool
+    productionTrainingReady: bool = False
+    scheduledCollectorStatus: str = "unknown"
+    weeklyRepairStatus: str = "unknown"
+    stages: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    modelTrainingTriggered: bool = False
+    externalApiCallsMade: bool = False
+
+
 class DataSourceCapabilityResponse(StrictResponse):
     schemaVersion: str = "data-source-capability.v1"
     status: str

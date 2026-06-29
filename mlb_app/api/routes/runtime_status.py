@@ -9,6 +9,7 @@ from mlb_app.api.models import (
     AsofFeatureAuditResponse,
     BaselineModelStatusResponse,
     CollectorCheckResponse,
+    DailyHealthResponse,
     DataSourceCapabilityResponse,
     FeatureStoreMaterializerResponse,
     ModelBacktestStatusResponse,
@@ -22,6 +23,7 @@ from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.collector_verification_service import CollectorVerificationService
 from mlb_app.services.data_source_capability_service import DataSourceCapabilityService
 from mlb_app.services.data_freshness_service import DataFreshnessService
+from mlb_app.services.daily_health_service import DailyHealthService
 from mlb_app.services.feature_store_materializer import FeatureStoreMaterializer
 from mlb_app.services.model_backtest_service import ModelBacktestService
 from mlb_app.services.model_calibration_service import ModelCalibrationService
@@ -59,6 +61,23 @@ async def collector_check(
         date_label=date,
         season=selected_season,
         route_name="/api/runtime/collector-check",
+    )
+
+
+@router.get("/runtime/daily-health", response_model=DailyHealthResponse, name="native_runtime_daily_health")
+async def daily_health(
+    container: Annotated[AppContainer, Depends(get_container)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+    date: Annotated[str | None, Query()] = None,
+    season: Annotated[int | None, Query()] = None,
+) -> dict:
+    service = DailyHealthService(container.settings)
+    selected_season = season if season is not None else container.settings.current_season
+    return await limiter.run(
+        service.payload,
+        date_label=date,
+        season=selected_season,
+        route_name="/api/runtime/daily-health",
     )
 
 

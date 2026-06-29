@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from mlb_app.asgi import app
 from tools.validate_backup_files import iter_backup_files
+from tools.validate_generated_artifacts import find_generated_artifacts
 from tools.validate_import_boundaries import find_violations as find_import_boundary_violations
 from tools.validate_native_di import find_violations as find_native_di_violations
 
@@ -23,6 +24,7 @@ def test_sprint5_source_tree_guards_are_clean() -> None:
     root = Path(".").resolve()
     assert find_import_boundary_violations(root) == {}
     assert iter_backup_files(root) == []
+    assert find_generated_artifacts(root) == []
     assert find_native_di_violations(root) == []
 
 
