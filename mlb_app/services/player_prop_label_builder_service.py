@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -53,6 +54,19 @@ PLAYER_MARKET_SUFFIXES: tuple[str, ...] = (
     "Outs Recorded",
     "Pitching Outs",
 )
+DATE_FIELDS: tuple[str, ...] = ("date", "game_date", "gameDate", "stat_date")
+PLAYER_ID_FIELDS: tuple[str, ...] = ("playerId", "player_id", "mlbId", "mlb_id", "personId", "person_id", "id")
+PLAYER_NAME_FIELDS: tuple[str, ...] = ("player", "playerName", "player_name", "name", "fullName", "full_name")
+PITCHER_NAME_FIELDS: tuple[str, ...] = (
+    "pitcher",
+    "pitcherName",
+    "pitcher_name",
+    "startingPitcher",
+    "probablePitcher",
+    *PLAYER_NAME_FIELDS,
+)
+TEAM_FIELDS: tuple[str, ...] = ("team", "teamAbbr", "team_abbr", "teamCode", "team_code", "team_abbreviation")
+GAME_PK_FIELDS: tuple[str, ...] = ("gamePk", "game_pk", "gameId", "game_id")
 TEAM_ALIASES: dict[str, str] = {
     "ARI": "ARI",
     "ARIZONA DIAMONDBACKS": "ARI",
@@ -369,6 +383,7 @@ class PlayerPropLabelBuilderService:
         status_counts = Counter(_clean(row.get("label_status")) or "unknown" for row in rows)
         market_counts = Counter(_clean(row.get("market")) or "unknown" for row in rows)
         supported = sum(1 for row in all_rows if is_supported_market(_clean(row.get("market"))))
+        diagnostic_warnings = _label_matching_warnings(rows)
         planned = _planned_label_paths(output_dir, date_label, output_format)
         return {
             "status": "ok",
@@ -393,7 +408,7 @@ class PlayerPropLabelBuilderService:
             "unsupported_market_count": max(0, len(all_rows) - supported),
             "output_paths": {key: _display_path(path, self.settings) for key, path in planned.items()},
             "written": False,
-            "warnings": _dedupe(warnings)[:25],
+            "warnings": _dedupe([*warnings, *diagnostic_warnings])[:25],
         }
 
 
@@ -549,14 +564,14 @@ class _StatLogs:
 
     @classmethod
     def load(cls, settings: Settings, season: int) -> "_StatLogs":
-        batter_rows, batter_source = _first_existing_rows(
+        batter_rows, batter_source = _merged_existing_rows(
             [
                 settings.data_dir / "warehouse" / "season_logs" / f"batter_game_logs_{season}.csv",
                 settings.data_dir / "cloud" / "season_logs" / f"batter_game_logs_{season}.csv",
                 settings.data_dir / "cache" / "incremental_stats" / f"batter_game_logs_{season}.csv",
             ]
         )
-        pitcher_rows, pitcher_source = _first_existing_rows(
+        pitcher_rows, pitcher_source = _merged_existing_rows(
             [
                 settings.data_dir / "warehouse" / "season_logs" / f"pitcher_game_logs_{season}.csv",
                 settings.data_dir / "cloud" / "season_logs" / f"pitcher_game_logs_{season}.csv",
@@ -571,47 +586,79 @@ class _StatLogs:
         return cls(batter_rows, pitcher_rows, batter_source, pitcher_source, warnings)
 
     def find(self, *, market: str, date_label: str, player: str, team: str, opponent: str = "", player_id: str = "") -> _LogMatch:
-        rows = self.pitcher_rows if _clean(market).startswith("pitcher") else self.batter_rows
-        source = self.pitcher_source if _clean(market).startswith("pitcher") else self.batter_source
+        is_pitcher = _clean(market).startswith("pitcher")
+        rows = self.pitcher_rows if is_pitcher else self.batter_rows
+        source = self.pitcher_source if is_pitcher else self.batter_source
+        family = "pitcher" if is_pitcher else "batter"
         if not rows:
             return _LogMatch("missing_player", "No season log rows are available for this market family.", {}, source)
-        date_rows = [row for row in rows if _clean(row.get("date"))[:10] == date_label[:10]]
+        target_date = date_label[:10]
+        date_rows = [row for row in rows if _row_date(row) == target_date]
+        if not date_rows:
+            available_dates = sorted({_row_date(row) for row in rows if _row_date(row)})
+            return _LogMatch(
+                "missing_player",
+                f"No {family} game logs found for date {target_date}. Available log dates: {_available_dates_summary(available_dates, target_date=target_date)}.",
+                {},
+                source,
+            )
         target_id = _player_id(player_id)
         if target_id:
-            id_candidates = [row for row in date_rows if _player_id(row.get("playerId") or row.get("player_id")) == target_id]
+            id_candidates = [row for row in date_rows if _row_player_id(row) == target_id]
             id_match = _single_match(id_candidates, source)
             if id_match is not None:
                 return id_match
 
         target = _player_norm(player)
-        name_candidates = [row for row in date_rows if _player_norm(row.get("player")) == target]
+        name_candidates = [row for row in date_rows if target and target in _row_player_norms(row, is_pitcher=is_pitcher)]
         if not name_candidates:
-            return _LogMatch("missing_player", "No player game log matched the feature row.", {}, source)
+            sample_names = sorted({name for row in date_rows for name in _row_player_display_names(row, is_pitcher=is_pitcher) if name})[:8]
+            return _LogMatch(
+                "missing_player",
+                f"No player game log matched {player!r} on {target_date}. Checked player_id={target_id or 'blank'}, team={_team_alias(team) or 'blank'}, sample log players: {', '.join(sample_names) or 'none'}.",
+                {},
+                source,
+            )
+
+        name_match = _single_match(name_candidates, source)
+        if name_match is not None and name_match.status == "ok":
+            return name_match
 
         target_team = _team_alias(team)
-        team_candidates = [row for row in name_candidates if target_team and _team_alias(row.get("team")) == target_team]
+        team_candidates = [row for row in name_candidates if target_team and _row_team(row) == target_team]
         team_match = _single_match(team_candidates, source)
         if team_match is not None:
             return team_match
 
         target_opponent = _team_alias(opponent)
-        opponent_candidates = [row for row in name_candidates if target_opponent and _team_alias(row.get("team")) == target_opponent]
+        opponent_candidates = [row for row in name_candidates if target_opponent and _row_team(row) == target_opponent]
         opponent_match = _single_match(opponent_candidates, source)
         if opponent_match is not None:
             return opponent_match
 
-        name_match = _single_match(name_candidates, source)
-        if name_match is not None:
-            return name_match
         return _LogMatch("ambiguous_match", "Multiple player game logs matched the feature row.", {}, source)
 
 
-def _first_existing_rows(paths: Sequence[Path]) -> tuple[list[dict[str, str]], str]:
+def _merged_existing_rows(paths: Sequence[Path]) -> tuple[list[dict[str, str]], str]:
+    rows: list[dict[str, str]] = []
+    sources: list[str] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
     for path in paths:
-        rows = _read_csv(path)
-        if rows:
-            return rows, str(path).replace("\\", "/")
-    return [], ""
+        path_rows = _read_csv(path)
+        if not path_rows:
+            continue
+        sources.append(str(path).replace("\\", "/"))
+        for row in path_rows:
+            key = (*_match_identity(row), _row_player_id(row))
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
+    return rows, ";".join(sources)
+
+
+def _first_existing_rows(paths: Sequence[Path]) -> tuple[list[dict[str, str]], str]:
+    return _merged_existing_rows(paths)
 
 
 def _read_csv(path: Path) -> list[dict[str, str]]:
@@ -724,7 +771,7 @@ def _safe_mtime(path: Path) -> float:
 
 
 def _match_identity(row: Mapping[str, Any]) -> tuple[str, str, str, str]:
-    return (_clean(row.get("date"))[:10], _player_norm(row.get("player")), _team_alias(row.get("team")), _clean(row.get("gamePk")))
+    return (_row_date(row), _first_player_norm(row), _row_team(row), _first_value(row, GAME_PK_FIELDS))
 
 
 def _single_match(candidates: Sequence[dict[str, str]], source: str) -> _LogMatch | None:
@@ -748,6 +795,45 @@ def _strip_player_market_suffix(value: Any) -> str:
     return text
 
 
+def _row_date(row: Mapping[str, Any]) -> str:
+    return _first_value(row, DATE_FIELDS)[:10]
+
+
+def _row_player_id(row: Mapping[str, Any]) -> str:
+    return _player_id(_first_value(row, PLAYER_ID_FIELDS))
+
+
+def _row_team(row: Mapping[str, Any]) -> str:
+    return _team_alias(_first_value(row, TEAM_FIELDS))
+
+
+def _row_player_norms(row: Mapping[str, Any], *, is_pitcher: bool) -> set[str]:
+    fields = PITCHER_NAME_FIELDS if is_pitcher else PLAYER_NAME_FIELDS
+    return {_player_norm(value) for value in _values(row, fields) if _player_norm(value)}
+
+
+def _row_player_display_names(row: Mapping[str, Any], *, is_pitcher: bool) -> list[str]:
+    fields = PITCHER_NAME_FIELDS if is_pitcher else PLAYER_NAME_FIELDS
+    seen: set[str] = set()
+    names: list[str] = []
+    for value in _values(row, fields):
+        text = _strip_player_market_suffix(value)
+        key = _player_norm(text)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        names.append(text)
+    return names
+
+
+def _first_player_norm(row: Mapping[str, Any]) -> str:
+    for value in _values(row, PITCHER_NAME_FIELDS):
+        text = _player_norm(value)
+        if text:
+            return text
+    return ""
+
+
 def _team_alias(value: Any) -> str:
     text = _clean(value).upper().replace(".", "")
     text = " ".join(text.split())
@@ -762,11 +848,59 @@ def _player_id(value: Any) -> str:
 
 def _norm(value: Any) -> str:
     text = _clean(value).lower().replace(".", "").replace(",", "")
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(char for char in text if not unicodedata.combining(char))
     return " ".join(text.split())
 
 
 def _clean(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _first_value(row: Mapping[str, Any], keys: Sequence[str]) -> str:
+    for key in keys:
+        value = _clean(row.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _values(row: Mapping[str, Any], keys: Sequence[str]) -> list[str]:
+    values: list[str] = []
+    for key in keys:
+        value = _clean(row.get(key))
+        if value:
+            values.append(value)
+    return values
+
+
+def _available_dates_summary(dates: Sequence[str], *, target_date: str = "") -> str:
+    if not dates:
+        return "none"
+    if len(dates) <= 12:
+        return ", ".join(dates)
+    nearest: list[str] = []
+    if target_date:
+        before = [date for date in dates if date < target_date]
+        after = [date for date in dates if date > target_date]
+        if before:
+            nearest.append(before[-1])
+        if after:
+            nearest.append(after[0])
+    nearest_text = f"; nearest to requested date: {', '.join(nearest)}" if nearest else ""
+    return f"{dates[0]}..{dates[-1]} ({len(dates)} dates{nearest_text})"
+
+
+def _label_matching_warnings(rows: Sequence[Mapping[str, Any]]) -> list[str]:
+    missing_reasons = Counter(
+        _clean(row.get("label_reason"))
+        for row in rows
+        if _clean(row.get("label_status")) == "missing_player" and _clean(row.get("label_reason"))
+    )
+    warnings: list[str] = []
+    for reason, count in missing_reasons.most_common(5):
+        warnings.append(f"Label matching diagnostic: {count} missing_player rows: {reason}")
+    return warnings
 
 
 def _dedupe(values: Sequence[str]) -> list[str]:

@@ -282,6 +282,51 @@ def test_stat_log_find_player_id_wins_with_team_mismatch(tmp_path: Path) -> None
     assert match.row["team"] == "TOR"
 
 
+def test_stat_log_find_matches_alternate_log_columns_by_player_id(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_batter_logs(
+        settings,
+        [
+            {
+                "gameDate": "2026-06-23T19:05:00Z",
+                "playerName": "George Springer",
+                "teamAbbr": "TOR",
+                "personId": "543807",
+                "hits": "2",
+            }
+        ],
+    )
+    logs = _StatLogs.load(settings, 2026)
+
+    match = logs.find(
+        market="batter_hits",
+        date_label="2026-06-23",
+        player="George Springer",
+        team="HOU",
+        player_id="543807",
+    )
+
+    assert match.status == "ok"
+    assert match.row["hits"] == "2"
+
+
+def test_stat_log_find_uses_team_when_name_date_is_not_unique(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_batter_logs(
+        settings,
+        [
+            {"date": "2026-06-23", "player": "Duplicate Player", "team": "NYY", "hits": "0"},
+            {"date": "2026-06-23", "player": "Duplicate Player", "team": "TOR", "hits": "2"},
+        ],
+    )
+    logs = _StatLogs.load(settings, 2026)
+
+    match = logs.find(market="batter_hits", date_label="2026-06-23", player="Duplicate Player", team="TOR")
+
+    assert match.status == "ok"
+    assert match.row["hits"] == "2"
+
+
 def test_stat_log_find_strips_pitcher_market_suffix(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     write_pitcher_logs(settings, [{"date": "2026-06-22", "player": "Kodai Senga", "team": "NYM", "strikeOuts": "6"}])
@@ -323,6 +368,18 @@ def test_stat_log_find_truly_missing_player_returns_missing_player(tmp_path: Pat
     match = logs.find(market="batter_hits", date_label="2026-06-22", player="Missing Player", team="NEW YORK YANKEES")
 
     assert match.status == "missing_player"
+
+
+def test_stat_log_find_reports_missing_date_when_logs_do_not_cover_slate(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_batter_logs(settings, [{"date": "2026-06-25", "player": "George Springer", "team": "TOR", "hits": "2"}])
+    logs = _StatLogs.load(settings, 2026)
+
+    match = logs.find(market="batter_hits", date_label="2026-06-23", player="George Springer", team="TOR")
+
+    assert match.status == "missing_player"
+    assert "No batter game logs found for date 2026-06-23" in match.reason
+    assert "2026-06-25" in match.reason
 
 
 def test_label_builder_mixed_fixture_produces_hit_and_miss_labels(tmp_path: Path) -> None:

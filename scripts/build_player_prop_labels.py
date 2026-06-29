@@ -56,6 +56,7 @@ def _print_dry_run(manifest: dict[str, object]) -> None:
     print(f"  row count: {manifest.get('row_count')}")
     print(f"  graded: {manifest.get('graded_count')}")
     print(f"  ungraded: {manifest.get('ungraded_count')}")
+    print(f"  status counts: {json.dumps(manifest.get('status_counts') or {}, sort_keys=True)}")
     print(f"  market counts: {json.dumps(manifest.get('market_counts') or {}, sort_keys=True)}")
     print("  output paths:")
     for key, value in (manifest.get("output_paths") or {}).items():  # type: ignore[union-attr]
