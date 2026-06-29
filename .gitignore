@@ -242,3 +242,7 @@ data/status/
 /*.spec
 /MLBPropLauncher.exe
 /data/logs/
+
+# Local GitHub collector import staging
+data/github_collector_imports/
+data/local_backup_before_github_import_*/
