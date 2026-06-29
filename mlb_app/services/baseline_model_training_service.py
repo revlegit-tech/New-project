@@ -156,12 +156,12 @@ class BaselineModelTrainingService:
             labels.extend(_read_csv(self.settings.root_dir / rel))
         labels.extend(_read_csv(self.settings.data_dir / "labels" / f"player_prop_labels_{season}.csv"))
         labels.extend(_read_csv(self.settings.data_dir / "training" / f"player_prop_labels_{season}.csv"))
-        by_key = {_join_key(row): row for row in labels if _clean(row.get("market")) == market and _label_target(row) is not None and _join_key(row)}
+        label_index = _LabelJoinIndex.build([row for row in _dedupe_rows(labels) if _clean(row.get("market")) == market and _label_target(row) is not None])
         joined: list[dict[str, Any]] = []
         for feature in features:
             if _clean(feature.get("market")) != market:
                 continue
-            label = by_key.get(_join_key(feature)) or by_key.get(_fallback_key(feature))
+            label = label_index.match(feature)
             target = _label_target(label or {})
             if target is None:
                 continue
@@ -277,7 +277,7 @@ def _write_artifacts(
 
 
 def _feature_columns(rows: list[dict[str, Any]]) -> list[str]:
-    blocked = set(postgame_label_names()) | {"__target"}
+    blocked = set(postgame_label_names()) | IDENTITY_COLUMNS | {"__target"}
     candidates = [column for column in pregame_feature_names() if column not in blocked]
     return [column for column in candidates if any(_clean(row.get(column)) for row in rows) and all(_is_numeric_or_blank(row.get(column)) for row in rows)]
 
@@ -295,7 +295,8 @@ def _label_target(row: dict[str, Any]) -> int | None:
 
 
 def _empty_metrics(row_count: int) -> dict[str, Any]:
-    return {"trainRows": 0, "testRows": 0, "positiveRate": None, "modelState": "unavailable", "candidateRows": row_count}
+    train_rows, test_rows = _planned_split_counts(row_count)
+    return {"trainRows": train_rows, "testRows": test_rows, "positiveRate": None, "modelState": "unavailable", "candidateRows": row_count}
 
 
 def _first_market(readiness: dict[str, Any], market: str) -> dict[str, Any]:
@@ -305,12 +306,116 @@ def _first_market(readiness: dict[str, Any], market: str) -> dict[str, Any]:
     return {"market": market, "baselineEligible": False, "reasons": ["No market readiness entry found."]}
 
 
-def _join_key(row: dict[str, Any]) -> str:
-    return _clean(row.get("prop_key")) or _clean(row.get("source_row_id")) or _fallback_key(row)
+IDENTITY_COLUMNS = {
+    "date",
+    "season",
+    "source_row_id",
+    "prop_key",
+    "game_pk",
+    "player_id",
+    "playerId",
+    "player",
+    "team",
+    "opponent",
+    "market",
+    "side",
+    "book",
+}
 
 
-def _fallback_key(row: dict[str, Any]) -> str:
-    return "|".join(_clean(row.get(key)).lower() for key in ("date", "market", "player", "team", "line"))
+class _LabelJoinIndex:
+    def __init__(self, *, by_id: dict[str, dict[str, Any]], by_strict: dict[str, dict[str, Any] | None], by_loose: dict[str, dict[str, Any] | None]) -> None:
+        self.by_id = by_id
+        self.by_strict = by_strict
+        self.by_loose = by_loose
+
+    @classmethod
+    def build(cls, labels: list[dict[str, Any]]) -> "_LabelJoinIndex":
+        by_id: dict[str, dict[str, Any]] = {}
+        strict_buckets: dict[str, list[dict[str, Any]]] = {}
+        loose_buckets: dict[str, list[dict[str, Any]]] = {}
+        for row in labels:
+            for key in _identity_keys(row):
+                by_id.setdefault(key, row)
+            strict = _strict_fallback_key(row)
+            if strict:
+                strict_buckets.setdefault(strict, []).append(row)
+            loose = _loose_fallback_key(row)
+            if loose:
+                loose_buckets.setdefault(loose, []).append(row)
+        return cls(
+            by_id=by_id,
+            by_strict={key: _unique_row(bucket) for key, bucket in strict_buckets.items()},
+            by_loose={key: _unique_row(bucket) for key, bucket in loose_buckets.items()},
+        )
+
+    def match(self, feature: dict[str, Any]) -> dict[str, Any] | None:
+        for key in _identity_keys(feature):
+            if key in self.by_id:
+                return self.by_id[key]
+        strict = _strict_fallback_key(feature)
+        if strict and strict in self.by_strict:
+            return self.by_strict[strict]
+        loose = _loose_fallback_key(feature)
+        if loose and loose in self.by_loose:
+            return self.by_loose[loose]
+        return None
+
+
+def _identity_keys(row: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    for field in ("prop_key", "propKey", "source_row_id", "sourceRowId"):
+        value = _clean(row.get(field))
+        if value:
+            keys.append(f"id|{value}")
+    return _dedupe(keys)
+
+
+def _strict_fallback_key(row: dict[str, Any]) -> str:
+    parts = [
+        _clean(row.get("date"))[:10],
+        _clean(row.get("market")),
+        _norm(row.get("player")),
+        _line_key(row.get("line")),
+        _norm(row.get("side")),
+        _norm(row.get("book")),
+    ]
+    return "|".join(parts) if all(parts[:4]) and (parts[4] or parts[5]) else ""
+
+
+def _loose_fallback_key(row: dict[str, Any]) -> str:
+    parts = [_clean(row.get("date"))[:10], _clean(row.get("market")), _norm(row.get("player")), _line_key(row.get("line"))]
+    return "|".join(parts) if all(parts) else ""
+
+
+def _unique_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return rows[0] if len(rows) == 1 else None
+
+
+def _line_key(value: Any) -> str:
+    number = _float_or_none(value)
+    return f"{number:g}" if number is not None else _clean(value).lower()
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        text = _clean(value)
+        return float(text) if text else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _norm(value: Any) -> str:
+    return " ".join(_clean(value).lower().replace(".", "").replace(",", "").split())
+
+
+def _planned_split_counts(row_count: int) -> tuple[int, int]:
+    if row_count <= 0:
+        return 0, 0
+    split_at = max(1, int(row_count * 0.8))
+    if split_at >= row_count:
+        split_at = max(1, row_count - 1)
+    return split_at, max(0, row_count - split_at)
 
 
 def _read_csv(path: Path) -> list[dict[str, Any]]:
@@ -321,6 +426,18 @@ def _read_csv(path: Path) -> list[dict[str, Any]]:
             return [dict(row) for row in csv.DictReader(handle)]
     except OSError:
         return []
+
+
+def _dedupe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[tuple[str, str], ...]] = set()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        key = tuple(sorted((str(field), _clean(value)) for field, value in row.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(row)
+    return result
 
 
 def _read_json(path: Path) -> dict[str, Any]:

@@ -18,6 +18,8 @@ class FeatureField:
 FEATURE_FIELDS: tuple[FeatureField, ...] = (
     FeatureField("date", "identity", "date", "Slate date.", nullable=False),
     FeatureField("season", "identity", "int", "MLB season.", nullable=False),
+    FeatureField("source_row_id", "identity", "string", "Stable source row identifier when available."),
+    FeatureField("prop_key", "identity", "string", "Stable player prop key when available."),
     FeatureField("game_pk", "identity", "string", "MLB StatsAPI game identifier."),
     FeatureField("player_id", "identity", "string", "Player identifier when available."),
     FeatureField("player", "identity", "string", "Player display name.", nullable=False),

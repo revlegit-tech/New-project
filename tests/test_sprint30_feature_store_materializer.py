@@ -37,6 +37,9 @@ def test_feature_matrix_materializer_excludes_postgame_labels(tmp_path: Path) ->
         [
             {
                 "date": date_label,
+                "id": "source-row-1",
+                "propKey": "prop-key-1",
+                "playerId": "592450",
                 "market": "batter_total_bases",
                 "player": "Aaron Judge",
                 "team": "NYY",
@@ -53,7 +56,9 @@ def test_feature_matrix_materializer_excludes_postgame_labels(tmp_path: Path) ->
 
     result = FeatureStoreMaterializer(settings).materialize(date_label=date_label, season=2026)
     path = settings.data_dir / "features" / f"prop_features_{date_label}.csv"
-    header = path.read_text(encoding="utf-8").splitlines()[0].split(",")
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        rows = [dict(row) for row in csv.DictReader(handle)]
+    header = list(rows[0])
 
     assert result["schemaVersion"] == "feature-store-materializer.v1"
     assert result["pregameSafe"] is True
@@ -61,6 +66,9 @@ def test_feature_matrix_materializer_excludes_postgame_labels(tmp_path: Path) ->
     assert result["rows"] == 1
     assert set(postgame_label_names()).isdisjoint(header)
     assert set(header) == set(pregame_feature_names())
+    assert rows[0]["source_row_id"] == "source-row-1"
+    assert rows[0]["prop_key"] == "prop-key-1"
+    assert rows[0]["player_id"] == "592450"
 
 
 def test_feature_store_status_route_is_read_only_and_safe(tmp_path: Path, monkeypatch) -> None:

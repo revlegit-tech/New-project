@@ -107,6 +107,9 @@ class FeatureStoreMaterializer:
                     for raw in csv.DictReader(handle):
                         prop = normalize_prop_row(dict(raw), date_label)
                         if prop.get("player") and prop.get("market") in set(DEFAULT_MARKETS):
+                            prop["sourceRowId"] = _first_value(raw, "source_row_id", "sourceRowId", "id", "propKey", "prop_key")
+                            prop["propKey"] = _first_value(raw, "propKey", "prop_key", "id")
+                            prop["playerId"] = prop.get("playerId") or _first_value(raw, "playerId", "player_id", "mlbId", "mlb_id")
                             prop["rawSource"] = safe_relpath(path, self.settings.root_dir)
                             rows.append(prop)
             except Exception:
@@ -135,6 +138,8 @@ class FeatureStoreMaterializer:
         return {
             "date": date_label,
             "season": season,
+            "source_row_id": prop.get("sourceRowId") or prop.get("source_row_id") or prop.get("propKey") or "",
+            "prop_key": prop.get("propKey") or prop.get("prop_key") or prop.get("sourceRowId") or "",
             "game_pk": prop.get("gamePk") or prop.get("game_pk") or "",
             "player_id": prop.get("playerId") or prop.get("player_id") or "",
             "player": prop.get("player") or "",
@@ -217,3 +222,11 @@ def _freshness_minutes(snapshot_at: str) -> str:
 
 def _round(value: float, digits: int) -> str:
     return f"{value:.{digits}f}".rstrip("0").rstrip(".")
+
+
+def _first_value(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = row.get(key)
+        if str(value or "").strip():
+            return value
+    return ""
