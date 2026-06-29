@@ -8,7 +8,7 @@ from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
 from mlb_app.services.data_source_capability_service import resolve_date_mode
-from mlb_app.services.model_calibration_service import _baseline_model_exists, _probability_rows
+from mlb_app.services.model_calibration_service import _baseline_model_exists, _baseline_model_probability_rows, _probability_rows
 from mlb_app.services.runtime_status_service import safe_relpath
 
 SCHEMA_VERSION = "model-backtest-status.v1"
@@ -61,6 +61,17 @@ class ModelBacktestService:
         warnings: list[str] = []
         if not model_exists:
             warnings.append("Baseline model artifact is missing for this market.")
+        if not rows and model_exists:
+            scored = _baseline_model_probability_rows(
+                settings=self.settings,
+                artifact_dir=artifact_dir,
+                date_label=target_date,
+                season=selected_season,
+                market=selected_market,
+                purpose="backtesting",
+            )
+            rows = scored["rows"]
+            warnings.extend(scored["warnings"])
         if not rows:
             warnings.append("No labels with probability estimates were found for backtesting.")
         if len(rows) and len(rows) < MIN_BACKTEST_ROWS:
