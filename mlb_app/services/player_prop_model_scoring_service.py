@@ -318,7 +318,8 @@ class PlayerPropModelScoringService:
             scored_by_market[market] += 1
 
         feature_columns = sorted(score_feature_columns or set(DEFAULT_FEATURE_COLUMNS))
-        feature_completeness = _feature_completeness(rows, feature_columns)
+        context_artifacts = _context_feature_artifacts(self.settings, selected_date)
+        feature_completeness = _feature_completeness(rows, feature_columns, context_artifacts=context_artifacts)
         feature_groups_ready = sorted(
             group for group, payload in feature_completeness.items() if payload["populatedPercent"] > 0
         )
@@ -367,6 +368,7 @@ class PlayerPropModelScoringService:
             "identityConfidenceCounts": dict(sorted(identity_confidence_counts.items())),
             "identityWarningCounts": dict(sorted(identity_warning_counts.items())),
             "featureCompleteness": feature_completeness,
+            "contextFeatureArtifacts": context_artifacts,
             "featureGroupsReady": feature_groups_ready,
             "featureGroupsMissing": feature_groups_missing,
             "modelFeatureWarnings": [
@@ -515,10 +517,16 @@ def _model_feature_columns(model_path: Path) -> list[str]:
     return list(DEFAULT_FEATURE_COLUMNS)
 
 
-def _feature_completeness(rows: list[dict[str, Any]], feature_columns: list[str]) -> dict[str, Any]:
+def _feature_completeness(
+    rows: list[dict[str, Any]],
+    feature_columns: list[str],
+    *,
+    context_artifacts: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     model_features = set(feature_columns)
     report: dict[str, Any] = {}
     row_count = len(rows)
+    context_artifacts = context_artifacts or {}
     for group, fields in FEATURE_GROUPS.items():
         selected = [field for field in fields if field in model_features or field in _row_field_names(rows)]
         if not selected:
@@ -534,14 +542,54 @@ def _feature_completeness(rows: list[dict[str, Any]], feature_columns: list[str]
             warnings.append(f"No populated {group} feature fields were available.")
         elif missing:
             warnings.append(f"{len(missing)} {group} feature fields were missing or all-null.")
+        artifact = context_artifacts.get(group) or {}
+        artifact_rows = int(artifact.get("rows") or 0)
+        if artifact_rows > 0:
+            artifact_fields = [field for field in selected if field in set(artifact.get("fields") or [])]
+            if artifact_fields:
+                available = sorted(set(available).union(artifact_fields))
+                missing = [field for field in selected if field not in available]
+                populated_percent = max(round((populated / denominator) * 100.0, 2), round((len(artifact_fields) / max(len(selected), 1)) * 100.0, 2))
+                warnings = [warning for warning in warnings if not warning.startswith(f"No populated {group}")]
+                warnings.append(f"{group} context artifact available with {artifact_rows} rows; join into scoring rows may still be pending.")
+            else:
+                populated_percent = round((populated / denominator) * 100.0, 2)
+        else:
+            populated_percent = round((populated / denominator) * 100.0, 2)
         report[group] = {
             "availableFields": available,
             "missingFields": missing,
-            "populatedPercent": round((populated / denominator) * 100.0, 2),
+            "populatedPercent": populated_percent,
             "staleFields": [],
             "warnings": warnings,
         }
     return report
+
+
+def _context_feature_artifacts(settings: Settings, date_label: str) -> dict[str, Any]:
+    paths = {
+        "player_recent_form": settings.data_dir / "context" / "player_recent_form" / f"player_recent_form_{date_label}.csv",
+        "pitcher_context": settings.data_dir / "context" / "pitcher_context" / f"pitcher_context_{date_label}.csv",
+        "odds_movement": settings.data_dir / "context" / "odds_movement" / f"odds_movement_{date_label}.csv",
+        "weather": settings.data_dir / "context" / "weather" / f"weather_context_{date_label}.csv",
+        "statcast": settings.data_dir / "context" / "statcast" / f"statcast_context_{date_label}.csv",
+        "bullpen_context": settings.data_dir / "context" / "bullpen" / f"bullpen_context_{date_label}.csv",
+        "game_markets": settings.data_dir / "context" / "game_markets" / f"game_markets_{date_label}.csv",
+        "umpire": settings.data_dir / "context" / "umpire" / f"umpire_context_{date_label}.csv",
+    }
+    artifacts: dict[str, Any] = {}
+    for group, path in paths.items():
+        if not path.is_file():
+            continue
+        try:
+            with path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                rows = sum(1 for _ in reader)
+                fields = [field for field in (reader.fieldnames or []) if field]
+        except Exception:
+            continue
+        artifacts[group] = {"path": str(path), "rows": rows, "fields": fields}
+    return artifacts
 
 
 def _feature_completeness_warnings(
