@@ -18,6 +18,7 @@ const disabledSports = ["NBA", "NHL", "Soccer", "WNBA", "NCAAFB"];
 const SAVE_PICK_LABEL = "Add research pick";
 let detailRail: DetailRailController;
 let lastBoardSource = "EdgeBoard";
+let latestStatusExtras: { actionnetwork?: any; runtime?: any; workflow?: any; ml?: any } = {};
 
 const detailContext = () => ({
   date: appState.date,
@@ -227,7 +228,8 @@ async function loadStatus() {
     ]);
     appState.status = payload;
     appState.requestId = requestId || payload?.meta?.requestId || "";
-    renderTrustSurface(payload, appState.requestId, { actionnetwork, runtime, workflow, ml });
+    latestStatusExtras = { actionnetwork, runtime, workflow, ml };
+    renderTrustSurface(payload, appState.requestId, latestStatusExtras);
     detailRail?.rerender(detailContext());
   } catch (error) {
     clear(document.getElementById("freshnessSurface"), [trustCard("Status", "Unavailable", error instanceof Error ? error.message : "App status could not be loaded.", "unavailable")]);
@@ -268,6 +270,7 @@ async function loadBoard() {
     appState.boardTrust = payload?.trust || null;
     appState.selectedIndex = -1;
     lastBoardSource = payload?.source?.label || payload?.source?.path || "EdgeBoard";
+    renderTrustSurface(payload, appState.requestId, latestStatusExtras);
     syncTrustFilters();
     applyFilters();
     renderBoard({ resetScroll: true });
@@ -420,7 +423,10 @@ function renderTrustSurface(payload: any, requestId: string, extras: { actionnet
   const boardFreshnessTone = text(firstFreshness.tone || payload?.freshness?.tone || severity.tone, severity.tone);
   const boardFreshnessCopy = text(firstFreshness.status || firstFreshness.source || payload?.freshness?.status || severity.copy, severity.copy);
   const schemaVersion = text(payload?.playerboard?.schemaVersion || payload?.schemaVersion || payload?.contracts?.playerboard || "playerboard.v3", "Unknown");
-  const marketsReady = Array.isArray(extras.ml?.productionMarkets) ? extras.ml.productionMarkets.length : Array.isArray(payload?.productionEligibleMarkets) ? payload.productionEligibleMarkets.length : MARKETS.filter((market) => market.modelReady).length;
+  const modeledMarkets = modeledMarketCount(payload);
+  const productionMarkets = Array.isArray(extras.ml?.productionMarkets) ? extras.ml.productionMarkets.length : Array.isArray(payload?.productionEligibleMarkets) ? payload.productionEligibleMarkets.length : MARKETS.filter((market) => market.modelReady).length;
+  const marketsReady = modeledMarkets || productionMarkets;
+  const modelMode = modeledMarkets ? "Experimental / Research Mode" : text(payload?.productStateDetail?.label || payload?.productState, "Research Mode");
   const runtimeTone = extras.runtime?.ok ? "fresh" : extras.runtime?.status === "degraded" ? "aging" : "stale";
   const workflowTone = extras.workflow?.status === "success" ? "fresh" : extras.workflow?.status === "warning" ? "aging" : "stale";
   const actionTone = extras.actionnetwork?.ok ? "fresh" : extras.actionnetwork?.status === "degraded" ? "aging" : "stale";
@@ -431,9 +437,21 @@ function renderTrustSurface(payload: any, requestId: string, extras: { actionnet
     trustCard("Workflow", workflowLabel(extras.workflow), text(extras.workflow?.checkedAt || boardSnapshotAt), workflowTone),
     trustCard("Odds freshness", boardSnapshotAt, boardFreshnessCopy, boardFreshnessTone),
     trustCard("ActionNetwork", actionNetworkLabel(extras.actionnetwork), text(extras.actionnetwork?.labels?.trainableEligibility || extras.actionnetwork?.snapshot?.snapshotFreshness || "not trainable"), actionTone),
-    trustCard("Model readiness", `${marketsReady} production markets`, text(payload?.productStateDetail?.label || payload?.productState, "Research Mode"), marketsReady ? "fresh" : "aging"),
+    trustCard("Model readiness", `${marketsReady} MLB markets`, modelMode, marketsReady ? "fresh" : "aging"),
     trustCard("Schema version", schemaVersion, requestId ? `Request ${requestId}` : "Contract checked", "fresh"),
   ]);
+}
+
+function modeledMarketCount(payload: any): number {
+  const summaryCount = Number(payload?.summary?.modeledMarkets);
+  if (Number.isFinite(summaryCount) && summaryCount > 0) return summaryCount;
+  const sourceMarkets = payload?.source?.predictionJoin?.predictionsByMarket || payload?.meta?.predictionsByMarket;
+  if (sourceMarkets && typeof sourceMarkets === "object") {
+    const count = Object.values(sourceMarkets).filter((value) => Number(value) > 0).length;
+    if (count > 0) return count;
+  }
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  return new Set(rows.filter((row: any) => row?.predictionMatched === true).map((row: any) => text(row?.market || row?.baseMarket, "")).filter(Boolean)).size;
 }
 
 function workflowLabel(payload: any): string {

@@ -32,6 +32,9 @@ export function renderBoardRow(row: OutlierBoardRow, options: BoardRowRenderOpti
   const chips = rowTrustChips(row).slice(0, 6);
   const market = rowMarketKey(row) || identity.market;
   const sideLine = [identity.side, text(rowLine(row), "")].filter(Boolean).join(" ");
+  const isExperimental = readiness.label.toLowerCase().includes("experimental") || readiness.status.includes("experimental");
+  const isResearch = actionability.label.toLowerCase().includes("research");
+  const researchTooltip = "Experimental model output. Research only. No staking recommendation.";
   return h("tr", {
     className: options.index === options.selectedIndex ? "is-selected" : "",
     dataset: { rowIndex: String(options.index), actionability: actionability.status, readiness: readiness.status, freshness: freshness.status },
@@ -51,8 +54,8 @@ export function renderBoardRow(row: OutlierBoardRow, options: BoardRowRenderOpti
     h("td", { text: percent(modelEdge.modelProbabilityPercent) }),
     h("td", { text: percent(modelEdge.impliedProbabilityPercent) }),
     h("td", {}, [h("span", { className: `ob-pill ob-pill-edge ${badgeToneClass(modelEdge.tone)}`, text: signedPercent(modelEdge.edgePercent) })]),
-    h("td", {}, [h("span", { className: `ob-pill ${badgeToneClass(readiness.tone)}`, attrs: { title: readiness.warnings[0] || readiness.status }, text: readiness.label })]),
+    h("td", {}, [h("span", { className: `ob-pill ${badgeToneClass(readiness.tone)}${isExperimental ? " ob-pill-experimental" : ""}`, attrs: { title: isExperimental ? researchTooltip : readiness.warnings[0] || readiness.status }, text: readiness.label })]),
     h("td", {}, [h("span", { className: `ob-pill ${badgeToneClass(freshness.tone)}`, attrs: { title: freshness.source || freshness.status }, text: freshness.label })]),
-    h("td", {}, [h("span", { className: `ob-pill ob-pill-action ${badgeToneClass(actionability.tone)}`, attrs: { title: actionability.suggestedStake }, text: actionability.label })]),
+    h("td", {}, [h("span", { className: `ob-pill ob-pill-action ${badgeToneClass(actionability.tone)}${isResearch ? " ob-pill-research" : ""}`, attrs: { title: isResearch ? researchTooltip : actionability.suggestedStake }, text: actionability.label })]),
   ]);
 }

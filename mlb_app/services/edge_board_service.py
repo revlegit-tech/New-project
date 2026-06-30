@@ -16,6 +16,7 @@ from mlb_app.services.playerboard_builder import market_capability
 from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository
 from mlb_app.services.playerboard_read_service import prop_key_for_row
 from mlb_app.services.playerboard_service import PlayerboardService
+from mlb_app.services.prop_side_normalization import normalize_prop_side
 
 EDGE_BOARD_VERSION = "2026-05-edge-board-v1"
 
@@ -183,6 +184,8 @@ class EdgeBoardService:
                 "readinessLabel": "Experimental",
                 "modelReadiness": "Experimental",
                 "action": "Research",
+                "actionLabel": "Research",
+                "decisionLabel": "Research",
                 "stakeUnits": 0,
                 "suggestedStake": "Research only",
                 "productionStatus": "experimental",
@@ -219,9 +222,11 @@ class EdgeBoardService:
         trust["readiness"] = readiness
         actionability = dict(trust.get("actionability") or {})
         actionability["label"] = "Research"
+        actionability["status"] = "research_only"
         actionability["suggestedStake"] = "Research only"
         actionability["stakeUnits"] = 0
         trust["actionability"] = actionability
+        trust["actionLabel"] = "Research"
         trust["researchOnly"] = True
         enriched["trust"] = trust
         return enriched
@@ -233,6 +238,9 @@ class EdgeBoardService:
             "predictionKey": _clean(row.get("predictionKey")),
             "predictionSource": _clean(row.get("predictionSource")),
             "predictionWarnings": list(row.get("predictionWarnings") or []),
+            "readinessLabel": _clean(row.get("readinessLabel")) or "No model",
+            "action": _clean(row.get("action")) or "No bet",
+            "stakeUnits": 0,
         }
 
     def _payload_from_database(self, query: dict[str, list[str]]) -> dict[str, Any] | None:
@@ -252,7 +260,10 @@ class EdgeBoardService:
             return None
         if not rows:
             return None
-        selected_rows = self._game_market_enriched_rows(rows[:limit])
+        selected_rows = [
+            self._snapshot_contract_row(row)
+            for row in self._game_market_enriched_rows(rows[:limit])
+        ]
         snapshot_at = _clean(meta.get("snapshotAt"))
         return {
             "status": "ok",
@@ -456,11 +467,14 @@ class EdgeBoardService:
                 "market": market,
                 "marketDisplay": _clean(row.get("marketDisplay")) or _title(market),
                 "line": _clean(row.get("line")),
+                "side": _normalized_row_side(row),
                 "americanOdds": _clean(_first(row, "americanOdds", "odds", "price")),
                 "book": book or "Best available",
                 "gameTime": _clean(_first(row, "gameTime", "startTime", "commenceTime", "game_time")),
                 "decisionLabel": decision_label,
                 "actionLabel": action_label,
+                "action": "Research" if action_label not in {"No bet", "Unsupported market", "Data stale"} else action_label,
+                "stakeUnits": 0,
                 "decisionTone": _decision_tone(decision_label),
                 "marketCapabilityStatus": capability_status,
                 "modelProductionEligible": production_eligible,
@@ -563,9 +577,52 @@ class EdgeBoardService:
             "rows": len(rows),
             "decisionCounts": decisions,
             "readinessCounts": readiness,
+            "modeledMarkets": len(_unique(row.get("market") for row in rows if row.get("predictionMatched") is True)),
+            "modeledRows": sum(1 for row in rows if row.get("predictionMatched") is True),
             "confidentRows": sum(1 for row in rows if row.get("canShowConfidentPick")),
             "warningRows": sum(1 for row in rows if int(row.get("warningCount") or 0) > 0),
         }
+
+    @staticmethod
+    def _snapshot_contract_row(row: dict[str, Any]) -> dict[str, Any]:
+        enriched = dict(row)
+        enriched["side"] = _normalized_row_side(enriched)
+        matched = enriched.get("predictionMatched") is True or str(enriched.get("predictionMatched")).strip().lower() == "true"
+        if matched:
+            enriched.update(
+                {
+                    "predictionMatched": True,
+                    "readinessLabel": "Experimental",
+                    "modelReadiness": "Experimental",
+                    "action": "Research",
+                    "actionLabel": "Research",
+                    "decisionLabel": "Research",
+                    "stakeUnits": 0,
+                    "suggestedStake": "Research only",
+                }
+            )
+        else:
+            enriched = EdgeBoardService._prediction_default_row(enriched)
+        trust = dict(enriched.get("trust") or {})
+        actionability = dict(trust.get("actionability") or {})
+        if matched:
+            actionability["label"] = "Research"
+            actionability["status"] = "research_only"
+            actionability["suggestedStake"] = "Research only"
+        actionability["stakeUnits"] = 0
+        if actionability:
+            trust["actionability"] = actionability
+        readiness = dict(trust.get("readiness") or {})
+        if matched:
+            readiness["label"] = "Experimental"
+            readiness["status"] = "experimental"
+            readiness["modelProductionEligible"] = False
+            trust["readiness"] = readiness
+        if trust:
+            trust["actionLabel"] = "Research" if matched else _clean(enriched.get("actionLabel"))
+            trust["researchOnly"] = True
+            enriched["trust"] = trust
+        return enriched
 
 
 
@@ -834,7 +891,7 @@ def _row_trust(
             "opponent": _clean(row.get("opponent")),
             "market": market,
             "line": _clean(row.get("line")),
-            "side": _clean(_first(row, "side", "rawLabel", "pickSide")) or "Over",
+            "side": _normalized_row_side(row),
             "book": book,
         },
         "modelEdge": {
@@ -859,7 +916,7 @@ def _row_trust(
             "label": action_label,
             "status": action_status,
             "suggestedStake": _suggested_stake(decision_label, confident, production_eligible=production_eligible),
-            "stakeUnits": 0.25 if action_status == "actionable" else 0,
+            "stakeUnits": 0,
             "reason": actionability_reason,
         },
         "marketCapabilityStatus": market_capability_status,
@@ -869,6 +926,15 @@ def _row_trust(
         "missingDataSummary": _missing_data_summary(missing_feature_groups),
         "researchOnly": not production_eligible,
     }
+
+
+def _normalized_row_side(row: dict[str, Any]) -> str:
+    return normalize_prop_side(
+        row.get("side"),
+        _first(row, "rawLabel", "raw_label"),
+        _first(row, "label", "title", "name"),
+        _first(row, "outcome", "outcomeName", "outcome_name", "selection", "pickSide"),
+    )
 
 
 def _row_freshness(row: dict[str, Any], board: dict[str, Any]) -> dict[str, Any]:

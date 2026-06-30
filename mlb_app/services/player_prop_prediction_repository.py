@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
+from mlb_app.services.prop_side_normalization import normalize_prop_side
 
 
 @dataclass(frozen=True)
@@ -229,14 +230,12 @@ def _prediction_warnings(row: dict[str, Any]) -> list[str]:
 
 
 def _side_key(row: dict[str, Any]) -> str:
-    side = _clean(row.get("side"))
-    if side:
-        return side[:1].upper() + side[1:].lower()
-    raw_label = _clean(_first(row, "rawLabel", "raw_label", "label", "pickSide"))
-    tokens = [token.strip(" :/-_()[]{}").lower() for token in raw_label.split()]
-    if "under" in tokens:
-        return "Under"
-    return "Over"
+    return normalize_prop_side(
+        row.get("side"),
+        _first(row, "rawLabel", "raw_label"),
+        _first(row, "label", "title", "name"),
+        _first(row, "outcome", "outcomeName", "outcome_name", "selection", "pickSide"),
+    )
 
 
 def _prediction_identity_key(value: Any) -> str:

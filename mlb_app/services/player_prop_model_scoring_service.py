@@ -19,6 +19,7 @@ from mlb_app.services.player_prop_model_runtime import (
     score_exact_market_model,
     to_float,
 )
+from mlb_app.services.prop_side_normalization import normalize_prop_side
 
 OUTPUT_FIELDS = [
     "date",
@@ -321,21 +322,12 @@ def _implied_probability(row: dict[str, Any], odds: float) -> float:
 
 
 def _derive_side(row: dict[str, Any]) -> str:
-    side = str(first_value(row, ["side"], "")).strip()
-    if side:
-        return _clean_side(side)
-    raw_label = str(first_value(row, ["rawLabel", "raw_label"], "")).strip()
-    tokens = [token.strip(" :/-_()[]{}").lower() for token in raw_label.split()]
-    if "under" in tokens:
-        return "Under"
-    if "over" in tokens:
-        return "Over"
-    return "Over"
-
-
-def _clean_side(value: Any) -> str:
-    text = str(value or "").strip()
-    return text[:1].upper() + text[1:].lower() if text else "Over"
+    return normalize_prop_side(
+        first_value(row, ["side"], ""),
+        first_value(row, ["rawLabel", "raw_label"], ""),
+        first_value(row, ["label", "title", "name"], ""),
+        first_value(row, ["outcome", "outcomeName", "outcome_name", "selection"], ""),
+    )
 
 
 def _number_or_blank(value: Any) -> float | str:

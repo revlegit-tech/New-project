@@ -10,6 +10,7 @@ import joblib
 from mlb_app.config import Settings
 from mlb_app.services.player_prop_model_runtime import metadata_path_for_model, score_exact_market_model
 from mlb_app.services.player_prop_model_scoring_service import PlayerPropModelScoringService
+from mlb_app.services.prop_side_normalization import normalize_prop_side
 
 
 class TinyProbabilityModel:
@@ -167,6 +168,17 @@ def test_playerboard_side_is_derived_from_raw_label_when_side_missing(tmp_path: 
 
     assert row["side"] == "Under"
     assert row["modelProbabilityPercent"] == 38
+
+
+def test_prop_side_normalization_uses_canonical_over_under_sources() -> None:
+    assert normalize_prop_side("", "Aaron Judge Over 0.5 Hits", "", "") == "Over"
+    assert normalize_prop_side("", "", "Under 1.5 total bases", "") == "Under"
+    assert normalize_prop_side("", "", "", "UNDER") == "Under"
+
+
+def test_prop_side_normalization_preserves_unknown_and_malformed_values() -> None:
+    assert normalize_prop_side("", "Aaron Judge 1.5 Hits", "", "") == ""
+    assert normalize_prop_side("Yes", "", "", "") == "Yes"
 
 
 def test_playerboard_prediction_key_is_deterministic(tmp_path: Path) -> None:

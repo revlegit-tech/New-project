@@ -66,6 +66,8 @@ h1 { margin: 0; font-size: clamp(2rem, 4vw, 4.4rem); line-height: .94; letter-sp
 .ob-pill.is-good { color: var(--color-positive); background: var(--color-positive-soft); }
 .ob-pill.is-watch { color: var(--color-warning); background: var(--color-warning-soft); }
 .ob-pill.is-risk { color: var(--color-danger); background: var(--color-danger-soft); }
+.ob-pill-experimental { border-color: color-mix(in srgb, var(--color-warning) 52%, var(--color-border)); }
+.ob-pill-research { border-color: color-mix(in srgb, var(--color-info) 48%, var(--color-border)); color: var(--color-info); background: rgba(123, 183, 255, .12); }
 .ob-empty { padding: var(--space-8); color: var(--color-muted); display: grid; gap: var(--space-2); justify-items: start; }
 .ob-detail { position: sticky; top: 0; height: 100vh; border-left: 1px solid var(--color-border); background: rgba(10, 12, 12, .92); backdrop-filter: blur(14px); padding: var(--space-5); overflow: auto; }
 .ob-rail-card { padding: var(--space-5); margin-bottom: var(--space-4); }

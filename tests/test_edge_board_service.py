@@ -125,6 +125,8 @@ def test_edge_board_prediction_match_populates_model_probability_and_edge(tmp_pa
     assert payload["meta"]["predictionsMissing"] == 0
     assert payload["meta"]["predictionsAmbiguous"] == 0
     assert payload["meta"]["predictionsByMarket"] == {"batter_hits": 1}
+    assert payload["summary"]["modeledMarkets"] == 1
+    assert payload["summary"]["modeledRows"] == 1
 
 
 def test_edge_board_unmatched_row_stays_no_model_no_bet(tmp_path: Path) -> None:
@@ -138,10 +140,17 @@ def test_edge_board_unmatched_row_stays_no_model_no_bet(tmp_path: Path) -> None:
 
     unmatched = payload["rows"][0]
     assert unmatched["predictionMatched"] is not True
+    assert unmatched["predictionKey"] == ""
+    assert unmatched["predictionSource"] == ""
+    assert unmatched["predictionWarnings"] == []
+    assert unmatched["action"] == "No bet"
+    assert unmatched["stakeUnits"] == 0
     assert unmatched["modelProbabilityPercent"] == ""
     assert unmatched["edgePercent"] == ""
     assert unmatched["readinessLabel"] == "No model"
     assert unmatched["decisionLabel"] == "No bet"
+    assert payload["summary"]["modeledMarkets"] == 0
+    assert payload["summary"]["modeledRows"] == 0
     assert payload["meta"]["predictionsLoaded"] == 1
     assert payload["meta"]["predictionsMatched"] == 0
     assert payload["meta"]["predictionsMissing"] == 1
@@ -237,6 +246,28 @@ def test_edge_board_prediction_action_remains_research_and_stake_zero(tmp_path: 
     assert matched["stakeUnits"] == 0
     assert matched["trust"]["actionability"]["suggestedStake"] == "Research only"
     assert matched["trust"]["actionability"]["stakeUnits"] == 0
+
+
+def test_edge_board_snapshot_rows_keep_prediction_contract_and_normalize_side() -> None:
+    row = EdgeBoardService._snapshot_contract_row(
+        {
+            "predictionMatched": True,
+            "rawLabel": "Aaron Judge Over 0.5 Hits",
+            "readinessLabel": "No model",
+            "action": "Bet",
+            "stakeUnits": 1,
+            "trust": {"actionability": {"label": "Bet", "stakeUnits": 1}},
+        }
+    )
+
+    assert row["side"] == "Over"
+    assert row["predictionMatched"] is True
+    assert row["readinessLabel"] == "Experimental"
+    assert row["action"] == "Research"
+    assert row["actionLabel"] == "Research"
+    assert row["stakeUnits"] == 0
+    assert row["trust"]["actionability"]["label"] == "Research"
+    assert row["trust"]["actionability"]["stakeUnits"] == 0
 
 
 def _prediction_service_payload(settings: Settings, rows: list[dict[str, Any]], *, date_label: str) -> dict[str, Any]:
