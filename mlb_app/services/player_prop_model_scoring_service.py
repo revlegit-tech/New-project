@@ -22,6 +22,7 @@ from mlb_app.services.player_prop_model_runtime import (
     to_float,
 )
 from mlb_app.services.player_prop_model_calibration_service import PlayerPropModelCalibrationService
+from mlb_app.services.player_prop_context_feature_join_service import PlayerPropContextFeatureJoinService
 from mlb_app.services.player_prop_identity_confidence import (
     identity_confidence_for_row,
     serialize_identity_warnings,
@@ -151,6 +152,7 @@ class PlayerPropModelScoringService:
     def __init__(self, *, settings: Settings = default_settings) -> None:
         self.settings = settings
         self.calibration = PlayerPropModelCalibrationService(settings=settings)
+        self.context_joins = PlayerPropContextFeatureJoinService(settings=settings)
         self.production_gates = PlayerPropProductionGateService(settings=settings)
 
     def score(
@@ -178,6 +180,13 @@ class PlayerPropModelScoringService:
         rows = _read_csv_rows(paths.input_path)
         rows = [row for row in rows if _row_matches_date(row, selected_date)]
         rows = _enrich_safe_feature_rows(rows, input_source=paths.input_source)
+        context_join_result = self.context_joins.join(
+            rows,
+            date_label=selected_date,
+            season=season,
+            input_source=paths.input_source,
+        )
+        rows = context_join_result.rows
 
         predictions: list[dict[str, Any]] = []
         skipped_by_reason: Counter[str] = Counter()
@@ -318,8 +327,8 @@ class PlayerPropModelScoringService:
             scored_by_market[market] += 1
 
         feature_columns = sorted(score_feature_columns or set(DEFAULT_FEATURE_COLUMNS))
-        context_artifacts = _context_feature_artifacts(self.settings, selected_date)
-        feature_completeness = _feature_completeness(rows, feature_columns, context_artifacts=context_artifacts)
+        context_artifacts = context_join_result.artifacts
+        feature_completeness = _feature_completeness(predictions, feature_columns, context_artifacts=context_artifacts)
         feature_groups_ready = sorted(
             group for group, payload in feature_completeness.items() if payload["populatedPercent"] > 0
         )
@@ -369,6 +378,12 @@ class PlayerPropModelScoringService:
             "identityWarningCounts": dict(sorted(identity_warning_counts.items())),
             "featureCompleteness": feature_completeness,
             "contextFeatureArtifacts": context_artifacts,
+            "contextJoinCounts": context_join_result.counts,
+            "contextJoinWarnings": context_join_result.warnings,
+            "oddsMovementRowsLoaded": context_join_result.counts.get("oddsMovementRowsLoaded", 0),
+            "oddsMovementRowsJoined": context_join_result.counts.get("oddsMovementRowsJoined", 0),
+            "oddsMovementRowsSkipped": context_join_result.counts.get("oddsMovementRowsSkipped", 0),
+            "oddsMovementAmbiguousRows": context_join_result.counts.get("oddsMovementAmbiguousRows", 0),
             "featureGroupsReady": feature_groups_ready,
             "featureGroupsMissing": feature_groups_missing,
             "modelFeatureWarnings": [
@@ -546,7 +561,12 @@ def _feature_completeness(
         artifact_rows = int(artifact.get("rows") or 0)
         if artifact_rows > 0:
             artifact_fields = [field for field in selected if field in set(artifact.get("fields") or [])]
-            if artifact_fields:
+            if group == "odds_movement":
+                populated_percent = round((populated / denominator) * 100.0, 2)
+                if not available:
+                    warnings = [warning for warning in warnings if not warning.startswith(f"No populated {group}")]
+                    warnings.append(f"{group} context artifact available with {artifact_rows} rows but no rows joined.")
+            elif artifact_fields:
                 available = sorted(set(available).union(artifact_fields))
                 missing = [field for field in selected if field not in available]
                 populated_percent = max(round((populated / denominator) * 100.0, 2), round((len(artifact_fields) / max(len(selected), 1)) * 100.0, 2))

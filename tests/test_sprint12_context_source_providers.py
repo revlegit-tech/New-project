@@ -199,7 +199,10 @@ def test_feature_completeness_detects_context_artifacts_and_research_lock_stays_
 
     summary = report["summary"]
     row = report["rows"][0]
-    assert {"player_recent_form", "pitcher_context", "odds_movement"} <= set(summary["featureGroupsReady"])
+    assert {"player_recent_form", "pitcher_context"} <= set(summary["featureGroupsReady"])
+    assert "odds_movement" in summary["featureGroupsMissing"]
+    assert summary["oddsMovementRowsLoaded"] == 1
+    assert summary["oddsMovementRowsJoined"] == 0
     assert summary["contextFeatureArtifacts"]["player_recent_form"]["rows"] == 1
     assert row["action"] == "Research"
     assert row["stakeUnits"] == 0
