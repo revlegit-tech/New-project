@@ -19,6 +19,14 @@ if ($Date -eq "today") {
   $RunDate = $Date
 }
 
+try {
+  $BaseUri = [System.UriBuilder]::new($Base)
+  $BaseUri.Host = "127.0.0.1"
+  $Base = $BaseUri.Uri.GetLeftPart([System.UriPartial]::Authority)
+} catch {
+  $Base = "http://127.0.0.1:8765"
+}
+
 $env:PYTHONPATH = $Root
 $env:PLAYERBOARD_BUILD_WORKERS = "1"
 $env:BASEBALL_PROP_APP_URL = $Base
@@ -55,64 +63,186 @@ function Invoke-Step {
   }
 }
 
-function Test-App {
+function Get-AppPort {
   try {
-    $tcp = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
-    if (-not $tcp) {
-      return $false
-    }
-
-    Invoke-WebRequest "$Base/docs" -TimeoutSec 10 -UseBasicParsing | Out-Null
-    return $true
+    return [int]([System.Uri]$Base).Port
   } catch {
-    return $false
+    return 8765
   }
 }
 
+function Get-PortOwnerSummary {
+  param([int]$Port = 8765)
+
+  try {
+    $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if ($connections) {
+      $lines = @()
+      foreach ($connection in $connections) {
+        $process = Get-Process -Id $connection.OwningProcess -ErrorAction SilentlyContinue
+        $name = if ($process) { $process.ProcessName } else { "unknown" }
+        $lines += "pid=$($connection.OwningProcess) process=$name local=$($connection.LocalAddress):$($connection.LocalPort)"
+      }
+      return ($lines -join "; ")
+    }
+  } catch {
+  }
+
+  try {
+    $owners = netstat -ano | Select-String ":$Port\s"
+    if ($owners) {
+      return (($owners | ForEach-Object { $_.Line.Trim() }) -join "; ")
+    }
+  } catch {
+  }
+
+  return "none"
+}
+
+function Invoke-AppHealthProbe {
+  param(
+    [switch]$AllowDocsFallback
+  )
+
+  $probes = @("/api/health")
+  if ($AllowDocsFallback) {
+    $probes += "/docs"
+  }
+
+  $last = [ordered]@{
+    healthy = $false
+    endpoint = ""
+    statusCode = $null
+    error = "No health probe attempted."
+  }
+
+  foreach ($path in $probes) {
+    $uri = "$Base$path"
+    $last.endpoint = $uri
+    try {
+      $response = Invoke-WebRequest $uri -TimeoutSec 10 -UseBasicParsing
+      $last.statusCode = [int]$response.StatusCode
+      $last.error = ""
+      if ([int]$response.StatusCode -eq 200) {
+        $last.healthy = $true
+        return [pscustomobject]$last
+      }
+    } catch {
+      $last.statusCode = $null
+      if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+        $last.statusCode = [int]$_.Exception.Response.StatusCode
+      }
+      $last.error = $_.Exception.Message
+    }
+  }
+
+  return [pscustomobject]$last
+}
+
+function Test-App {
+  param(
+    [switch]$AllowDocsFallback
+  )
+
+  return (Invoke-AppHealthProbe -AllowDocsFallback:$AllowDocsFallback).healthy
+}
+
 function Start-App-IfNeeded {
-  if (Test-App) {
-    Write-Host "App already responding."
+  $Port = Get-AppPort
+  $health = Invoke-AppHealthProbe -AllowDocsFallback
+  if ($health.healthy) {
+    Write-Host "App already healthy at $($health.endpoint) (HTTP $($health.statusCode))."
     return
+  }
+
+  $owner = Get-PortOwnerSummary -Port $Port
+  if ($owner -ne "none") {
+    Write-Host "Port $Port is already owned by: $owner"
+    throw "App is not healthy at $Base. Last readiness probe: endpoint=$($health.endpoint) status=$($health.statusCode) error=$($health.error)"
   }
 
   Write-Host "App not responding. Starting FastAPI directly..."
 
-  $startScript = Join-Path $Root "scripts\start_mlb_app.ps1"
-
-  if (Test-Path $startScript) {
-    Start-Process powershell.exe -ArgumentList @(
-      "-NoProfile",
-      "-ExecutionPolicy", "Bypass",
-      "-NoExit",
-      "-File", "`"$startScript`"",
-      "-Port", "8765",
-      "-BindHost", "127.0.0.1",
-      "-SkipBootstrap",
-      "-NoBrowser",
-      "-Date", "$RunDate"
-    ) -WorkingDirectory $Root
-  } else {
-    Start-Process powershell.exe -ArgumentList @(
-      "-NoProfile",
-      "-ExecutionPolicy", "Bypass",
-      "-NoExit",
-      "-Command",
-      "cd `"$Root`"; `$env:PYTHONPATH=`"$Root`"; `$env:DB_ENABLED='1'; `$env:DB_FALLBACK_TO_CSV='1'; .\.venv\Scripts\python.exe -m uvicorn mlb_app.asgi:app --host 127.0.0.1 --port 8765"
-    ) -WorkingDirectory $Root
-  }
+  $outLog = Join-Path $Root "server-8765.log"
+  $errLog = Join-Path $Root "server-8765.err.log"
+  $python = Join-Path $Root ".venv\Scripts\python.exe"
+  $env:DB_ENABLED = "1"
+  $env:DB_FALLBACK_TO_CSV = "1"
+  $process = Start-Process -FilePath $python -ArgumentList @(
+    "-m",
+    "uvicorn",
+    "mlb_app.asgi:app",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "$Port"
+  ) -WorkingDirectory $Root -RedirectStandardOutput $outLog -RedirectStandardError $errLog -WindowStyle Hidden -PassThru
 
   for ($i = 1; $i -le 180; $i++) {
     Start-Sleep -Seconds 2
 
-    if (Test-App) {
-      Write-Host "App is responding."
+    $health = Invoke-AppHealthProbe -AllowDocsFallback
+    if ($health.healthy) {
+      Write-Host "App is healthy at $($health.endpoint) (HTTP $($health.statusCode))."
       return
     }
 
-    Write-Host "Waiting for app... attempt $i"
+    if ($process.HasExited) {
+      $owner = Get-PortOwnerSummary -Port $Port
+      throw "App process exited during startup. Last readiness probe: endpoint=$($health.endpoint) status=$($health.statusCode) error=$($health.error). Port $Port owner: $owner. Logs: $outLog $errLog"
+    }
+
+    Write-Host "Waiting for app... attempt $i. Last probe: endpoint=$($health.endpoint) status=$($health.statusCode) error=$($health.error)"
   }
 
-  throw "App did not respond at $Base. Check the separate app PowerShell window for the real startup error."
+  if ($process -and -not $process.HasExited) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+  }
+  $owner = Get-PortOwnerSummary -Port $Port
+  throw "App did not become healthy at $Base. Last readiness probe: endpoint=$($health.endpoint) status=$($health.statusCode) error=$($health.error). Port $Port owner: $owner. Logs: $outLog $errLog"
+}
+
+function Invoke-ContextSourceMaterialization {
+  $script = Join-Path $Root "scripts\materialize_context_sources.py"
+  if (-not (Test-Path $script)) {
+    Write-Host "WARNING: context source script missing; continuing without optional context artifacts."
+    Write-Host "WARNING: context source partial."
+    return
+  }
+
+  & .\.venv\Scripts\python.exe $script --date $RunDate --season $Season
+  if ($LASTEXITCODE -ne 0) {
+    throw "Context source materialization failed with exit code $LASTEXITCODE"
+  }
+
+  $auditPath = Join-Path $Root "data\context\context_source_audit_$RunDate.json"
+  if (-not (Test-Path $auditPath)) {
+    Write-Host "WARNING: context source audit missing after materialization; continuing with available artifacts."
+    Write-Host "WARNING: context source partial."
+    return
+  }
+
+  $audit = Get-Content -LiteralPath $auditPath -Raw | ConvertFrom-Json
+  Write-Host "Context audit: $auditPath"
+  Write-Host "Ready feature groups: $(@($audit.readyFeatureGroups) -join ', ')"
+  Write-Host "Missing feature groups: $(@($audit.missingFeatureGroups) -join ', ')"
+  Write-Host "externalApiCallsMade=$($audit.externalApiCallsMade) pregameSafe=$($audit.pregameSafe) labelsExcluded=$($audit.labelsExcluded)"
+
+  foreach ($warning in @($audit.warnings)) {
+    Write-Host "WARNING: $warning"
+  }
+  if (@($audit.missingFeatureGroups) -contains "weather") {
+    Write-Host "WARNING: weather unavailable."
+  }
+  if ($audit.providerStatuses.umpire -eq "neutral_fallback") {
+    Write-Host "WARNING: umpire neutral fallback."
+  }
+  if (@($audit.missingFeatureGroups) -contains "game_markets") {
+    Write-Host "WARNING: game markets missing."
+  }
+  if (@($audit.missingFeatureGroups).Count -gt 0 -or @($audit.warnings).Count -gt 0) {
+    Write-Host "WARNING: context source partial."
+  }
 }
 
 function Import-GithubCollectorArtifact {
@@ -279,6 +409,10 @@ print(json.dumps({
 "@
 
   $code | .\.venv\Scripts\python.exe -
+}
+
+Invoke-Step "Context source materialization" {
+  Invoke-ContextSourceMaterialization
 }
 
 Invoke-Step "Playerboard-safe model scoring" {
