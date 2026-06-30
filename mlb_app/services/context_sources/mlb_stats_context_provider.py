@@ -94,7 +94,7 @@ class MLBStatsContextProvider:
         if not output:
             warnings.append("No prior pitcher game logs available before target date.")
         write_csv_rows(path, output, PITCHER_CONTEXT_FIELDS)
-        return self._result(status_for_rows(len(output), warnings), date_label, season, "pitcher_context", len(output), path, warnings)
+        return self._result(_pitcher_status(len(output), warnings), date_label, season, "pitcher_context", len(output), path, warnings)
 
     def _batter_log_path(self, season: int) -> Path:
         return self.settings.data_dir / "cloud" / "season_logs" / f"batter_game_logs_{season}.csv"
@@ -221,3 +221,14 @@ def _rate(numerator: float, denominator: float) -> float | str:
 
 def _has_any_column(rows: list[dict[str, str]], aliases: list[str]) -> bool:
     return any(any(clean(row.get(alias)) for alias in aliases) for row in rows)
+
+
+def _pitcher_status(rows: int, warnings: list[str]) -> str:
+    if rows <= 0:
+        return "missing"
+    material_warnings = [
+        warning
+        for warning in warnings
+        if not warning.startswith("pitcher_velo_delta unavailable")
+    ]
+    return "partial" if material_warnings else "ok"
