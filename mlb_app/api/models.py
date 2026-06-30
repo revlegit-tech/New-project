@@ -58,6 +58,8 @@ class EdgeBoardRow(StrictPayload):
     modelProbabilityPercent: Any = None
     impliedProbabilityPercent: Any = None
     edgePercent: Any = None
+    fairOdds: Any = None
+    expectedValue: Any = None
     finalProbabilityPercent: Any = None
     sportsbookImpliedPercent: Any = None
     finalEdgePercent: Any = None
@@ -72,7 +74,9 @@ class EdgeBoardRow(StrictPayload):
     rank: int | None = None
     gameTime: str | None = None
     readinessLabel: str = ""
+    modelReadiness: Any = None
     decisionLabel: str = ""
+    action: str | None = None
     actionLabel: str | None = None
     decisionTone: str | None = None
     marketCapabilityStatus: str | None = None
@@ -94,6 +98,11 @@ class EdgeBoardRow(StrictPayload):
     trustWarnings: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
     suggestedStake: str | None = None
+    stakeUnits: Any = None
+    predictionMatched: bool | None = None
+    predictionKey: str | None = None
+    predictionSource: str | None = None
+    predictionWarnings: list[str] = Field(default_factory=list)
     modelCard: dict[str, Any] = Field(default_factory=dict)
     trust: dict[str, Any] = Field(default_factory=dict)
     freshness: dict[str, Any] = Field(default_factory=dict)

@@ -13,6 +13,7 @@ from mlb_app.services.board_cache import BoardCache, BoardCacheBuildResult
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.playerboard_builder import market_capability
+from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository
 from mlb_app.services.playerboard_read_service import prop_key_for_row
 from mlb_app.services.playerboard_service import PlayerboardService
 
@@ -36,6 +37,7 @@ class EdgeBoardService:
         snapshot_repository: EdgeBoardSnapshotRepository | None = None,
         board_cache: BoardCache | None = None,
         game_market_feature_lookup_service: GameMarketFeatureLookupService | None = None,
+        player_prop_prediction_repository: PlayerPropPredictionRepository | None = None,
         metrics: MetricsRegistry | None = None,
         settings: Settings = default_settings,
     ) -> None:
@@ -44,6 +46,7 @@ class EdgeBoardService:
         self.model_card_service = model_card_service or ModelCardService()
         self.snapshot_repository = snapshot_repository
         self.game_market_feature_lookup_service = game_market_feature_lookup_service
+        self.player_prop_prediction_repository = player_prop_prediction_repository or PlayerPropPredictionRepository(settings=settings)
         self.metrics = metrics
         self.board_cache = board_cache or BoardCache(
             ttl_seconds=default_settings.board_cache_ttl_seconds,
@@ -55,6 +58,9 @@ class EdgeBoardService:
     def payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
         cache_key = _board_cache_key(query)
         dependency_paths = _playerboard_dependency_paths(query)
+        prediction_path = self.player_prop_prediction_repository.prediction_path(_query_value(query, "date")) if _query_value(query, "date") else None
+        if prediction_path is not None:
+            dependency_paths = [*dependency_paths, prediction_path]
 
         # Explicit refresh/save requests are operator-intent paths. Do not serve
         # them from cache, but store the fresh result for subsequent normal reads.
@@ -92,6 +98,12 @@ class EdgeBoardService:
             self._enrich_row(_phase18_v7_merge_game_context(row, game_context_index), index + 1, board)
             for index, row in enumerate(raw_rows)
         ]
+        prediction_meta = self._prediction_meta_defaults()
+        date_label = _clean(board.get("date") or board.get("latestAvailableDate") or _query_value(query, "date"))
+        if date_label:
+            prediction_join = self.player_prop_prediction_repository.join_predictions(rows, date_label=date_label)
+            rows = [self._apply_prediction_match(row) for row in prediction_join.rows]
+            prediction_meta = prediction_join.meta
 
         return {
             "status": "ok",
@@ -117,6 +129,7 @@ class EdgeBoardService:
                     rows,
                     enabled=bool(getattr(self.settings, "game_market_enrichment_enabled", True)),
                 ),
+                "predictionJoin": prediction_meta,
             },
             "filters": self._filter_options(rows),
             "summary": self._summary(rows),
@@ -129,8 +142,76 @@ class EdgeBoardService:
             "meta": {
                 "snapshotSignature": ((board.get("sourceMeta") or {}).get("snapshotSignature")),
                 "source": board.get("source"),
+                **prediction_meta,
             },
         }
+
+    @staticmethod
+    def _prediction_meta_defaults() -> dict[str, Any]:
+        return {
+            "predictionsLoaded": 0,
+            "predictionsMatched": 0,
+            "predictionsMissing": 0,
+            "predictionsAmbiguous": 0,
+            "predictionSource": "",
+            "predictionsByMarket": {},
+        }
+
+    @staticmethod
+    def _apply_prediction_match(row: dict[str, Any]) -> dict[str, Any]:
+        if not row.get("predictionMatched"):
+            return dict(row) | {"predictionMatched": False, "predictionWarnings": list(row.get("predictionWarnings") or [])}
+        enriched = dict(row)
+        enriched.update(
+            {
+                "modelProbabilityPercent": _round_or_blank(_float(row.get("modelProbabilityPercent"))),
+                "impliedProbabilityPercent": _round_or_blank(_float(row.get("impliedProbabilityPercent"))),
+                "edgePercent": _round_or_blank(_float(row.get("edgePercent"))),
+                "readinessLabel": "Experimental",
+                "modelReadiness": "Experimental",
+                "action": "Research",
+                "stakeUnits": 0,
+                "suggestedStake": "Research only",
+                "productionStatus": "experimental",
+                "canShowConfidentPick": False,
+                "modelProductionEligible": False,
+                "predictionMatched": True,
+            }
+        )
+        warnings = list(row.get("predictionWarnings") or [])
+        if warnings:
+            existing = [_clean(item) for item in enriched.get("trustWarnings") or [] if _clean(item)]
+            merged = _unique([*existing, *warnings])
+            enriched["trustWarnings"] = merged[:6]
+            enriched["warningCount"] = len(merged)
+        trust = dict(enriched.get("trust") or {})
+        model_edge = dict(trust.get("modelEdge") or {})
+        probability = _float(enriched.get("modelProbabilityPercent"))
+        implied = _float(enriched.get("impliedProbabilityPercent"))
+        edge = _float(enriched.get("edgePercent"))
+        model_edge.update(
+            {
+                "edgePercent": _round_float(edge),
+                "modelProbabilityPercent": _round_float(probability),
+                "impliedProbabilityPercent": _round_float(implied),
+                "tone": "positive" if edge and edge > 0 else "negative" if edge and edge < 0 else "neutral",
+            }
+        )
+        trust["modelEdge"] = model_edge
+        readiness = dict(trust.get("readiness") or {})
+        readiness["label"] = "Experimental"
+        readiness["status"] = "experimental"
+        readiness["warnings"] = (enriched.get("trustWarnings") or [])[:6]
+        readiness["modelProductionEligible"] = False
+        trust["readiness"] = readiness
+        actionability = dict(trust.get("actionability") or {})
+        actionability["label"] = "Research"
+        actionability["suggestedStake"] = "Research only"
+        actionability["stakeUnits"] = 0
+        trust["actionability"] = actionability
+        trust["researchOnly"] = True
+        enriched["trust"] = trust
+        return enriched
 
     def _payload_from_database(self, query: dict[str, list[str]]) -> dict[str, Any] | None:
         if self.snapshot_repository is None or not self.settings.db_enabled:

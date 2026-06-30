@@ -10,6 +10,7 @@ from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.model_readiness_service import ModelReadinessService
 from mlb_app.services.data_source_capability_service import DataSourceCapabilityService
 from mlb_app.services.model_training_readiness_service import ModelTrainingReadinessService
+from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository
 from mlb_app.services.playerboard_builder import build_playerboard, market_capability
 from mlb_app.services.playerboard_read_service import PlayerboardReadService, PlayerboardSnapshot
 from mlb_app.services.product_state_service import ProductStateService
@@ -27,6 +28,7 @@ class PlayerboardService:
         product_state_service: ProductStateService | None = None,
         read_service: PlayerboardReadService | None = None,
         game_market_feature_lookup_service: GameMarketFeatureLookupService | None = None,
+        player_prop_prediction_repository: PlayerPropPredictionRepository | None = None,
         settings: Settings = default_settings,
     ) -> None:
         self.settings = settings
@@ -35,6 +37,7 @@ class PlayerboardService:
         self.readiness_service = readiness_service or ModelReadinessService()
         self.product_state_service = product_state_service or ProductStateService(settings=settings)
         self.game_market_feature_lookup_service = game_market_feature_lookup_service
+        self.player_prop_prediction_repository = player_prop_prediction_repository or PlayerPropPredictionRepository(settings=settings)
         self.read_service = read_service or PlayerboardReadService(
             repository=self.repository,
             grading_service=self.grading_service,
@@ -161,6 +164,14 @@ class PlayerboardService:
             enriched_rows,
             enabled=bool(getattr(self.settings, "game_market_enrichment_enabled", True)),
         )
+        date_label = _clean(enriched.get("date"))
+        if date_label:
+            prediction_join = self.player_prop_prediction_repository.join_predictions(enriched_rows, date_label=date_label)
+            enriched_rows = prediction_join.rows
+            enriched["rows"] = enriched_rows
+            if "top" in enriched:
+                enriched["top"] = enriched_rows
+            meta.update(prediction_join.meta)
         enriched["meta"] = meta
         return enriched
 
