@@ -123,6 +123,37 @@ def test_local_pitcher_logs_produce_pitcher_context(tmp_path: Path) -> None:
     assert rows[0]["pitcher"] == "Gerrit Cole"
     assert rows[0]["pitcher_k_rate"] == "0.32"
     assert rows[0]["pitcher_days_rest"] == "3"
+    assert "pitcher_velo_delta unavailable from local pitcher logs; field left null." in result.warnings
+
+
+def test_pitcher_context_excludes_same_day_rows_for_days_rest(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "cloud" / "season_logs" / "pitcher_game_logs_2026.csv",
+        [
+            {"date": "2026-06-25", "season": "2026", "player": "Gerrit Cole", "team": "NYY", "battersFaced": "20", "strikeOuts": "6", "baseOnBalls": "1", "homeRuns": "0", "hits": "4"},
+            {"date": "2026-06-30", "season": "2026", "player": "Gerrit Cole", "team": "NYY", "battersFaced": "27", "strikeOuts": "14", "baseOnBalls": "0", "homeRuns": "0", "hits": "1"},
+        ],
+    )
+
+    result = MLBStatsContextProvider(settings).pitcher_context(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert rows[0]["pitcher_recent_games"] == "1"
+    assert rows[0]["pitcher_k_rate"] == "0.3"
+    assert rows[0]["pitcher_days_rest"] == "5"
+
+
+def test_missing_local_batter_logs_warn_without_crashing(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+
+    result = MLBStatsContextProvider(settings).player_recent_form(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.status == "missing"
+    assert result.rows == 0
+    assert rows == []
+    assert "Local batter game log not found." in result.warnings
 
 
 def test_odds_snapshots_produce_odds_movement(tmp_path: Path) -> None:
@@ -199,11 +230,16 @@ def test_feature_completeness_detects_context_artifacts_and_research_lock_stays_
 
     summary = report["summary"]
     row = report["rows"][0]
-    assert {"player_recent_form", "pitcher_context"} <= set(summary["featureGroupsReady"])
+    assert "player_recent_form" in summary["featureGroupsMissing"]
+    assert "pitcher_context" in summary["featureGroupsMissing"]
     assert "odds_movement" in summary["featureGroupsMissing"]
     assert summary["oddsMovementRowsLoaded"] == 1
     assert summary["oddsMovementRowsJoined"] == 0
     assert summary["contextFeatureArtifacts"]["player_recent_form"]["rows"] == 1
+    assert any(
+        "player_recent_form context artifact available but no scoring rows joined safely" in warning
+        for warning in summary["contextJoinWarnings"]
+    )
     assert row["action"] == "Research"
     assert row["stakeUnits"] == 0
     assert row["betActionAllowed"] is False

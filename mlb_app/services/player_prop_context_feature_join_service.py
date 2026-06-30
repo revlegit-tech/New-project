@@ -31,8 +31,36 @@ class ContextJoinResult:
 
 CONTEXT_ARTIFACTS = (
     ContextArtifactSpec("odds_movement", "odds_movement", "odds_movement_{date}.csv", ("odds_move", "line_move")),
-    ContextArtifactSpec("player_recent_form", "player_recent_form", "player_recent_form_{date}.csv"),
-    ContextArtifactSpec("pitcher_context", "pitcher_context", "pitcher_context_{date}.csv"),
+    ContextArtifactSpec(
+        "player_recent_form",
+        "player_recent_form",
+        "player_recent_form_{date}.csv",
+        (
+            "recent_games",
+            "recent_rate",
+            "season_rate",
+            "rolling_avg_5",
+            "rolling_avg_10",
+            "rolling_avg_15",
+            "rolling_total_bases_10",
+            "rolling_hr_rate_15",
+            "rolling_k_rate_10",
+        ),
+    ),
+    ContextArtifactSpec(
+        "pitcher_context",
+        "pitcher_context",
+        "pitcher_context_{date}.csv",
+        (
+            "pitcher_recent_games",
+            "pitcher_k_rate",
+            "pitcher_walk_rate",
+            "pitcher_hr_rate",
+            "pitcher_babip",
+            "pitcher_days_rest",
+            "pitcher_velo_delta",
+        ),
+    ),
     ContextArtifactSpec("game_markets", "game_markets", "game_markets_{date}.csv"),
     ContextArtifactSpec("weather", "weather", "weather_context_{date}.csv"),
     ContextArtifactSpec("statcast", "statcast", "statcast_context_{date}.csv"),
@@ -61,8 +89,16 @@ class PlayerPropContextFeatureJoinService:
             "oddsMovementRowsJoined": 0,
             "oddsMovementRowsSkipped": 0,
             "oddsMovementAmbiguousRows": 0,
+            "playerRecentFormRowsLoaded": artifacts["player_recent_form"]["rows"],
+            "playerRecentFormRowsJoined": 0,
+            "playerRecentFormRowsSkipped": 0,
+            "playerRecentFormAmbiguousRows": 0,
+            "pitcherContextRowsLoaded": artifacts["pitcher_context"]["rows"],
+            "pitcherContextRowsJoined": 0,
+            "pitcherContextRowsSkipped": 0,
+            "pitcherContextAmbiguousRows": 0,
             "loadedByGroup": {group: int(payload.get("rows") or 0) for group, payload in artifacts.items()},
-            "joinedByGroup": {"odds_movement": 0},
+            "joinedByGroup": {"odds_movement": 0, "player_recent_form": 0, "pitcher_context": 0},
             "skippedByReason": {},
         }
         for group, payload in artifacts.items():
@@ -87,10 +123,62 @@ class PlayerPropContextFeatureJoinService:
         elif artifacts["odds_movement"].get("exists"):
             counts["oddsMovementRowsSkipped"] = len(output)
 
+        player_form_rows = artifacts["player_recent_form"].get("data") or []
+        if player_form_rows:
+            self._join_identity_context(
+                output,
+                player_form_rows,
+                spec=_spec_for_group("player_recent_form"),
+                date_label=date_label,
+                season=season,
+                input_source=input_source,
+                context_name_aliases=("player", "playerName", "name"),
+                row_name_aliases=("player", "playerName", "name"),
+                context_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
+                row_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
+                loaded_key="playerRecentFormRowsLoaded",
+                joined_key="playerRecentFormRowsJoined",
+                skipped_key="playerRecentFormRowsSkipped",
+                ambiguous_key="playerRecentFormAmbiguousRows",
+                counts=counts,
+                warnings=warnings,
+            )
+        elif artifacts["player_recent_form"].get("exists"):
+            counts["playerRecentFormRowsSkipped"] = len(output)
+
+        pitcher_rows = artifacts["pitcher_context"].get("data") or []
+        if pitcher_rows:
+            self._join_identity_context(
+                output,
+                pitcher_rows,
+                spec=_spec_for_group("pitcher_context"),
+                date_label=date_label,
+                season=season,
+                input_source=input_source,
+                context_name_aliases=("pitcher", "player", "playerName", "name"),
+                row_name_aliases=("pitcher", "probablePitcher", "opposingPitcher"),
+                context_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
+                row_team_aliases=("opponent", "opponentAbbr", "opponent_abbr", "opponentCode", "team", "teamAbbr"),
+                loaded_key="pitcherContextRowsLoaded",
+                joined_key="pitcherContextRowsJoined",
+                skipped_key="pitcherContextRowsSkipped",
+                ambiguous_key="pitcherContextAmbiguousRows",
+                counts=counts,
+                warnings=warnings,
+            )
+        elif artifacts["pitcher_context"].get("exists"):
+            counts["pitcherContextRowsSkipped"] = len(output)
+
         counts["skippedByReason"] = dict(sorted(Counter(counts["skippedByReason"]).items()))
         counts["joinedByGroup"]["odds_movement"] = counts["oddsMovementRowsJoined"]
+        counts["joinedByGroup"]["player_recent_form"] = counts["playerRecentFormRowsJoined"]
+        counts["joinedByGroup"]["pitcher_context"] = counts["pitcherContextRowsJoined"]
         if int(artifacts["odds_movement"]["rows"] or 0) > 0 and counts["oddsMovementRowsJoined"] == 0:
-            warnings.append("odds_movement context artifact available but no rows joined.")
+            warnings.append("odds_movement context artifact available but no scoring rows joined safely.")
+        if int(artifacts["player_recent_form"]["rows"] or 0) > 0 and counts["playerRecentFormRowsJoined"] == 0:
+            warnings.append("player_recent_form context artifact available but no scoring rows joined safely.")
+        if int(artifacts["pitcher_context"]["rows"] or 0) > 0 and counts["pitcherContextRowsJoined"] == 0:
+            warnings.append("pitcher_context context artifact available but no scoring rows joined safely.")
         return ContextJoinResult(rows=output, artifacts=_public_artifacts(artifacts), counts=counts, warnings=sorted(set(warnings)))
 
     def load_artifacts(self, *, date_label: str) -> dict[str, dict[str, Any]]:
@@ -182,6 +270,93 @@ class PlayerPropContextFeatureJoinService:
             warnings.append(f"odds_movement skipped {counts['oddsMovementAmbiguousRows']} ambiguous context rows.")
         counts["skippedByReason"] = dict(skipped_reasons)
 
+    def _join_identity_context(
+        self,
+        rows: list[dict[str, Any]],
+        context_rows: list[dict[str, Any]],
+        *,
+        spec: ContextArtifactSpec,
+        date_label: str,
+        season: int,
+        input_source: str,
+        context_name_aliases: tuple[str, ...],
+        row_name_aliases: tuple[str, ...],
+        context_team_aliases: tuple[str, ...],
+        row_team_aliases: tuple[str, ...],
+        loaded_key: str,
+        joined_key: str,
+        skipped_key: str,
+        ambiguous_key: str,
+        counts: dict[str, Any],
+        warnings: list[str],
+    ) -> None:
+        context_by_key: dict[str, list[dict[str, Any]]] = {}
+        ambiguous_keys: set[str] = set()
+        skipped_reasons: Counter[str] = Counter(counts.get("skippedByReason") or {})
+
+        for context_row in context_rows:
+            key, reason = _identity_context_key(
+                context_row,
+                name_aliases=context_name_aliases,
+                team_aliases=context_team_aliases,
+                date_label=date_label,
+                season=season,
+                is_context=True,
+            )
+            if not key:
+                skipped_reasons[f"{spec.group}_context_{reason}"] += 1
+                continue
+            context_by_key.setdefault(key, []).append(context_row)
+        for key, candidates in context_by_key.items():
+            if len(candidates) > 1:
+                ambiguous_keys.add(key)
+                counts[ambiguous_key] += len(candidates)
+
+        for row in rows:
+            if _identity_confidence(row, input_source=input_source) not in {"strong", "medium"}:
+                skipped_reasons[f"{spec.group}_weak_or_unknown_identity"] += 1
+                counts[skipped_key] += 1
+                continue
+            key, reason = _identity_context_key(
+                row,
+                name_aliases=row_name_aliases,
+                team_aliases=row_team_aliases,
+                date_label=date_label,
+                season=season,
+                is_context=False,
+            )
+            if not key:
+                skipped_reasons[f"{spec.group}_{reason}"] += 1
+                counts[skipped_key] += 1
+                continue
+            if key in ambiguous_keys:
+                skipped_reasons[f"{spec.group}_ambiguous_match"] += 1
+                counts[skipped_key] += 1
+                continue
+            matches = context_by_key.get(key) or []
+            if len(matches) != 1:
+                skipped_reasons[f"{spec.group}_no_unique_match"] += 1
+                counts[skipped_key] += 1
+                continue
+            joined = False
+            for field in spec.join_fields:
+                value = first_value(matches[0], [field, _camel(field)], "")
+                if _is_numeric(value):
+                    row[field] = _format_number(to_float(value, math.nan), 6)
+                    joined = True
+                elif str(value or "").strip():
+                    row[field] = str(value).strip()
+                    joined = True
+            if joined:
+                counts[joined_key] += 1
+            else:
+                skipped_reasons[f"{spec.group}_matched_but_no_populated_fields"] += 1
+                counts[skipped_key] += 1
+
+        if counts[ambiguous_key]:
+            warnings.append(f"{spec.group} skipped {counts[ambiguous_key]} ambiguous context rows.")
+        counts["skippedByReason"] = dict(skipped_reasons)
+
 
 def _public_artifacts(artifacts: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     public: dict[str, dict[str, Any]] = {}
@@ -229,6 +404,30 @@ def _odds_join_key(row: dict[str, Any], *, date_label: str, season: int, is_cont
     return "|".join([date_label, str(season), player, market, _key(side), line, book]), ""
 
 
+def _identity_context_key(
+    row: dict[str, Any],
+    *,
+    name_aliases: tuple[str, ...],
+    team_aliases: tuple[str, ...],
+    date_label: str,
+    season: int,
+    is_context: bool,
+) -> tuple[str, str]:
+    row_date = str(first_value(row, ["date", "game_date", "gameDate", "event_date"], "")).strip() or (date_label if is_context else "")
+    row_season = str(first_value(row, ["season"], "")).strip() or str(season)
+    name = _key(first_value(row, list(name_aliases), ""))
+    team = _key(first_value(row, list(team_aliases), ""))
+    if row_date != date_label:
+        return "", "date_mismatch"
+    if row_season and str(row_season) != str(season):
+        return "", "season_mismatch"
+    if not name:
+        return "", "missing_name"
+    if not team:
+        return "", "missing_team"
+    return "|".join([date_label, str(season), name, team]), ""
+
+
 def _identity_confidence(row: dict[str, Any], *, input_source: str) -> str:
     return str(identity_confidence_for_row(row, input_source=input_source).get("identityConfidence") or "unknown")
 
@@ -258,3 +457,10 @@ def _key(value: Any) -> str:
 def _camel(value: str) -> str:
     parts = value.split("_")
     return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
+
+
+def _spec_for_group(group: str) -> ContextArtifactSpec:
+    for spec in CONTEXT_ARTIFACTS:
+        if spec.group == group:
+            return spec
+    raise KeyError(group)

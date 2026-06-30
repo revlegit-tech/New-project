@@ -87,6 +87,22 @@ OUTPUT_FIELDS = [
     "vig_pct",
     "odds_move",
     "line_move",
+    "recent_games",
+    "recent_rate",
+    "season_rate",
+    "rolling_avg_5",
+    "rolling_avg_10",
+    "rolling_avg_15",
+    "rolling_total_bases_10",
+    "rolling_hr_rate_15",
+    "rolling_k_rate_10",
+    "pitcher_recent_games",
+    "pitcher_k_rate",
+    "pitcher_walk_rate",
+    "pitcher_hr_rate",
+    "pitcher_babip",
+    "pitcher_days_rest",
+    "pitcher_velo_delta",
 ]
 
 FEATURE_GROUPS = {
@@ -313,6 +329,24 @@ class PlayerPropModelScoringService:
                 "vig_pct": _number_or_blank(first_value(row, ["vig_pct", "vig", "vigPercent"], "")),
                 "odds_move": _number_or_blank(first_value(row, ["odds_move", "oddsMove"], "")),
                 "line_move": _number_or_blank(first_value(row, ["line_move", "lineMove"], "")),
+                "recent_games": _number_or_blank(first_value(row, ["recent_games", "recentGames"], "")),
+                "recent_rate": _number_or_blank(first_value(row, ["recent_rate", "recentRate"], "")),
+                "season_rate": _number_or_blank(first_value(row, ["season_rate", "seasonRate"], "")),
+                "rolling_avg_5": _number_or_blank(first_value(row, ["rolling_avg_5", "rollingAvg5"], "")),
+                "rolling_avg_10": _number_or_blank(first_value(row, ["rolling_avg_10", "rollingAvg10"], "")),
+                "rolling_avg_15": _number_or_blank(first_value(row, ["rolling_avg_15", "rollingAvg15"], "")),
+                "rolling_total_bases_10": _number_or_blank(
+                    first_value(row, ["rolling_total_bases_10", "rollingTotalBases10"], "")
+                ),
+                "rolling_hr_rate_15": _number_or_blank(first_value(row, ["rolling_hr_rate_15", "rollingHrRate15"], "")),
+                "rolling_k_rate_10": _number_or_blank(first_value(row, ["rolling_k_rate_10", "rollingKRate10"], "")),
+                "pitcher_recent_games": _number_or_blank(first_value(row, ["pitcher_recent_games", "pitcherRecentGames"], "")),
+                "pitcher_k_rate": _number_or_blank(first_value(row, ["pitcher_k_rate", "pitcherKRate"], "")),
+                "pitcher_walk_rate": _number_or_blank(first_value(row, ["pitcher_walk_rate", "pitcherWalkRate"], "")),
+                "pitcher_hr_rate": _number_or_blank(first_value(row, ["pitcher_hr_rate", "pitcherHrRate"], "")),
+                "pitcher_babip": _number_or_blank(first_value(row, ["pitcher_babip", "pitcherBabip"], "")),
+                "pitcher_days_rest": _number_or_blank(first_value(row, ["pitcher_days_rest", "pitcherDaysRest"], "")),
+                "pitcher_velo_delta": _number_or_blank(first_value(row, ["pitcher_velo_delta", "pitcherVeloDelta"], "")),
             }
             gate = self.production_gates.evaluate(output, season=season, date_label=selected_date)
             output.update(
@@ -565,11 +599,21 @@ def _feature_completeness(
                 populated_percent = round((populated / denominator) * 100.0, 2)
                 if not available:
                     warnings = [warning for warning in warnings if not warning.startswith(f"No populated {group}")]
-                    warnings.append(f"{group} context artifact available with {artifact_rows} rows but no rows joined.")
+                    warnings.append(f"{group} context artifact available but no scoring rows joined safely.")
+            elif group in {"player_recent_form", "pitcher_context"}:
+                populated_percent = round((populated / denominator) * 100.0, 2)
+                if not available:
+                    warnings = [warning for warning in warnings if not warning.startswith(f"No populated {group}")]
+                    warnings.append(f"{group} context artifact available but no scoring rows joined safely.")
+                elif artifact_fields and missing:
+                    warnings.append(f"{len(missing)} {group} artifact fields were not populated in scoring rows.")
             elif artifact_fields:
                 available = sorted(set(available).union(artifact_fields))
                 missing = [field for field in selected if field not in available]
-                populated_percent = max(round((populated / denominator) * 100.0, 2), round((len(artifact_fields) / max(len(selected), 1)) * 100.0, 2))
+                populated_percent = max(
+                    round((populated / denominator) * 100.0, 2),
+                    round((len(artifact_fields) / max(len(selected), 1)) * 100.0, 2),
+                )
                 warnings = [warning for warning in warnings if not warning.startswith(f"No populated {group}")]
                 warnings.append(f"{group} context artifact available with {artifact_rows} rows; join into scoring rows may still be pending.")
             else:

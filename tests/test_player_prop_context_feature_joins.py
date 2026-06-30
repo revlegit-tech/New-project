@@ -45,7 +45,20 @@ def write_model(settings: Settings) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(TinyProbabilityModel(), path)
     metadata_path_for_model(path).write_text(
-        json.dumps({"numericFeatures": ["line", "book_implied_probability", "odds_move", "line_move"]}),
+        json.dumps(
+            {
+                "numericFeatures": [
+                    "line",
+                    "book_implied_probability",
+                    "odds_move",
+                    "line_move",
+                    "recent_games",
+                    "rolling_avg_5",
+                    "pitcher_k_rate",
+                    "pitcher_days_rest",
+                ]
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -83,6 +96,44 @@ def odds_context_row(**overrides: Any) -> dict[str, Any]:
         "bookKey": "fanduel",
         "odds_move": "15",
         "line_move": "1",
+    }
+    row.update(overrides)
+    return row
+
+
+def player_form_context_row(**overrides: Any) -> dict[str, Any]:
+    row = {
+        "date": "2026-06-30",
+        "season": "2026",
+        "player": "Aaron Judge",
+        "team": "NYY",
+        "recent_games": "10",
+        "recent_rate": "1.2",
+        "season_rate": "0.31",
+        "rolling_avg_5": "1.4",
+        "rolling_avg_10": "1.2",
+        "rolling_avg_15": "1.1",
+        "rolling_total_bases_10": "18",
+        "rolling_hr_rate_15": "0.2",
+        "rolling_k_rate_10": "0.22",
+    }
+    row.update(overrides)
+    return row
+
+
+def pitcher_context_row(**overrides: Any) -> dict[str, Any]:
+    row = {
+        "date": "2026-06-30",
+        "season": "2026",
+        "pitcher": "Gerrit Cole",
+        "team": "BOS",
+        "pitcher_recent_games": "6",
+        "pitcher_k_rate": "0.31",
+        "pitcher_walk_rate": "0.08",
+        "pitcher_hr_rate": "0.03",
+        "pitcher_babip": "0.285",
+        "pitcher_days_rest": "5",
+        "pitcher_velo_delta": "",
     }
     row.update(overrides)
     return row
@@ -173,6 +224,83 @@ def test_feature_completeness_reflects_actual_joined_odds_movement(tmp_path: Pat
     assert odds["availableFields"] == ["odds_move", "line_move"]
     assert odds["populatedPercent"] == 50
     assert "odds_movement" in summary["featureGroupsReady"]
+
+
+def test_player_recent_form_joins_on_safe_identity(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row()])
+    write_csv(
+        settings.data_dir / "context" / "player_recent_form" / "player_recent_form_2026-06-30.csv",
+        [player_form_context_row()],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    row = report["rows"][0]
+    summary = report["summary"]
+    assert row["recent_games"] == 10
+    assert row["rolling_avg_5"] == 1.4
+    assert summary["contextJoinCounts"]["playerRecentFormRowsLoaded"] == 1
+    assert summary["contextJoinCounts"]["playerRecentFormRowsJoined"] == 1
+    assert summary["featureCompleteness"]["player_recent_form"]["populatedPercent"] > 0
+
+
+def test_pitcher_context_joins_on_safe_identity(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row(pitcher="Gerrit Cole")])
+    write_csv(
+        settings.data_dir / "context" / "pitcher_context" / "pitcher_context_2026-06-30.csv",
+        [pitcher_context_row()],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    row = report["rows"][0]
+    summary = report["summary"]
+    assert row["pitcher_k_rate"] == 0.31
+    assert row["pitcher_days_rest"] == 5
+    assert summary["contextJoinCounts"]["pitcherContextRowsLoaded"] == 1
+    assert summary["contextJoinCounts"]["pitcherContextRowsJoined"] == 1
+    assert summary["featureCompleteness"]["pitcher_context"]["populatedPercent"] > 0
+
+
+def test_ambiguous_player_recent_form_skips_safely(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row()])
+    write_csv(
+        settings.data_dir / "context" / "player_recent_form" / "player_recent_form_2026-06-30.csv",
+        [player_form_context_row(recent_games="8"), player_form_context_row(recent_games="9")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    assert report["rows"][0]["recent_games"] == ""
+    assert report["summary"]["contextJoinCounts"]["playerRecentFormAmbiguousRows"] == 2
+    assert report["summary"]["contextJoinCounts"]["playerRecentFormRowsSkipped"] == 1
+
+
+def test_weak_identity_prevents_recent_form_context_join(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row(team="")])
+    write_csv(
+        settings.data_dir / "context" / "player_recent_form" / "player_recent_form_2026-06-30.csv",
+        [player_form_context_row()],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    assert report["rows"][0]["identityConfidence"] == "weak"
+    assert report["rows"][0]["recent_games"] == ""
+    assert report["summary"]["contextJoinCounts"]["playerRecentFormRowsJoined"] == 0
+    assert report["summary"]["featureCompleteness"]["player_recent_form"]["populatedPercent"] == 0
+    assert any(
+        "player_recent_form context artifact available but no scoring rows joined safely" in warning
+        for warning in report["summary"]["contextJoinWarnings"]
+    )
 
 
 def test_missing_context_files_warn_but_do_not_crash(tmp_path: Path) -> None:

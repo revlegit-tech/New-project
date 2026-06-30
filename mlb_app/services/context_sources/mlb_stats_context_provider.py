@@ -65,6 +65,11 @@ class MLBStatsContextProvider:
             return self._result("missing", date_label, season, "player_recent_form", 0, path, warnings)
 
         rows = _pregame_rows(read_csv_rows(source), date_label)
+        if rows and (
+            not _has_any_column(rows, ["strikeOuts", "strikeouts", "k"])
+            or not _has_any_column(rows, ["plateAppearances", "pa"])
+        ):
+            warnings.append("rolling_k_rate_10 unavailable from local batter logs; field left null where unsafe.")
         output = [_batter_summary(date_label, season, player_rows, source) for player_rows in _group_player_rows(rows)]
         if not output:
             warnings.append("No prior batter game logs available before target date.")
@@ -81,6 +86,10 @@ class MLBStatsContextProvider:
             return self._result("missing", date_label, season, "pitcher_context", 0, path, warnings)
 
         rows = _pregame_rows(read_csv_rows(source), date_label)
+        if rows and not _has_any_column(rows, ["battersFaced", "batters_faced", "bf"]):
+            warnings.append("Pitcher rate denominators unavailable from local pitcher logs; rate fields left null where unsafe.")
+        if rows and not _has_any_column(rows, ["releaseSpeed", "release_speed", "avgFastballVelo", "fastballVelo"]):
+            warnings.append("pitcher_velo_delta unavailable from local pitcher logs; field left null.")
         output = [_pitcher_summary(date_label, season, pitcher_rows, source) for pitcher_rows in _group_pitcher_rows(rows)]
         if not output:
             warnings.append("No prior pitcher game logs available before target date.")
@@ -208,3 +217,7 @@ def _rate(numerator: float, denominator: float) -> float | str:
     if denominator <= 0:
         return ""
     return round(numerator / denominator, 6)
+
+
+def _has_any_column(rows: list[dict[str, str]], aliases: list[str]) -> bool:
+    return any(any(clean(row.get(alias)) for alias in aliases) for row in rows)
