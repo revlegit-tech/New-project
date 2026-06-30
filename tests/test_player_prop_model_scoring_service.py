@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,16 @@ class TinyProbabilityModel:
 
     def predict_proba(self, matrix: Any) -> list[list[float]]:
         return [[1.0 - self.probability, self.probability] for _ in range(len(matrix))]
+
+
+class WarningProbabilityModel(TinyProbabilityModel):
+    def predict_proba(self, matrix: Any) -> list[list[float]]:
+        warnings.warn(
+            "Skipping features without any observed values: ['barrel_rate', 'temperature'].",
+            UserWarning,
+            stacklevel=2,
+        )
+        return super().predict_proba(matrix)
 
 
 def make_settings(tmp_path: Path) -> Settings:
@@ -47,6 +58,13 @@ def write_model(settings: Settings, market: str, probability: float = 0.62) -> P
     path = settings.model_dir / f"prop_model_{market}.joblib"
     path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(TinyProbabilityModel(probability), path)
+    return path
+
+
+def write_warning_model(settings: Settings, market: str, probability: float = 0.62) -> Path:
+    path = settings.model_dir / f"prop_model_{market}.joblib"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(WarningProbabilityModel(probability), path)
     return path
 
 
@@ -357,3 +375,184 @@ def test_dry_run_does_not_write_prediction_artifacts(tmp_path: Path) -> None:
     assert report["summary"]["rows_scored"] == 1
     assert not out.exists()
     assert not summary_out.exists()
+
+
+def test_feature_completeness_summary_reports_missing_advanced_groups(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    model_path = write_model(settings, "batter_hits")
+    metadata_path_for_model(model_path).write_text(
+        json.dumps({"numericFeatures": ["line", "book_implied_probability", "barrel_rate", "temperature", "ump_k_rate"]}),
+        encoding="utf-8",
+    )
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-29.csv", [base_row()])
+
+    summary = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )["summary"]
+
+    assert "featureCompleteness" in summary
+    assert summary["featureCompleteness"]["vig"]["availableFields"] == ["book_implied_probability", "implied_probability_percent"]
+    assert summary["featureCompleteness"]["statcast"]["populatedPercent"] == 0
+    assert summary["featureCompleteness"]["weather"]["populatedPercent"] == 0
+    assert summary["featureCompleteness"]["umpire"]["populatedPercent"] == 0
+    assert {"statcast", "weather", "umpire"} <= set(summary["featureGroupsMissing"])
+    assert "identityConfidenceCounts" in summary
+    assert "identityWarningCounts" in summary
+
+
+def test_partial_vig_availability_pairs_exact_over_under_rows(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    model_path = write_model(settings, "batter_hits")
+    metadata_path_for_model(model_path).write_text(
+        json.dumps({"numericFeatures": ["line", "book_implied_probability", "vig_pct"]}),
+        encoding="utf-8",
+    )
+    rows = [
+        base_row(side="Over", american_odds="-110", player="Aaron Judge", book="FanDuel", source_row_id="1", prop_key="1", game_pk="123"),
+        base_row(side="Under", american_odds="-110", player="Aaron Judge", book="FanDuel", source_row_id="2", prop_key="2", game_pk="123"),
+        base_row(side="Over", american_odds="-120", player="Juan Soto", book="FanDuel", source_row_id="3", prop_key="3", game_pk="123"),
+    ]
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-29.csv", rows)
+
+    report = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )
+
+    paired = [row for row in report["rows"] if row["player"] == "Aaron Judge"]
+    unpaired = [row for row in report["rows"] if row["player"] == "Juan Soto"][0]
+    assert [row["vig_pct"] for row in paired] == [4.7619, 4.7619]
+    assert unpaired["vig_pct"] == ""
+    assert report["summary"]["featureCompleteness"]["vig"]["populatedPercent"] > 0
+
+
+def test_no_vig_when_both_sides_cannot_be_paired_safely(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    model_path = write_model(settings, "batter_hits")
+    metadata_path_for_model(model_path).write_text(json.dumps({"numericFeatures": ["line", "vig_pct"]}), encoding="utf-8")
+    write_csv(
+        settings.data_dir / "features" / "prop_features_2026-06-29.csv",
+        [
+            base_row(side="Over", american_odds="-110", opponent=""),
+            base_row(side="Under", american_odds="-110", opponent=""),
+        ],
+    )
+
+    rows = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )["rows"]
+
+    assert [row["vig_pct"] for row in rows] == ["", ""]
+
+
+def test_odds_movement_available_from_current_and_prior_snapshot_fields(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    model_path = write_model(settings, "batter_hits")
+    metadata_path_for_model(model_path).write_text(
+        json.dumps({"numericFeatures": ["line", "book_implied_probability", "odds_move", "line_move"]}),
+        encoding="utf-8",
+    )
+    write_csv(
+        settings.data_dir / "features" / "prop_features_2026-06-29.csv",
+        [
+            base_row(
+                american_odds="-105",
+                previous_american_odds="-120",
+                line="1.5",
+                previous_line="0.5",
+                source_row_id="1",
+                prop_key="1",
+                game_pk="123",
+            )
+        ],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )
+
+    assert report["rows"][0]["odds_move"] == 15
+    assert report["rows"][0]["line_move"] == 1
+    assert "odds_movement" in report["summary"]["featureGroupsReady"]
+
+
+def test_no_odds_movement_when_prior_snapshot_is_missing(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    model_path = write_model(settings, "batter_hits")
+    metadata_path_for_model(model_path).write_text(json.dumps({"numericFeatures": ["line", "odds_move", "line_move"]}), encoding="utf-8")
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-29.csv", [base_row()])
+
+    report = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )
+
+    assert report["rows"][0]["odds_move"] == ""
+    assert report["rows"][0]["line_move"] == ""
+    assert "odds_movement" in report["summary"]["featureGroupsMissing"]
+
+
+def test_all_null_advanced_feature_columns_do_not_crash_and_are_summarized(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    model_path = write_warning_model(settings, "batter_hits")
+    metadata_path_for_model(model_path).write_text(
+        json.dumps({"numericFeatures": ["line", "book_implied_probability", "barrel_rate", "temperature"]}),
+        encoding="utf-8",
+    )
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-29.csv", [base_row(barrel_rate="", temperature="")])
+
+    report = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )
+
+    messages = [item["message"] for item in report["summary"]["modelFeatureWarnings"]]
+    assert report["summary"]["rowsScored"] == 1
+    assert "sklearn skipped all-null feature columns during scoring" in messages
+    assert any(message.startswith("all-null model feature columns:") for message in messages)
+
+
+def test_prediction_summary_preserves_identity_fields_and_research_lock(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.8)
+    write_csv(settings.data_dir / "playerboard" / "playerboard_2026.csv", [playerboard_row()])
+
+    report = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="playerboard",
+        dry_run=True,
+    )
+
+    summary = report["summary"]
+    row = report["rows"][0]
+    for key in [
+        "rowsLoaded",
+        "rowsScored",
+        "rowsSkipped",
+        "missingModelMarkets",
+        "blankTeamOpponentRows",
+        "unsafeJoinKeyRows",
+        "generatedAt",
+        "identityConfidenceCounts",
+        "identityWarningCounts",
+    ]:
+        assert key in summary
+    assert row["readinessLabel"] == "Experimental"
+    assert row["action"] == "Research"
+    assert row["stakeUnits"] == 0

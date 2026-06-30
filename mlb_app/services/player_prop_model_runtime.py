@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -102,6 +103,7 @@ class PlayerPropModelPrediction:
     model_version: str
     features_used: list[str]
     model_path: Path
+    warnings: list[str] | None = None
 
 
 def normalize_key(value: str) -> str:
@@ -234,7 +236,9 @@ def score_exact_market_model(
         features[text_column] = str(first_value(row, [text_column], "")).strip().lower()
 
     pipeline = load(resolved_model_path)
-    probability = float(pipeline.predict_proba(pd.DataFrame([features]))[0][1])
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        probability = float(pipeline.predict_proba(pd.DataFrame([features]))[0][1])
     odds = to_float(first_value(row, ODDS_ALIASES, row.get("american_odds", -110)), -110)
     implied = implied_probability_from_american(odds)
 
@@ -247,4 +251,16 @@ def score_exact_market_model(
         model_version=str(metadata.get("bestModel") or "unknown"),
         features_used=feature_columns + TEXT_COLUMNS,
         model_path=resolved_model_path,
+        warnings=_dedupe_warning_messages(captured),
     )
+
+
+def _dedupe_warning_messages(captured: list[warnings.WarningMessage]) -> list[str]:
+    messages: list[str] = []
+    seen: set[str] = set()
+    for item in captured:
+        text = str(item.message).strip()
+        if text and text not in seen:
+            seen.add(text)
+            messages.append(text)
+    return messages
