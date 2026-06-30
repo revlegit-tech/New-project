@@ -184,6 +184,13 @@ class EdgeBoardService:
         enriched.update(
             {
                 "modelProbabilityPercent": _round_or_blank(_float(row.get("modelProbabilityPercent"))),
+                "rawModelProbability": _clean(row.get("rawModelProbability")),
+                "calibratedProbability": _clean(row.get("calibratedProbability")),
+                "calibrationApplied": bool(row.get("calibrationApplied")),
+                "calibrationMethod": _clean(row.get("calibrationMethod")),
+                "calibrationStatus": _clean(row.get("calibrationStatus")),
+                "calibrationArtifactGeneratedAt": _clean(row.get("calibrationArtifactGeneratedAt")),
+                "modelQualityWarnings": list(row.get("modelQualityWarnings") or []),
                 "impliedProbabilityPercent": _round_or_blank(_float(row.get("impliedProbabilityPercent"))),
                 "edgePercent": _round_or_blank(_float(row.get("edgePercent"))),
                 "readinessLabel": "Experimental",

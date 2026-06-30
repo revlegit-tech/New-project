@@ -55,6 +55,12 @@ class EdgeBoardRow(StrictPayload):
     bookCount: Any = None
     books: list[Any] = Field(default_factory=list)
     americanOdds: Any = None
+    rawModelProbability: Any = None
+    calibratedProbability: Any = None
+    calibrationApplied: bool | None = None
+    calibrationMethod: str | None = None
+    calibrationArtifactGeneratedAt: str | None = None
+    modelQualityWarnings: list[str] = Field(default_factory=list)
     modelProbabilityPercent: Any = None
     impliedProbabilityPercent: Any = None
     edgePercent: Any = None

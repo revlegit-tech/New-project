@@ -108,6 +108,12 @@ def test_edge_board_prediction_match_populates_model_probability_and_edge(tmp_pa
 
     matched = payload["rows"][0]
     assert matched["modelProbabilityPercent"] == "61.25"
+    assert matched["rawModelProbability"] == "0.59"
+    assert matched["calibratedProbability"] == "0.6125"
+    assert matched["calibrationApplied"] is True
+    assert matched["calibrationMethod"] == "isotonic"
+    assert matched["calibrationStatus"] == "applied"
+    assert matched["modelQualityWarnings"] == []
     assert matched["impliedProbabilityPercent"] == "52.38"
     assert matched["edgePercent"] == "8.87"
     assert matched["fairOdds"] == "-158"
@@ -430,6 +436,12 @@ def _prediction_for(row: dict[str, Any], *, date_label: str, **overrides: Any) -
         "line": row["line"],
         "side": row["side"],
         "americanOdds": row["americanOdds"],
+        "rawModelProbability": "0.59",
+        "calibratedProbability": "0.6125",
+        "calibrationApplied": "true",
+        "calibrationMethod": "isotonic",
+        "calibrationStatus": "applied",
+        "calibrationArtifactGeneratedAt": "2026-06-30T00:00:00+00:00",
         "modelProbabilityPercent": "61.25",
         "impliedProbabilityPercent": "52.38",
         "edgePercent": "8.87",
@@ -445,6 +457,7 @@ def _prediction_for(row: dict[str, Any], *, date_label: str, **overrides: Any) -
         "playerTeamVerified": "",
         "opponentVerified": "",
         "warnings": "",
+        "modelQualityWarnings": "",
     }
     prediction.update(overrides)
     return prediction
@@ -465,6 +478,12 @@ def _write_predictions(settings: Settings, date_label: str, rows: list[dict[str,
         "line",
         "side",
         "americanOdds",
+        "rawModelProbability",
+        "calibratedProbability",
+        "calibrationApplied",
+        "calibrationMethod",
+        "calibrationStatus",
+        "calibrationArtifactGeneratedAt",
         "modelProbabilityPercent",
         "impliedProbabilityPercent",
         "edgePercent",
@@ -480,6 +499,7 @@ def _write_predictions(settings: Settings, date_label: str, rows: list[dict[str,
         "playerTeamVerified",
         "opponentVerified",
         "warnings",
+        "modelQualityWarnings",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")

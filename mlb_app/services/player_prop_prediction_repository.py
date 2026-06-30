@@ -172,6 +172,12 @@ def _apply_prediction(row: dict[str, Any], prediction: dict[str, Any], *, source
     enriched.update(
         {
             "modelProbabilityPercent": _clean(prediction.get("modelProbabilityPercent")),
+            "rawModelProbability": _clean(prediction.get("rawModelProbability")),
+            "calibratedProbability": _clean(prediction.get("calibratedProbability")),
+            "calibrationApplied": _truthy(prediction.get("calibrationApplied")),
+            "calibrationMethod": _clean(prediction.get("calibrationMethod")),
+            "calibrationStatus": _clean(prediction.get("calibrationStatus")),
+            "calibrationArtifactGeneratedAt": _clean(prediction.get("calibrationArtifactGeneratedAt")),
             "impliedProbabilityPercent": _clean(prediction.get("impliedProbabilityPercent")),
             "edgePercent": _clean(prediction.get("edgePercent")),
             "fairOdds": _clean(prediction.get("fairOdds")),
@@ -184,6 +190,7 @@ def _apply_prediction(row: dict[str, Any], prediction: dict[str, Any], *, source
             "predictionKey": _clean(prediction.get("predictionKey")) or prediction_key_for_board_row(row, date_label=_clean(prediction.get("date"))),
             "predictionSource": source,
             "predictionWarnings": warnings,
+            "modelQualityWarnings": _split_warnings(prediction.get("modelQualityWarnings")),
             "identityConfidence": _clean(prediction.get("identityConfidence")) or _clean(row.get("identityConfidence")),
             "identityWarnings": identity_warnings,
             "playerTeamVerified": _truthy(prediction.get("playerTeamVerified")),
@@ -231,6 +238,11 @@ def _board_composite_key(row: dict[str, Any], *, date_label: str) -> str:
 
 def _prediction_warnings(row: dict[str, Any]) -> list[str]:
     raw = _clean(row.get("warnings"))
+    return _split_warnings(raw)
+
+
+def _split_warnings(value: Any) -> list[str]:
+    raw = _clean(value)
     if not raw:
         return []
     return [part.strip() for part in re.split(r"[|;]", raw) if part.strip()]

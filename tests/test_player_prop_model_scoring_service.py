@@ -61,6 +61,39 @@ def write_model(settings: Settings, market: str, probability: float = 0.62) -> P
     return path
 
 
+def write_calibration(
+    settings: Settings,
+    market: str,
+    *,
+    sample_size: int = 250,
+    artifact_market: str | None = None,
+    slope: float = 1.0,
+    intercept: float = 0.05,
+    brier_before: float = 0.22,
+    brier_after: float = 0.20,
+) -> Path:
+    path = settings.model_dir / "calibration" / f"player_prop_calibration_{market}.joblib"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(
+        {
+            "schemaVersion": "player-prop-calibration.v1",
+            "status": "ready",
+            "market": artifact_market or market,
+            "method": "isotonic",
+            "generatedAt": "2026-06-30T00:00:00+00:00",
+            "sampleSize": sample_size,
+            "minSampleSize": 200,
+            "brierScoreBefore": brier_before,
+            "brierScoreAfter": brier_after,
+            "logLossBefore": 0.68,
+            "logLossAfter": 0.64,
+            "mapping": {"slope": slope, "intercept": intercept},
+        },
+        path,
+    )
+    return path
+
+
 def write_warning_model(settings: Settings, market: str, probability: float = 0.62) -> Path:
     path = settings.model_dir / f"prop_model_{market}.joblib"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -328,6 +361,105 @@ def test_outputs_remain_research_only_with_zero_stake(tmp_path: Path) -> None:
     assert row["readinessLabel"] == "Experimental"
     assert row["action"] == "Research"
     assert row["stake"] == 0
+    assert row["stakeUnits"] == 0
+
+
+def test_calibration_artifact_applies_when_valid(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.6)
+    write_calibration(settings, "batter_hits", intercept=0.08)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-29.csv", [base_row()])
+
+    report = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )
+    row = report["rows"][0]
+
+    assert row["rawModelProbability"] == 0.6
+    assert row["calibratedProbability"] == 0.68
+    assert row["calibrationApplied"] is True
+    assert row["calibrationStatus"] == "applied"
+    assert row["modelProbabilityPercent"] == 68
+    assert report["summary"]["calibrationStatusCounts"] == {"applied": 1}
+    assert report["summary"]["calibrationAppliedRows"] == 1
+    assert report["summary"]["calibrationSkippedRows"] == 0
+    assert report["summary"]["calibrationArtifactVersion"] == "2026-06-30T00:00:00+00:00"
+
+
+def test_calibration_skipped_when_artifact_missing(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.62)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-29.csv", [base_row()])
+
+    row = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )["rows"][0]
+
+    assert row["rawModelProbability"] == 0.62
+    assert row["calibratedProbability"] == ""
+    assert row["calibrationApplied"] is False
+    assert row["calibrationStatus"] == "not_available"
+    assert row["modelProbabilityPercent"] == 62
+
+
+def test_calibration_skipped_when_sample_too_small(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.62)
+    write_calibration(settings, "batter_hits", sample_size=25)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-29.csv", [base_row()])
+
+    row = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )["rows"][0]
+
+    assert row["calibrationApplied"] is False
+    assert row["calibrationStatus"] == "insufficient_sample"
+    assert "calibration sample size below minimum" in row["modelQualityWarnings"]
+
+
+def test_calibration_skipped_when_market_mismatch(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.62)
+    write_calibration(settings, "batter_hits", artifact_market="pitcher_strikeouts")
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-29.csv", [base_row()])
+
+    row = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )["rows"][0]
+
+    assert row["calibrationApplied"] is False
+    assert row["calibrationStatus"] == "failed_quality_gate"
+    assert "calibration artifact market mismatch" in row["modelQualityWarnings"]
+
+
+def test_production_action_remains_research_with_calibration(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.9)
+    write_calibration(settings, "batter_hits", intercept=0.05)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-29.csv", [base_row()])
+
+    row = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )["rows"][0]
+
+    assert row["modelProbabilityPercent"] == 95
+    assert row["readinessLabel"] == "Experimental"
+    assert row["action"] == "Research"
     assert row["stakeUnits"] == 0
 
 

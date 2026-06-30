@@ -21,6 +21,7 @@ from mlb_app.services.player_prop_model_runtime import (
     score_exact_market_model,
     to_float,
 )
+from mlb_app.services.player_prop_model_calibration_service import PlayerPropModelCalibrationService
 from mlb_app.services.player_prop_identity_confidence import (
     identity_confidence_for_row,
     serialize_identity_warnings,
@@ -43,6 +44,12 @@ OUTPUT_FIELDS = [
     "side",
     "rawLabel",
     "americanOdds",
+    "rawModelProbability",
+    "calibratedProbability",
+    "calibrationApplied",
+    "calibrationMethod",
+    "calibrationStatus",
+    "calibrationArtifactGeneratedAt",
     "modelProbabilityPercent",
     "impliedProbabilityPercent",
     "edgePercent",
@@ -63,6 +70,7 @@ OUTPUT_FIELDS = [
     "playerTeamVerified",
     "opponentVerified",
     "warnings",
+    "modelQualityWarnings",
     "source_row_id",
     "prop_key",
     "game_pk",
@@ -136,6 +144,7 @@ class PlayerPropModelScoringService:
 
     def __init__(self, *, settings: Settings = default_settings) -> None:
         self.settings = settings
+        self.calibration = PlayerPropModelCalibrationService(settings=settings)
 
     def score(
         self,
@@ -210,9 +219,11 @@ class PlayerPropModelScoringService:
             if side.lower().startswith("under"):
                 probability = 1.0 - probability
             probability = min(max(probability, 0.0), 1.0)
+            calibration = self.calibration.apply(market=market, probability=probability)
+            display_probability = calibration.applied_probability
             implied = _implied_probability(row, odds)
-            edge_percent = (probability - implied) * 100.0
-            model_probability_percent = probability * 100.0
+            edge_percent = (display_probability - implied) * 100.0
+            model_probability_percent = display_probability * 100.0
             warnings = _row_warnings(
                 row,
                 input_source=paths.input_source,
@@ -247,11 +258,19 @@ class PlayerPropModelScoringService:
                 "side": side,
                 "rawLabel": str(first_value(row, ["rawLabel", "raw_label"], "")).strip(),
                 "americanOdds": _format_number(odds, 4),
+                "rawModelProbability": _format_number(calibration.raw_probability, 6),
+                "calibratedProbability": ""
+                if calibration.calibrated_probability is None
+                else _format_number(calibration.calibrated_probability, 6),
+                "calibrationApplied": calibration.applied,
+                "calibrationMethod": calibration.method,
+                "calibrationStatus": calibration.status,
+                "calibrationArtifactGeneratedAt": calibration.artifact_generated_at,
                 "modelProbabilityPercent": _format_number(model_probability_percent, 2),
                 "impliedProbabilityPercent": _format_number(implied * 100.0, 2),
                 "edgePercent": _format_number(edge_percent, 2),
-                "fairOdds": american_from_probability(probability),
-                "expectedValue": _format_number(expected_value_per_unit(probability, odds), 4),
+                "fairOdds": american_from_probability(display_probability),
+                "expectedValue": _format_number(expected_value_per_unit(display_probability, odds), 4),
                 "modelPath": _safe_model_id(model_path, self.settings),
                 "readinessLabel": "Experimental",
                 "action": "Research",
@@ -267,6 +286,7 @@ class PlayerPropModelScoringService:
                 "playerTeamVerified": identity["playerTeamVerified"],
                 "opponentVerified": identity["opponentVerified"],
                 "warnings": "|".join(sorted(set(warnings))),
+                "modelQualityWarnings": "|".join(sorted(set(calibration.warnings))),
                 "source_row_id": str(first_value(row, ["source_row_id"], "")).strip(),
                 "prop_key": str(first_value(row, ["prop_key"], "")).strip(),
                 "game_pk": str(first_value(row, ["game_pk", "gamePk"], "")).strip(),
@@ -292,6 +312,16 @@ class PlayerPropModelScoringService:
             model_feature_warning_counts[warning] += 1
         blank_team_opponent_rows = sum(1 for row in predictions if not row.get("team") or not row.get("opponent"))
         unsafe_join_key_rows = sum(1 for row in predictions if row.get("joinKeyStrength") == "unsafe")
+        calibration_status_counts = Counter(str(row.get("calibrationStatus") or "unknown") for row in predictions)
+        calibration_applied_rows = sum(1 for row in predictions if row.get("calibrationApplied") is True)
+        calibration_artifact_generated_at = _first_text(
+            row.get("calibrationArtifactGeneratedAt") for row in predictions if row.get("calibrationStatus") == "applied"
+        )
+        model_quality_warning_counts: Counter[str] = Counter()
+        for row in predictions:
+            for warning in str(row.get("modelQualityWarnings") or "").split("|"):
+                if warning:
+                    model_quality_warning_counts[warning] += 1
         identity_confidence_counts = Counter(str(row.get("identityConfidence") or "unknown") for row in predictions)
         identity_warning_counts: Counter[str] = Counter()
         for row in predictions:
@@ -325,6 +355,14 @@ class PlayerPropModelScoringService:
             "modelFeatureWarnings": [
                 {"message": message, "count": count} for message, count in sorted(model_feature_warning_counts.items())
             ],
+            "calibrationStatusCounts": dict(sorted(calibration_status_counts.items())),
+            "calibrationAppliedRows": calibration_applied_rows,
+            "calibrationSkippedRows": len(predictions) - calibration_applied_rows,
+            "modelQualityWarnings": [
+                {"message": message, "count": count} for message, count in sorted(model_quality_warning_counts.items())
+            ],
+            "backtestReference": _latest_backtest_reference(self.settings, season),
+            "calibrationArtifactVersion": calibration_artifact_generated_at,
             "extremeProbabilityRows": extreme_probability_rows,
             "extremeEdgeRows": extreme_edge_rows,
             "rows_skipped": len(rows) - len(predictions),
@@ -720,3 +758,26 @@ def _safe_model_id(model_path: Path, settings: Settings) -> str:
         return str(model_path.resolve().relative_to(settings.root_dir.resolve()))
     except ValueError:
         return model_path.name
+
+
+def _first_text(values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _latest_backtest_reference(settings: Settings, season: int) -> dict[str, Any]:
+    path = settings.data_dir / "backtests" / f"player_prop_model_backtest_summary_{season}.json"
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"path": str(path), "status": "unreadable"}
+    return {
+        "path": str(path),
+        "generatedAt": str(payload.get("generatedAt") or ""),
+        "rowsEvaluated": payload.get("rowsEvaluated"),
+    }
