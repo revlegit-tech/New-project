@@ -28,8 +28,12 @@ def test_outlier_rows_and_detail_rail_render_trust_chips() -> None:
     assert "Model Production" in trust
     assert "Snapshot Fresh" in trust
     assert "Not Trainable" in trust
+    assert "Production gates closed" in trust
+    assert "Research only. Production betting gates are closed." in trust
+    assert "Gates pass, disabled" in trust
     assert "Experimental model output. Research only. No staking recommendation." in row
     assert "Identity is inferred from board context. Research only." in trust
     assert "Identity inferred" in trust
     assert "Identity\", trustStatusLabel(identity.identityConfidence)" in rail
     assert "Identity is inferred from board context. Bet" not in trust
+    assert "label: \"Bet\"" not in trust

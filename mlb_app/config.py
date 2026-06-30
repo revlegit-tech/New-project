@@ -81,6 +81,7 @@ class Settings:
     database_echo: bool = False
     db_enabled: bool = False
     db_fallback_to_csv: bool = True
+    enable_bet_actions: bool = False
     game_market_enrichment_enabled: bool = True
     team_game_market_projections_enabled: bool = False
     board_cache_ttl_seconds: float = 30.0
@@ -133,6 +134,7 @@ class Settings:
             database_echo=_bool_from_env("DATABASE_ECHO", _bool_from_env("MLB_DATABASE_ECHO", False)),
             db_enabled=_bool_from_env("DB_ENABLED", _bool_from_env("MLB_DB_ENABLED", False)),
             db_fallback_to_csv=_bool_from_env("DB_FALLBACK_TO_CSV", _bool_from_env("MLB_DB_FALLBACK_TO_CSV", True)),
+            enable_bet_actions=_bool_from_env("MLB_ENABLE_BET_ACTIONS", False),
             game_market_enrichment_enabled=_bool_from_env(
                 "GAME_MARKET_ENRICHMENT_ENABLED",
                 _bool_from_env("MLB_GAME_MARKET_ENRICHMENT_ENABLED", True),

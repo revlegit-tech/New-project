@@ -122,6 +122,10 @@ def test_edge_board_prediction_match_populates_model_probability_and_edge(tmp_pa
     assert matched["modelReadiness"] == "Experimental"
     assert matched["action"] == "Research"
     assert matched["stakeUnits"] == 0
+    assert matched["productionGateStatus"] == "eligible_not_enabled"
+    assert matched["productionGateReasons"] == []
+    assert matched["productionEligible"] is True
+    assert matched["betActionAllowed"] is False
     assert matched["predictionMatched"] is True
     assert matched["predictionWarnings"] == ["experimental_warning"]
     assert matched["identityConfidence"] == "medium"
@@ -129,6 +133,9 @@ def test_edge_board_prediction_match_populates_model_probability_and_edge(tmp_pa
     assert matched["playerTeamVerified"] is False
     assert matched["opponentVerified"] is False
     assert matched["trust"]["modelEdge"]["modelProbabilityPercent"] == 61.25
+    assert matched["trust"]["productionGate"]["status"] == "eligible_not_enabled"
+    assert matched["trust"]["productionGate"]["productionEligible"] is True
+    assert matched["trust"]["productionGate"]["betActionAllowed"] is False
     assert payload["meta"]["predictionsLoaded"] == 1
     assert payload["meta"]["predictionsFileRows"] == 1
     assert payload["meta"]["predictionsMatched"] == 1
@@ -159,6 +166,10 @@ def test_edge_board_unmatched_row_stays_no_model_no_bet(tmp_path: Path) -> None:
     assert unmatched["opponentVerified"] is False
     assert unmatched["action"] == "No bet"
     assert unmatched["stakeUnits"] == 0
+    assert unmatched["productionGateStatus"] == "research_only"
+    assert unmatched["productionGateReasons"] == ["no_modeled_prediction"]
+    assert unmatched["productionEligible"] is False
+    assert unmatched["betActionAllowed"] is False
     assert unmatched["modelProbabilityPercent"] == ""
     assert unmatched["edgePercent"] == ""
     assert unmatched["readinessLabel"] == "No model"
@@ -352,7 +363,17 @@ def test_edge_board_weak_identity_prediction_remains_research_and_zero_stake(tmp
     _write_predictions(
         settings,
         date_label,
-        [_prediction_for(row, date_label=date_label, identityConfidence="weak", identityWarnings="missing_opponent_identity")],
+        [
+            _prediction_for(
+                row,
+                date_label=date_label,
+                identityConfidence="weak",
+                identityWarnings="missing_opponent_identity",
+                productionGateStatus="blocked",
+                productionGateReasons="identity_confidence_weak",
+                productionEligible="false",
+            )
+        ],
     )
 
     payload = _prediction_service_payload(settings, [row], date_label=date_label)
@@ -363,6 +384,8 @@ def test_edge_board_weak_identity_prediction_remains_research_and_zero_stake(tmp
     assert matched["action"] == "Research"
     assert matched["stakeUnits"] == 0
     assert matched["modelProductionEligible"] is False
+    assert matched["productionEligible"] is False
+    assert "identity_confidence_weak" in matched["productionGateReasons"]
 
 
 def test_edge_board_snapshot_rows_keep_prediction_contract_and_normalize_side() -> None:
@@ -374,6 +397,10 @@ def test_edge_board_snapshot_rows_keep_prediction_contract_and_normalize_side() 
             "action": "Bet",
             "stakeUnits": 1,
             "trust": {"actionability": {"label": "Bet", "stakeUnits": 1}},
+            "productionGateStatus": "eligible_not_enabled",
+            "productionGateReasons": "passed",
+            "productionEligible": True,
+            "betActionAllowed": True,
         }
     )
 
@@ -383,8 +410,11 @@ def test_edge_board_snapshot_rows_keep_prediction_contract_and_normalize_side() 
     assert row["action"] == "Research"
     assert row["actionLabel"] == "Research"
     assert row["stakeUnits"] == 0
+    assert row["productionEligible"] is True
+    assert row["betActionAllowed"] is False
     assert row["trust"]["actionability"]["label"] == "Research"
     assert row["trust"]["actionability"]["stakeUnits"] == 0
+    assert row["trust"]["productionGate"]["status"] == "eligible_not_enabled"
 
 
 def _prediction_service_payload(settings: Settings, rows: list[dict[str, Any]], *, date_label: str) -> dict[str, Any]:
@@ -458,6 +488,10 @@ def _prediction_for(row: dict[str, Any], *, date_label: str, **overrides: Any) -
         "opponentVerified": "",
         "warnings": "",
         "modelQualityWarnings": "",
+        "productionGateStatus": "eligible_not_enabled",
+        "productionGateReasons": "",
+        "productionEligible": "true",
+        "betActionAllowed": "false",
     }
     prediction.update(overrides)
     return prediction
@@ -500,6 +534,10 @@ def _write_predictions(settings: Settings, date_label: str, rows: list[dict[str,
         "opponentVerified",
         "warnings",
         "modelQualityWarnings",
+        "productionGateStatus",
+        "productionGateReasons",
+        "productionEligible",
+        "betActionAllowed",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")

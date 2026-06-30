@@ -44,6 +44,7 @@ export interface RowTrustPayload {
   modelEdge?: ModelEdgeTrust;
   readiness?: ReadinessTrust;
   actionability?: ActionabilityTrust;
+  productionGate?: Record<string, unknown>;
   model?: Record<string, unknown>;
   actionnetwork?: Record<string, unknown>;
   runtime?: Record<string, unknown>;

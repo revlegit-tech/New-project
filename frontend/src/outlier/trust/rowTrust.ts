@@ -58,6 +58,8 @@ export interface RowTrustSummary {
   marketCapabilityStatus: string;
   modelProductionEligible: boolean;
   productionStatus: string;
+  productionGateStatus: string;
+  productionGateReasons: string[];
   calibrationStatus: string;
   backtestStatus: string;
   freshnessStatus: string;
@@ -173,6 +175,7 @@ export function rowTrustChips(row: OutlierBoardRow): TrustChip[] {
     actionLabelChip(row),
     marketCapabilityChip(row),
     productionEligibilityChip(row),
+    productionGateChip(row),
     productionStatusChip(row),
     calibrationChip(row),
     backtestChip(row),
@@ -191,19 +194,24 @@ export function rowTrustSummary(row: OutlierBoardRow): RowTrustSummary {
   const trust = objectValue(row.trust);
   const readiness = objectValue(trust.readiness);
   const actionability = objectValue(trust.actionability);
+  const productionGate = objectValue(trust.productionGate);
   const freshness = rowFreshness(row, "Unknown");
   const missingFeatureGroups = arrayText(row.missingFeatureGroups ?? readiness.missingFeatureGroups);
   const missingDataCount = integer(row.missingDataCount ?? readiness.missingDataCount ?? missingFeatureGroups.length);
   const warningCount = integer(row.warningCount ?? (Array.isArray(row.trustWarnings) ? row.trustWarnings.length : readiness.warnings instanceof Array ? readiness.warnings.length : 0));
   const productionStatus = normalizedStatus(row.productionStatus ?? readiness.status ?? row.modelState);
+  const productionGateStatus = normalizedStatus(row.productionGateStatus ?? productionGate.status ?? readiness.productionGateStatus);
+  const productionGateReasons = arrayText(row.productionGateReasons ?? productionGate.reasons ?? readiness.productionGateReasons);
   const calibrationStatus = normalizedStatus(row.calibrationStatus ?? readiness.calibrationStatus ?? trust.calibrationStatus);
   const backtestStatus = normalizedStatus(row.backtestStatus ?? readiness.backtestStatus ?? trust.backtestStatus);
   const marketCapabilityStatus = normalizedStatus(row.marketCapabilityStatus ?? trust.marketCapabilityStatus);
   return {
     actionLabel: text(row.actionLabel ?? trust.actionLabel ?? actionability.label, "Research only"),
     marketCapabilityStatus,
-    modelProductionEligible: Boolean(row.modelProductionEligible ?? readiness.modelProductionEligible),
+    modelProductionEligible: Boolean(row.productionEligible ?? productionGate.productionEligible ?? row.modelProductionEligible ?? readiness.modelProductionEligible),
     productionStatus,
+    productionGateStatus,
+    productionGateReasons,
     calibrationStatus,
     backtestStatus,
     freshnessStatus: normalizedStatus(freshness.status),
@@ -213,7 +221,7 @@ export function rowTrustSummary(row: OutlierBoardRow): RowTrustSummary {
     canShowConfidentPick: Boolean(row.canShowConfidentPick ?? readiness.canShowConfidentPick),
     hasCriticalMissingData: missingDataCount > 0,
     actionabilityReason: text(row.actionabilityReason ?? actionability.reason, "Research only because production model gates have not passed."),
-    productionEligibleReason: text(row.productionEligibleReason, ""),
+    productionEligibleReason: text(row.productionEligibleReason ?? productionGate.copy, ""),
     missingFeatureGroups,
     missingDataSummary: text(row.missingDataSummary, missingDataCount ? "Missing data is present." : "No critical missing feature groups reported."),
   };
@@ -275,6 +283,18 @@ function productionEligibilityChip(row: OutlierBoardRow): TrustChip {
     return { label: "Production eligible", tone: "good", title: summary.productionEligibleReason || "Production eligibility gates passed." };
   }
   return { label: "Research only", tone: "watch", title: summary.productionEligibleReason || "Production model gates have not passed." };
+}
+
+function productionGateChip(row: OutlierBoardRow): TrustChip {
+  const summary = rowTrustSummary(row);
+  if (summary.productionGateStatus === "eligible_not_enabled") {
+    return { label: "Gates pass, disabled", tone: "watch", title: summary.productionEligibleReason || "Research only. Production betting gates passed, but bet actions are disabled." };
+  }
+  if (summary.productionGateStatus === "blocked") {
+    const reason = summary.productionGateReasons[0] ? summary.productionGateReasons[0].replace(/_/g, " ") : "quality gates are incomplete";
+    return { label: "Production gates closed", tone: "risk", title: summary.productionEligibleReason || `Research only. Production betting gates are closed: ${reason}.` };
+  }
+  return { label: "Production gates closed", tone: "watch", title: "Research only. Production betting gates are closed." };
 }
 
 function productionStatusChip(row: OutlierBoardRow): TrustChip | null {

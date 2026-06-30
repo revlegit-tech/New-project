@@ -100,6 +100,10 @@ class EdgeBoardRow(StrictPayload):
     missingDataSummary: str | None = None
     productionEligibleReason: str | None = None
     actionabilityReason: str | None = None
+    productionGateStatus: str | None = None
+    productionGateReasons: list[str] = Field(default_factory=list)
+    productionEligible: bool | None = None
+    betActionAllowed: bool | None = None
     warningCount: int | None = None
     trustWarnings: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)

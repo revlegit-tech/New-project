@@ -94,6 +94,26 @@ def write_calibration(
     return path
 
 
+def write_backtest_summary(settings: Settings, market: str = "batter_hits", *, sample_size: int = 250) -> Path:
+    path = settings.data_dir / "backtests" / "player_prop_model_backtest_summary_2026.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "markets": {
+                    market: {
+                        "sampleSize": sample_size,
+                        "brierScore": 0.18,
+                        "calibrationError": 0.03,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def write_warning_model(settings: Settings, market: str, probability: float = 0.62) -> Path:
     path = settings.model_dir / f"prop_model_{market}.joblib"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -406,6 +426,10 @@ def test_calibration_skipped_when_artifact_missing(tmp_path: Path) -> None:
     assert row["calibrationApplied"] is False
     assert row["calibrationStatus"] == "not_available"
     assert row["modelProbabilityPercent"] == 62
+    assert row["productionEligible"] is False
+    assert row["betActionAllowed"] is False
+    assert row["productionGateStatus"] == "blocked"
+    assert "calibration_not_available" in row["productionGateReasons"]
 
 
 def test_calibration_skipped_when_sample_too_small(tmp_path: Path) -> None:
@@ -458,6 +482,34 @@ def test_production_action_remains_research_with_calibration(tmp_path: Path) -> 
     )["rows"][0]
 
     assert row["modelProbabilityPercent"] == 95
+    assert row["readinessLabel"] == "Experimental"
+    assert row["action"] == "Research"
+    assert row["stakeUnits"] == 0
+    assert row["betActionAllowed"] is False
+
+
+def test_strong_calibrated_row_can_be_production_eligible_but_research_locked(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.6)
+    write_calibration(settings, "batter_hits", intercept=0.02)
+    write_backtest_summary(settings)
+    write_csv(
+        settings.data_dir / "features" / "prop_features_2026-06-29.csv",
+        [base_row(source_row_id="row-1", prop_key="prop-1", game_pk="12345")],
+    )
+
+    row = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )["rows"][0]
+
+    assert row["identityConfidence"] == "strong"
+    assert row["productionEligible"] is True
+    assert row["productionGateStatus"] == "eligible_not_enabled"
+    assert row["productionGateReasons"] == ""
+    assert row["betActionAllowed"] is False
     assert row["readinessLabel"] == "Experimental"
     assert row["action"] == "Research"
     assert row["stakeUnits"] == 0

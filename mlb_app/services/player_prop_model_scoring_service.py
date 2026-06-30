@@ -26,6 +26,7 @@ from mlb_app.services.player_prop_identity_confidence import (
     identity_confidence_for_row,
     serialize_identity_warnings,
 )
+from mlb_app.services.player_prop_production_gate_service import PlayerPropProductionGateService
 from mlb_app.services.prop_side_normalization import normalize_prop_side
 
 OUTPUT_FIELDS = [
@@ -71,6 +72,11 @@ OUTPUT_FIELDS = [
     "opponentVerified",
     "warnings",
     "modelQualityWarnings",
+    "productionGateStatus",
+    "productionGateReasons",
+    "productionEligible",
+    "betActionAllowed",
+    "predictionMatched",
     "source_row_id",
     "prop_key",
     "game_pk",
@@ -145,6 +151,7 @@ class PlayerPropModelScoringService:
     def __init__(self, *, settings: Settings = default_settings) -> None:
         self.settings = settings
         self.calibration = PlayerPropModelCalibrationService(settings=settings)
+        self.production_gates = PlayerPropProductionGateService(settings=settings)
 
     def score(
         self,
@@ -287,6 +294,7 @@ class PlayerPropModelScoringService:
                 "opponentVerified": identity["opponentVerified"],
                 "warnings": "|".join(sorted(set(warnings))),
                 "modelQualityWarnings": "|".join(sorted(set(calibration.warnings))),
+                "predictionMatched": True,
                 "source_row_id": str(first_value(row, ["source_row_id"], "")).strip(),
                 "prop_key": str(first_value(row, ["prop_key"], "")).strip(),
                 "game_pk": str(first_value(row, ["game_pk", "gamePk"], "")).strip(),
@@ -297,6 +305,15 @@ class PlayerPropModelScoringService:
                 "odds_move": _number_or_blank(first_value(row, ["odds_move", "oddsMove"], "")),
                 "line_move": _number_or_blank(first_value(row, ["line_move", "lineMove"], "")),
             }
+            gate = self.production_gates.evaluate(output, season=season, date_label=selected_date)
+            output.update(
+                {
+                    "productionGateStatus": gate.productionGateStatus,
+                    "productionGateReasons": "|".join(gate.productionGateReasons),
+                    "productionEligible": gate.productionEligible,
+                    "betActionAllowed": gate.betActionAllowed,
+                }
+            )
             predictions.append(output)
             scored_by_market[market] += 1
 

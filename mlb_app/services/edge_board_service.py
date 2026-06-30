@@ -202,7 +202,13 @@ class EdgeBoardService:
                 "suggestedStake": "Research only",
                 "productionStatus": "experimental",
                 "canShowConfidentPick": False,
-                "modelProductionEligible": False,
+                "modelProductionEligible": bool(row.get("productionEligible")),
+                "productionGateStatus": _clean(row.get("productionGateStatus")) or "blocked",
+                "productionGateReasons": _reason_list(row.get("productionGateReasons"))
+                if _clean(row.get("productionGateStatus"))
+                else ["production_gate_missing"],
+                "productionEligible": bool(row.get("productionEligible")),
+                "betActionAllowed": False,
                 "predictionMatched": True,
             }
         )
@@ -232,7 +238,9 @@ class EdgeBoardService:
         readiness["label"] = "Experimental"
         readiness["status"] = "experimental"
         readiness["warnings"] = (enriched.get("trustWarnings") or [])[:6]
-        readiness["modelProductionEligible"] = False
+        readiness["modelProductionEligible"] = bool(enriched.get("productionEligible"))
+        readiness["productionGateStatus"] = enriched["productionGateStatus"]
+        readiness["productionGateReasons"] = enriched["productionGateReasons"]
         trust["readiness"] = readiness
         prop_identity = dict(trust.get("propIdentity") or {})
         prop_identity.update(
@@ -249,7 +257,15 @@ class EdgeBoardService:
         actionability["status"] = "research_only"
         actionability["suggestedStake"] = "Research only"
         actionability["stakeUnits"] = 0
+        actionability["reason"] = _production_gate_copy(enriched["productionGateStatus"], enriched["productionGateReasons"])
         trust["actionability"] = actionability
+        trust["productionGate"] = {
+            "status": enriched["productionGateStatus"],
+            "reasons": enriched["productionGateReasons"],
+            "productionEligible": bool(enriched.get("productionEligible")),
+            "betActionAllowed": False,
+            "copy": _production_gate_copy(enriched["productionGateStatus"], enriched["productionGateReasons"]),
+        }
         trust["actionLabel"] = "Research"
         trust["researchOnly"] = True
         enriched["trust"] = trust
@@ -266,6 +282,10 @@ class EdgeBoardService:
             "readinessLabel": _clean(row.get("readinessLabel")) or "No model",
             "action": _clean(row.get("action")) or "No bet",
             "stakeUnits": 0,
+            "productionGateStatus": "research_only",
+            "productionGateReasons": ["no_modeled_prediction"],
+            "productionEligible": False,
+            "betActionAllowed": False,
         }
 
     def _payload_from_database(self, query: dict[str, list[str]]) -> dict[str, Any] | None:
@@ -519,6 +539,10 @@ class EdgeBoardService:
                 "latestGradedDate": latest_graded,
                 "calibrationStatus": calibration_status,
                 "backtestStatus": backtest_status,
+                "productionGateStatus": "research_only",
+                "productionGateReasons": ["no_modeled_prediction"],
+                "productionEligible": False,
+                "betActionAllowed": False,
                 "missingFeatureGroups": missing_feature_groups,
                 "missingDataCount": len(missing_feature_groups),
                 "missingDataSummary": _missing_data_summary(missing_feature_groups),
@@ -640,6 +664,10 @@ class EdgeBoardService:
                     "decisionLabel": "Research",
                     "stakeUnits": 0,
                     "suggestedStake": "Research only",
+                    "productionGateStatus": _clean(enriched.get("productionGateStatus")) or "blocked",
+                    "productionGateReasons": _reason_list(enriched.get("productionGateReasons")) or ["production_gate_missing"],
+                    "productionEligible": bool(enriched.get("productionEligible")),
+                    "betActionAllowed": False,
                 }
             )
         else:
@@ -657,8 +685,17 @@ class EdgeBoardService:
         if matched:
             readiness["label"] = "Experimental"
             readiness["status"] = "experimental"
-            readiness["modelProductionEligible"] = False
+            readiness["modelProductionEligible"] = bool(enriched.get("productionEligible"))
+            readiness["productionGateStatus"] = enriched.get("productionGateStatus")
+            readiness["productionGateReasons"] = enriched.get("productionGateReasons")
             trust["readiness"] = readiness
+            trust["productionGate"] = {
+                "status": enriched.get("productionGateStatus"),
+                "reasons": enriched.get("productionGateReasons") or [],
+                "productionEligible": bool(enriched.get("productionEligible")),
+                "betActionAllowed": False,
+                "copy": _production_gate_copy(enriched.get("productionGateStatus"), enriched.get("productionGateReasons") or []),
+            }
         if trust:
             trust["actionLabel"] = "Research" if matched else _clean(enriched.get("actionLabel"))
             trust["researchOnly"] = True
@@ -981,6 +1018,13 @@ def _row_trust(
             "stakeUnits": 0,
             "reason": actionability_reason,
         },
+        "productionGate": {
+            "status": _clean(row.get("productionGateStatus")) or "research_only",
+            "reasons": _reason_list(row.get("productionGateReasons")) or ["no_modeled_prediction"],
+            "productionEligible": bool(row.get("productionEligible")),
+            "betActionAllowed": False,
+            "copy": _production_gate_copy(row.get("productionGateStatus"), _reason_list(row.get("productionGateReasons"))),
+        },
         "marketCapabilityStatus": market_capability_status,
         "actionLabel": action_label,
         "calibrationStatus": calibration_status,
@@ -997,6 +1041,27 @@ def _normalized_row_side(row: dict[str, Any]) -> str:
         _first(row, "label", "title", "name"),
         _first(row, "outcome", "outcomeName", "outcome_name", "selection", "pickSide"),
     )
+
+
+def _reason_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [_clean(item) for item in value if _clean(item)]
+    raw = _clean(value)
+    if not raw:
+        return []
+    return [part.strip() for part in raw.replace(";", "|").split("|") if part.strip()]
+
+
+def _production_gate_copy(status: Any, reasons: list[str]) -> str:
+    normalized = _clean(status).lower()
+    if normalized == "eligible_not_enabled":
+        return "Research only. Production betting gates passed, but bet actions are disabled."
+    if normalized == "closed":
+        return "Production betting gates are closed pending explicit action policy review."
+    if normalized == "blocked":
+        detail = reasons[0].replace("_", " ") if reasons else "quality gates are incomplete"
+        return f"Research only. Production betting gates are closed: {detail}."
+    return "Research only. Production betting gates are closed."
 
 
 def _row_freshness(row: dict[str, Any], board: dict[str, Any]) -> dict[str, Any]:
