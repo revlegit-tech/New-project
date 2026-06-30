@@ -226,6 +226,7 @@ class PlayerPropModelScoringService:
             "extremeProbabilityRows": extreme_probability_rows,
             "extremeEdgeRows": extreme_edge_rows,
             "rows_skipped": len(rows) - len(predictions),
+            "rowsSkipped": len(rows) - len(predictions),
             "skipped_by_reason": dict(sorted(skipped_by_reason.items())),
             "scored_by_market": dict(sorted(scored_by_market.items())),
             "missing_model_markets": sorted(missing_model_markets),
@@ -235,6 +236,7 @@ class PlayerPropModelScoringService:
             "errors": errors,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
+        summary["generatedAt"] = summary["generated_at"]
         report = {"summary": summary, "rows": predictions}
 
         if not dry_run:

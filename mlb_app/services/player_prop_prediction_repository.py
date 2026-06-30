@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -25,17 +26,36 @@ class PlayerPropPredictionRepository:
     def prediction_path(self, date_label: str) -> Path:
         return self.settings.data_dir / "predictions" / f"prop_predictions_{date_label}.csv"
 
+    def summary_path(self, date_label: str) -> Path:
+        return self.settings.data_dir / "predictions" / f"prop_predictions_{date_label}_summary.json"
+
     def join_predictions(self, rows: list[dict[str, Any]], *, date_label: str) -> PredictionJoinResult:
+        requested_date = _clean(date_label)
         path = self.prediction_path(date_label)
-        predictions = self._load_predictions(path)
+        summary_path = self.summary_path(date_label)
+        summary = self._load_summary(summary_path)
+        raw_predictions = self._load_predictions(path)
+        predictions = [row for row in raw_predictions if _clean(row.get("date")) == requested_date]
+        rejected_date_mismatch = len(raw_predictions) - len(predictions)
+        summary_date = _clean(summary.get("date"))
+        summary_date_mismatch = bool(summary_date and summary_date != requested_date)
+        if summary_date_mismatch:
+            predictions = []
+            rejected_date_mismatch = len(raw_predictions)
         source = str(path)
         by_market = Counter(_clean(row.get("market")) or "unknown" for row in predictions)
         meta: dict[str, Any] = {
             "predictionsLoaded": len(predictions),
+            "predictionsFileRows": len(raw_predictions),
             "predictionsMatched": 0,
             "predictionsMissing": len(rows),
             "predictionsAmbiguous": 0,
+            "predictionsRejectedDateMismatch": rejected_date_mismatch,
+            "predictionDate": requested_date,
+            "predictionSummaryDate": summary_date,
+            "predictionSummaryPath": str(summary_path) if summary_path.is_file() else "",
             "predictionSource": source if path.is_file() else "",
+            "predictionGeneratedAt": _clean(_first(summary, "generatedAt", "generated_at")),
             "predictionsByMarket": dict(sorted(by_market.items())),
         }
         if not rows or not predictions:
@@ -69,6 +89,16 @@ class PlayerPropPredictionRepository:
                 return [dict(row) for row in csv.DictReader(handle)]
         except Exception:
             return []
+
+    @staticmethod
+    def _load_summary(path: Path) -> dict[str, Any]:
+        if not path.is_file():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
 
 @dataclass(frozen=True)

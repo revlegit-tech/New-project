@@ -120,6 +120,7 @@ def test_edge_board_prediction_match_populates_model_probability_and_edge(tmp_pa
     assert matched["predictionWarnings"] == ["experimental_warning"]
     assert matched["trust"]["modelEdge"]["modelProbabilityPercent"] == 61.25
     assert payload["meta"]["predictionsLoaded"] == 1
+    assert payload["meta"]["predictionsFileRows"] == 1
     assert payload["meta"]["predictionsMatched"] == 1
     assert payload["meta"]["predictionsMissing"] == 0
     assert payload["meta"]["predictionsAmbiguous"] == 0
@@ -173,6 +174,47 @@ def test_edge_board_missing_prediction_file_does_not_break_board(tmp_path: Path)
     assert payload["status"] == "ok"
     assert payload["rowCount"] == 1
     assert payload["rows"][0]["decisionLabel"] == "No bet"
+    assert payload["meta"]["predictionsLoaded"] == 0
+    assert payload["meta"]["predictionsMatched"] == 0
+    assert payload["meta"]["predictionsMissing"] == 1
+
+
+def test_edge_board_stale_prediction_rows_do_not_join(tmp_path: Path) -> None:
+    date_label = "2026-06-29"
+    stale_date = "2026-06-28"
+    row = _board_row(date_label=date_label)
+    settings = _settings(tmp_path)
+    _write_predictions(settings, date_label, [_prediction_for(row, date_label=stale_date)])
+
+    payload = _prediction_service_payload(settings, [row], date_label=date_label)
+
+    unmatched = payload["rows"][0]
+    assert unmatched["predictionMatched"] is not True
+    assert payload["meta"]["predictionsLoaded"] == 0
+    assert payload["meta"]["predictionsFileRows"] == 1
+    assert payload["meta"]["predictionsRejectedDateMismatch"] == 1
+    assert payload["meta"]["predictionsMatched"] == 0
+    assert payload["meta"]["predictionsMissing"] == 1
+
+
+def test_edge_board_request_date_mismatch_skips_prediction_join(tmp_path: Path) -> None:
+    requested_date = "2026-06-29"
+    board_date = "2026-06-28"
+    row = _board_row(date_label=board_date)
+    settings = _settings(tmp_path)
+    _write_predictions(settings, board_date, [_prediction_for(row, date_label=board_date)])
+
+    payload = EdgeBoardService(
+        playerboard_service=FakePlayerboardService([row], date_label=board_date),
+        model_card_service=FakeModelCardService(readiness_label="No model"),
+        player_prop_prediction_repository=PlayerPropPredictionRepository(settings=settings),
+        settings=settings,
+    ).payload({"season": ["2026"], "date": [requested_date]})
+
+    unmatched = payload["rows"][0]
+    assert unmatched["predictionMatched"] is not True
+    assert payload["meta"]["predictionDate"] == requested_date
+    assert payload["meta"]["predictionBoardDate"] == board_date
     assert payload["meta"]["predictionsLoaded"] == 0
     assert payload["meta"]["predictionsMatched"] == 0
     assert payload["meta"]["predictionsMissing"] == 1

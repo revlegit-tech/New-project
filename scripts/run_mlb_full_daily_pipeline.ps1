@@ -281,6 +281,13 @@ print(json.dumps({
   $code | .\.venv\Scripts\python.exe -
 }
 
+Invoke-Step "Playerboard-safe model scoring" {
+  .\.venv\Scripts\python.exe .\scripts\score_player_prop_models.py `
+    --date $RunDate `
+    --season $Season `
+    --source playerboard
+}
+
 Invoke-Step "Feature matrix materialization" {
   $code = @"
 from pathlib import Path

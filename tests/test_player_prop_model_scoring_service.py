@@ -222,6 +222,7 @@ def test_missing_model_skips_safely(tmp_path: Path) -> None:
 
     assert report["summary"]["rows_scored"] == 0
     assert report["summary"]["rows_skipped"] == 1
+    assert report["summary"]["rowsSkipped"] == 1
     assert report["summary"]["skipped_by_reason"] == {"missing_model": 1}
     assert report["summary"]["missing_model_markets"] == ["pitcher_strikeouts"]
 

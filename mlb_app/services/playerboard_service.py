@@ -70,7 +70,7 @@ class PlayerboardService:
         if not save and not refresh and not replace_date:
             snapshot = self.read_service.get_snapshot(season=season, date_label=date_label, market=market)
             payload = self._payload_from_snapshot(snapshot, market=market, limit=limit)
-            payload = self._apply_game_market_enrichment(payload)
+            payload = self._apply_game_market_enrichment(payload, requested_date=date_label)
             if payload.get("cacheHit") or not build_if_missing:
                 return payload
 
@@ -83,7 +83,7 @@ class PlayerboardService:
             replace_date=replace_date,
             source_mode=source_mode,
         )
-        return self._apply_game_market_enrichment(self._attach_trust(payload, query))
+        return self._apply_game_market_enrichment(self._attach_trust(payload, query), requested_date=date_label)
 
     def _payload_from_snapshot(self, snapshot: PlayerboardSnapshot, *, market: str, limit: int) -> dict[str, Any]:
         rows = list(snapshot.rows)[:limit]
@@ -133,7 +133,7 @@ class PlayerboardService:
         enriched.setdefault("schemaVersion", PLAYERBOARD_SCHEMA_VERSION)
         return self._attach_runtime_trust(enriched)
 
-    def _apply_game_market_enrichment(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _apply_game_market_enrichment(self, payload: dict[str, Any], *, requested_date: str = "") -> dict[str, Any]:
         rows = _list_rows(payload.get("rows") or payload.get("top") or [])
         if not rows:
             return payload
@@ -155,7 +155,7 @@ class PlayerboardService:
             ]
 
         enriched = dict(payload)
-        enriched_rows = [_annotate_market_trust(row) for row in enriched_rows]
+        enriched_rows = [_prediction_default_row(_annotate_market_trust(row)) for row in enriched_rows]
         enriched["rows"] = enriched_rows
         if "top" in enriched:
             enriched["top"] = enriched_rows
@@ -164,14 +164,36 @@ class PlayerboardService:
             enriched_rows,
             enabled=bool(getattr(self.settings, "game_market_enrichment_enabled", True)),
         )
+        requested_date = _clean(requested_date)
         date_label = _clean(enriched.get("date"))
-        if date_label:
-            prediction_join = self.player_prop_prediction_repository.join_predictions(enriched_rows, date_label=date_label)
+        join_date = date_label or requested_date
+        if join_date and (not requested_date or requested_date == join_date):
+            prediction_join = self.player_prop_prediction_repository.join_predictions(enriched_rows, date_label=join_date)
             enriched_rows = prediction_join.rows
             enriched["rows"] = enriched_rows
             if "top" in enriched:
                 enriched["top"] = enriched_rows
             meta.update(prediction_join.meta)
+        elif requested_date and join_date:
+            enriched_rows = [_prediction_default_row(row) for row in enriched_rows]
+            enriched["rows"] = enriched_rows
+            if "top" in enriched:
+                enriched["top"] = enriched_rows
+            meta.update(
+                {
+                    "predictionsLoaded": 0,
+                    "predictionsMatched": 0,
+                    "predictionsMissing": len(enriched_rows),
+                    "predictionsAmbiguous": 0,
+                    "predictionsFileRows": 0,
+                    "predictionsRejectedDateMismatch": 0,
+                    "predictionDate": requested_date,
+                    "predictionBoardDate": join_date,
+                    "predictionSource": "",
+                    "predictionGeneratedAt": "",
+                    "predictionsByMarket": {},
+                }
+            )
         enriched["meta"] = meta
         return enriched
 
@@ -302,3 +324,12 @@ def _annotate_market_trust(row: dict[str, Any]) -> dict[str, Any]:
     trust.setdefault("researchOnly", capability != "model_supported" or not bool(enriched.get("modelProductionEligible")))
     enriched["trust"] = trust
     return enriched
+
+
+def _prediction_default_row(row: dict[str, Any]) -> dict[str, Any]:
+    return dict(row) | {
+        "predictionMatched": False,
+        "predictionKey": _clean(row.get("predictionKey")),
+        "predictionSource": _clean(row.get("predictionSource")),
+        "predictionWarnings": list(row.get("predictionWarnings") or []),
+    }

@@ -99,11 +99,19 @@ class EdgeBoardService:
             for index, row in enumerate(raw_rows)
         ]
         prediction_meta = self._prediction_meta_defaults()
-        date_label = _clean(board.get("date") or board.get("latestAvailableDate") or _query_value(query, "date"))
-        if date_label:
+        requested_date = _clean(_query_value(query, "date"))
+        board_date = _clean(board.get("date") or board.get("latestAvailableDate"))
+        date_label = board_date or requested_date
+        if date_label and (not requested_date or requested_date == date_label):
             prediction_join = self.player_prop_prediction_repository.join_predictions(rows, date_label=date_label)
             rows = [self._apply_prediction_match(row) for row in prediction_join.rows]
             prediction_meta = prediction_join.meta
+        elif requested_date and date_label:
+            rows = [self._prediction_default_row(row) for row in rows]
+            prediction_meta["predictionDate"] = requested_date
+            prediction_meta["predictionBoardDate"] = date_label
+            prediction_meta["predictionsMissing"] = len(rows)
+            prediction_meta["predictionsRejectedDateMismatch"] = 0
 
         return {
             "status": "ok",
@@ -154,13 +162,18 @@ class EdgeBoardService:
             "predictionsMissing": 0,
             "predictionsAmbiguous": 0,
             "predictionSource": "",
+            "predictionDate": "",
+            "predictionBoardDate": "",
+            "predictionGeneratedAt": "",
+            "predictionsFileRows": 0,
+            "predictionsRejectedDateMismatch": 0,
             "predictionsByMarket": {},
         }
 
     @staticmethod
     def _apply_prediction_match(row: dict[str, Any]) -> dict[str, Any]:
         if not row.get("predictionMatched"):
-            return dict(row) | {"predictionMatched": False, "predictionWarnings": list(row.get("predictionWarnings") or [])}
+            return EdgeBoardService._prediction_default_row(row)
         enriched = dict(row)
         enriched.update(
             {
@@ -212,6 +225,15 @@ class EdgeBoardService:
         trust["researchOnly"] = True
         enriched["trust"] = trust
         return enriched
+
+    @staticmethod
+    def _prediction_default_row(row: dict[str, Any]) -> dict[str, Any]:
+        return dict(row) | {
+            "predictionMatched": False,
+            "predictionKey": _clean(row.get("predictionKey")),
+            "predictionSource": _clean(row.get("predictionSource")),
+            "predictionWarnings": list(row.get("predictionWarnings") or []),
+        }
 
     def _payload_from_database(self, query: dict[str, list[str]]) -> dict[str, Any] | None:
         if self.snapshot_repository is None or not self.settings.db_enabled:
