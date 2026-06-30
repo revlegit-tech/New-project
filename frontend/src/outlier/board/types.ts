@@ -10,6 +10,10 @@ export interface PropIdentityTrust {
   line?: string | number;
   side?: string;
   book?: string;
+  identityConfidence?: string;
+  identityWarnings?: string[];
+  playerTeamVerified?: boolean;
+  opponentVerified?: boolean;
 }
 
 export interface ModelEdgeTrust {

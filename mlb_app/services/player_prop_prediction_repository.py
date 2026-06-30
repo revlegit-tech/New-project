@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
+from mlb_app.services.player_prop_identity_confidence import parse_identity_warnings
 from mlb_app.services.prop_side_normalization import normalize_prop_side
 
 
@@ -167,6 +168,7 @@ def prediction_key_for_board_row(row: dict[str, Any], *, date_label: str) -> str
 def _apply_prediction(row: dict[str, Any], prediction: dict[str, Any], *, source: str) -> dict[str, Any]:
     enriched = dict(row)
     warnings = _prediction_warnings(prediction)
+    identity_warnings = parse_identity_warnings(prediction.get("identityWarnings"))
     enriched.update(
         {
             "modelProbabilityPercent": _clean(prediction.get("modelProbabilityPercent")),
@@ -182,6 +184,11 @@ def _apply_prediction(row: dict[str, Any], prediction: dict[str, Any], *, source
             "predictionKey": _clean(prediction.get("predictionKey")) or prediction_key_for_board_row(row, date_label=_clean(prediction.get("date"))),
             "predictionSource": source,
             "predictionWarnings": warnings,
+            "identityConfidence": _clean(prediction.get("identityConfidence")) or _clean(row.get("identityConfidence")),
+            "identityWarnings": identity_warnings,
+            "playerTeamVerified": _truthy(prediction.get("playerTeamVerified")),
+            "opponentVerified": _truthy(prediction.get("opponentVerified")),
+            "joinKeyStrength": _clean(prediction.get("joinKeyStrength")) or _clean(row.get("joinKeyStrength")),
             "confidence": "Research",
             "recommendation": "Research",
         }
@@ -269,3 +276,7 @@ def _first(row: dict[str, Any], *keys: str) -> Any:
 
 def _clean(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _truthy(value: Any) -> bool:
+    return _clean(value).lower() in {"1", "true", "yes", "y", "verified"}

@@ -87,7 +87,9 @@ def test_edge_board_rows_expose_sprint34_trust_visibility_fields() -> None:
     assert row["calibrationStatus"] == "missing"
     assert row["backtestStatus"] == "missing"
     assert row["missingDataCount"] == 1
-    assert row["warningCount"] == 1
+    assert row["warningCount"] == 2
+    assert row["identityConfidence"] == "unknown"
+    assert "insufficient_identity_information:side" in row["identityWarnings"]
     assert row["suggestedStake"] in {"Research only", "0u"}
     assert row["trust"]["actionability"]["stakeUnits"] == 0
     assert "Calibration needed" in row["actionabilityReason"]

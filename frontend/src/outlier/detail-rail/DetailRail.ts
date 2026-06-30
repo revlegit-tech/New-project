@@ -2,7 +2,7 @@ import { jsonFetch } from "../../shared/api/client";
 import { clear, h } from "../../shared/components/dom";
 import { formatOdds, number, percent, signedPercent, text } from "../../shared/formatting";
 import { marketLabel } from "../../shared/markets/markets";
-import { badgeToneClass, freshnessSeverity, rowActionability, rowFreshness, rowReadiness, rowTrustChips, rowTrustCopy, rowTrustSummary, trustStatusLabel } from "../trust";
+import { badgeToneClass, freshnessSeverity, rowActionability, rowFreshness, rowPropIdentity, rowReadiness, rowTrustChips, rowTrustCopy, rowTrustSummary, trustStatusLabel } from "../trust";
 import {
   edgeValue,
   matchup,
@@ -142,6 +142,7 @@ function renderRowTrustDetail(row: OutlierBoardRow, status: unknown): HTMLElemen
   const runtime = objectValue(trust.runtime);
   const severity = freshnessSeverity(status);
   const summary = rowTrustSummary(row);
+  const identity = rowPropIdentity(row);
   return h("article", { className: "ob-rail-card" }, [
     h("h3", { text: "Model & source trust" }),
     h("div", { className: "ob-stat-grid" }, [
@@ -154,6 +155,7 @@ function renderRowTrustDetail(row: OutlierBoardRow, status: unknown): HTMLElemen
       stat("Labels", text(actionnetwork.trainableEligibility ?? actionnetwork.labelQuality, "not trainable")),
       stat("Workflow", text(runtime.workflowStatus, severity.label)),
       stat("Runtime", text(runtime.runtimeStatus, severity.label)),
+      stat("Identity", trustStatusLabel(identity.identityConfidence)),
       stat("As-of audit", text(row.asOfAuditStatus ?? runtime.asOfAuditStatus, "not reported")),
       stat("Umpire", text(row.umpireStatus ?? row.umpire_context_status, "neutral fallback")),
     ]),

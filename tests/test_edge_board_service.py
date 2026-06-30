@@ -118,6 +118,10 @@ def test_edge_board_prediction_match_populates_model_probability_and_edge(tmp_pa
     assert matched["stakeUnits"] == 0
     assert matched["predictionMatched"] is True
     assert matched["predictionWarnings"] == ["experimental_warning"]
+    assert matched["identityConfidence"] == "medium"
+    assert "Identity is inferred from board context. Research only." in matched["identityWarnings"]
+    assert matched["playerTeamVerified"] is False
+    assert matched["opponentVerified"] is False
     assert matched["trust"]["modelEdge"]["modelProbabilityPercent"] == 61.25
     assert payload["meta"]["predictionsLoaded"] == 1
     assert payload["meta"]["predictionsFileRows"] == 1
@@ -127,6 +131,7 @@ def test_edge_board_prediction_match_populates_model_probability_and_edge(tmp_pa
     assert payload["meta"]["predictionsByMarket"] == {"batter_hits": 1}
     assert payload["summary"]["modeledMarkets"] == 1
     assert payload["summary"]["modeledRows"] == 1
+    assert payload["summary"]["identityConfidenceCounts"] == {"medium": 1}
 
 
 def test_edge_board_unmatched_row_stays_no_model_no_bet(tmp_path: Path) -> None:
@@ -143,6 +148,9 @@ def test_edge_board_unmatched_row_stays_no_model_no_bet(tmp_path: Path) -> None:
     assert unmatched["predictionKey"] == ""
     assert unmatched["predictionSource"] == ""
     assert unmatched["predictionWarnings"] == []
+    assert unmatched["identityConfidence"] == "medium"
+    assert unmatched["playerTeamVerified"] is False
+    assert unmatched["opponentVerified"] is False
     assert unmatched["action"] == "No bet"
     assert unmatched["stakeUnits"] == 0
     assert unmatched["modelProbabilityPercent"] == ""
@@ -154,6 +162,73 @@ def test_edge_board_unmatched_row_stays_no_model_no_bet(tmp_path: Path) -> None:
     assert payload["meta"]["predictionsLoaded"] == 1
     assert payload["meta"]["predictionsMatched"] == 0
     assert payload["meta"]["predictionsMissing"] == 1
+
+
+def test_edge_board_strong_verified_identity_row(tmp_path: Path) -> None:
+    date_label = "2026-06-29"
+    row = _board_row(date_label=date_label) | {"playerTeamVerified": True, "opponentVerified": True}
+    settings = _settings(tmp_path)
+    _write_predictions(
+        settings,
+        date_label,
+        [_prediction_for(row, date_label=date_label, identityConfidence="strong", playerTeamVerified="true", opponentVerified="true")],
+    )
+
+    payload = _prediction_service_payload(settings, [row], date_label=date_label)
+
+    matched = payload["rows"][0]
+    assert matched["predictionMatched"] is True
+    assert matched["identityConfidence"] == "strong"
+    assert matched["identityWarnings"] == []
+    assert matched["playerTeamVerified"] is True
+    assert matched["opponentVerified"] is True
+
+
+def test_edge_board_weak_missing_opponent_identity_row_warns(tmp_path: Path) -> None:
+    date_label = "2026-06-29"
+    row = _board_row(date_label=date_label) | {"opponent": ""}
+    settings = _settings(tmp_path)
+
+    payload = _prediction_service_payload(settings, [row], date_label=date_label)
+
+    weak = payload["rows"][0]
+    assert weak["identityConfidence"] == "weak"
+    assert weak["identityWarnings"] == ["missing_opponent_identity"]
+    assert weak["action"] == "No bet"
+    assert weak["stakeUnits"] == 0
+
+
+def test_edge_board_medium_inferred_game_context_identity_row(tmp_path: Path) -> None:
+    date_label = "2026-06-29"
+    row = _board_row(date_label=date_label) | {"team": "", "opponent": "", "away": "NYY", "home": "BAL"}
+    settings = _settings(tmp_path)
+
+    payload = _prediction_service_payload(settings, [row], date_label=date_label)
+
+    inferred = payload["rows"][0]
+    assert inferred["identityConfidence"] == "medium"
+    assert inferred["identityWarnings"] == ["Identity is inferred from board context. Research only."]
+    assert inferred["playerTeamVerified"] is False
+    assert inferred["opponentVerified"] is False
+
+
+def test_edge_board_unknown_malformed_identity_row_defaults(tmp_path: Path) -> None:
+    date_label = "2026-06-29"
+    row = _board_row(date_label=date_label) | {"player": "", "line": "", "side": "", "rawLabel": ""}
+    settings = _settings(tmp_path)
+
+    payload = _prediction_service_payload(settings, [row], date_label=date_label)
+
+    unknown = payload["rows"][0]
+    assert unknown["identityConfidence"] == "unknown"
+    assert unknown["predictionMatched"] is False
+    assert unknown["predictionKey"] == ""
+    assert unknown["predictionSource"] == ""
+    assert unknown["predictionWarnings"] == []
+    assert unknown["readinessLabel"] == "No model"
+    assert unknown["action"] == "No bet"
+    assert unknown["stakeUnits"] == 0
+    assert "insufficient_identity_information:player,side,line" in unknown["identityWarnings"]
 
 
 def test_edge_board_ambiguous_prediction_match_does_not_join(tmp_path: Path) -> None:
@@ -171,6 +246,22 @@ def test_edge_board_ambiguous_prediction_match_does_not_join(tmp_path: Path) -> 
     assert ambiguous["edgePercent"] == ""
     assert payload["meta"]["predictionsMatched"] == 0
     assert payload["meta"]["predictionsAmbiguous"] == 1
+
+
+def test_edge_board_unsafe_identity_key_does_not_join(tmp_path: Path) -> None:
+    date_label = "2026-06-29"
+    row = _board_row(date_label=date_label)
+    settings = _settings(tmp_path)
+    _write_predictions(settings, date_label, [_prediction_for(row, date_label=date_label, joinKeyStrength="unsafe")])
+
+    payload = _prediction_service_payload(settings, [row], date_label=date_label)
+
+    unmatched = payload["rows"][0]
+    assert unmatched["predictionMatched"] is not True
+    assert unmatched["modelProbabilityPercent"] == ""
+    assert unmatched["edgePercent"] == ""
+    assert payload["meta"]["predictionsMatched"] == 0
+    assert payload["meta"]["predictionsMissing"] == 1
 
 
 def test_edge_board_missing_prediction_file_does_not_break_board(tmp_path: Path) -> None:
@@ -246,6 +337,26 @@ def test_edge_board_prediction_action_remains_research_and_stake_zero(tmp_path: 
     assert matched["stakeUnits"] == 0
     assert matched["trust"]["actionability"]["suggestedStake"] == "Research only"
     assert matched["trust"]["actionability"]["stakeUnits"] == 0
+
+
+def test_edge_board_weak_identity_prediction_remains_research_and_zero_stake(tmp_path: Path) -> None:
+    date_label = "2026-06-29"
+    row = _board_row(date_label=date_label) | {"opponent": ""}
+    settings = _settings(tmp_path)
+    _write_predictions(
+        settings,
+        date_label,
+        [_prediction_for(row, date_label=date_label, identityConfidence="weak", identityWarnings="missing_opponent_identity")],
+    )
+
+    payload = _prediction_service_payload(settings, [row], date_label=date_label)
+
+    matched = payload["rows"][0]
+    assert matched["predictionMatched"] is True
+    assert matched["identityConfidence"] == "weak"
+    assert matched["action"] == "Research"
+    assert matched["stakeUnits"] == 0
+    assert matched["modelProductionEligible"] is False
 
 
 def test_edge_board_snapshot_rows_keep_prediction_contract_and_normalize_side() -> None:
@@ -329,6 +440,10 @@ def _prediction_for(row: dict[str, Any], *, date_label: str, **overrides: Any) -
         "stakeUnits": "0",
         "predictionKey": prediction_key_for_board_row(row, date_label=date_label),
         "joinKeyStrength": "strong",
+        "identityConfidence": "",
+        "identityWarnings": "",
+        "playerTeamVerified": "",
+        "opponentVerified": "",
         "warnings": "",
     }
     prediction.update(overrides)
@@ -360,6 +475,10 @@ def _write_predictions(settings: Settings, date_label: str, rows: list[dict[str,
         "stakeUnits",
         "predictionKey",
         "joinKeyStrength",
+        "identityConfidence",
+        "identityWarnings",
+        "playerTeamVerified",
+        "opponentVerified",
         "warnings",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:

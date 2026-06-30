@@ -19,6 +19,10 @@ from mlb_app.services.player_prop_model_runtime import (
     score_exact_market_model,
     to_float,
 )
+from mlb_app.services.player_prop_identity_confidence import (
+    identity_confidence_for_row,
+    serialize_identity_warnings,
+)
 from mlb_app.services.prop_side_normalization import normalize_prop_side
 
 OUTPUT_FIELDS = [
@@ -52,6 +56,10 @@ OUTPUT_FIELDS = [
     "missingData",
     "predictionKey",
     "joinKeyStrength",
+    "identityConfidence",
+    "identityWarnings",
+    "playerTeamVerified",
+    "opponentVerified",
     "warnings",
     "source_row_id",
     "prop_key",
@@ -159,6 +167,7 @@ class PlayerPropModelScoringService:
                 market=market,
                 side=side,
             )
+            identity = identity_confidence_for_row(row, input_source=paths.input_source)
             if join_key_strength == "unsafe" and "unsafe_prediction_join_key" not in warnings:
                 warnings.append("unsafe_prediction_join_key")
 
@@ -193,6 +202,10 @@ class PlayerPropModelScoringService:
                 "missingData": str(first_value(row, ["missingData", "missing_data"], "")).strip(),
                 "predictionKey": prediction_key,
                 "joinKeyStrength": join_key_strength,
+                "identityConfidence": identity["identityConfidence"],
+                "identityWarnings": serialize_identity_warnings(identity["identityWarnings"]),
+                "playerTeamVerified": identity["playerTeamVerified"],
+                "opponentVerified": identity["opponentVerified"],
                 "warnings": "|".join(sorted(set(warnings))),
                 "source_row_id": str(first_value(row, ["source_row_id"], "")).strip(),
                 "prop_key": str(first_value(row, ["prop_key"], "")).strip(),
@@ -205,6 +218,12 @@ class PlayerPropModelScoringService:
 
         blank_team_opponent_rows = sum(1 for row in predictions if not row.get("team") or not row.get("opponent"))
         unsafe_join_key_rows = sum(1 for row in predictions if row.get("joinKeyStrength") == "unsafe")
+        identity_confidence_counts = Counter(str(row.get("identityConfidence") or "unknown") for row in predictions)
+        identity_warning_counts: Counter[str] = Counter()
+        for row in predictions:
+            for warning in str(row.get("identityWarnings") or "").split("|"):
+                if warning:
+                    identity_warning_counts[warning] += 1
         extreme_probability_rows = sum(1 for row in predictions if to_float(row.get("modelProbabilityPercent"), 0.0) >= 80.0)
         extreme_edge_rows = sum(1 for row in predictions if to_float(row.get("edgePercent"), 0.0) >= 40.0)
         summary = {
@@ -224,6 +243,8 @@ class PlayerPropModelScoringService:
             "rowsScored": len(predictions),
             "blankTeamOpponentRows": blank_team_opponent_rows,
             "unsafeJoinKeyRows": unsafe_join_key_rows,
+            "identityConfidenceCounts": dict(sorted(identity_confidence_counts.items())),
+            "identityWarningCounts": dict(sorted(identity_warning_counts.items())),
             "extremeProbabilityRows": extreme_probability_rows,
             "extremeEdgeRows": extreme_edge_rows,
             "rows_skipped": len(rows) - len(predictions),

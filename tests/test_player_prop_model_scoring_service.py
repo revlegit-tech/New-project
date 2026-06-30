@@ -148,6 +148,10 @@ def test_playerboard_prediction_preserves_identity_and_generates_strong_key(tmp_
     assert row["rawLabel"] == "Aaron Judge Over 0.5 Hits"
     assert row["predictionKey"] == "2026-06-29|batter_hits|aaron_judge|nyy|bos|fanduel|0.5|over|-115"
     assert row["joinKeyStrength"] == "strong"
+    assert row["identityConfidence"] == "medium"
+    assert row["playerTeamVerified"] is False
+    assert row["opponentVerified"] is False
+    assert "Identity is inferred from board context. Research only." in row["identityWarnings"]
     assert row["warnings"] == ""
 
 
@@ -206,7 +210,49 @@ def test_playerboard_missing_team_or_opponent_warns(tmp_path: Path) -> None:
     )["rows"][0]
 
     assert row["joinKeyStrength"] == "medium"
+    assert row["identityConfidence"] == "weak"
+    assert "missing_player_team_identity" in row["identityWarnings"]
     assert "missing_team_or_opponent" in row["warnings"]
+
+
+def test_feature_source_verified_identity_is_strong(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.62)
+    write_csv(
+        settings.data_dir / "features" / "prop_features_2026-06-29.csv",
+        [base_row(source_row_id="row-1", prop_key="prop-1", game_pk="12345")],
+    )
+
+    row = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )["rows"][0]
+
+    assert row["identityConfidence"] == "strong"
+    assert row["playerTeamVerified"] is True
+    assert row["opponentVerified"] is True
+    assert row["identityWarnings"] == ""
+
+
+def test_unknown_identity_for_malformed_scored_row(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.62)
+    write_csv(
+        settings.data_dir / "playerboard" / "playerboard_2026.csv",
+        [playerboard_row(player="", side="", rawLabel="", line="")],
+    )
+
+    row = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="playerboard",
+        dry_run=True,
+    )["rows"][0]
+
+    assert row["identityConfidence"] == "unknown"
+    assert "insufficient_identity_information:player,side,line" in row["identityWarnings"]
 
 
 def test_runtime_scores_exact_market_model_with_metadata(tmp_path: Path) -> None:
@@ -283,6 +329,7 @@ def test_feature_source_blank_identity_fields_are_marked_unsafe(tmp_path: Path) 
     )["rows"][0]
 
     assert row["joinKeyStrength"] == "unsafe"
+    assert row["identityConfidence"] == "unknown"
     assert "unsafe_prediction_join_key" in row["warnings"]
     assert row["source_row_id"] == ""
     assert row["prop_key"] == ""

@@ -9,6 +9,10 @@ export interface NormalizedPropIdentity {
   line: unknown;
   side: string;
   book: string;
+  identityConfidence: string;
+  identityWarnings: string[];
+  playerTeamVerified: boolean;
+  opponentVerified: boolean;
 }
 
 export interface NormalizedModelEdge {
@@ -78,6 +82,10 @@ export function rowPropIdentity(row: OutlierBoardRow): NormalizedPropIdentity {
     line: identity.line ?? row.line ?? row.propLine,
     side: text(identity.side ?? row.side ?? row.rawLabel ?? row.pickSide, "Over"),
     book: text(identity.book ?? row.book ?? row.sportsbook ?? row.bestBook, "Market"),
+    identityConfidence: normalizedStatus(identity.identityConfidence ?? row.identityConfidence ?? "unknown") || "unknown",
+    identityWarnings: arrayText(identity.identityWarnings ?? row.identityWarnings),
+    playerTeamVerified: Boolean(identity.playerTeamVerified ?? row.playerTeamVerified),
+    opponentVerified: Boolean(identity.opponentVerified ?? row.opponentVerified),
   };
 }
 
@@ -142,6 +150,10 @@ export function rowActionability(row: OutlierBoardRow): NormalizedActionability 
 }
 
 export function rowTrustCopy(row: OutlierBoardRow): string {
+  const identity = rowPropIdentity(row);
+  if (identity.identityConfidence === "medium" || identity.identityConfidence === "weak" || identity.identityConfidence === "unknown") {
+    return identity.identityWarnings[0] || "Identity is inferred from board context. Research only.";
+  }
   const readiness = rowReadiness(row);
   const actionability = rowActionability(row);
   if (actionability.status === "actionable" && readiness.canAct) {
@@ -166,6 +178,7 @@ export function rowTrustChips(row: OutlierBoardRow): TrustChip[] {
     backtestChip(row),
     freshnessChip(row),
     gameMarketChip(row),
+    identityChip(row),
     missingDataChip(row),
     warningChip(row),
     modelTrustChip(row),
@@ -299,6 +312,20 @@ function gameMarketChip(row: OutlierBoardRow): TrustChip | null {
   if (!status) return null;
   if (status === "matched" || status === "available") return { label: "Game markets ready", tone: "good", title: "Game market context matched." };
   return { label: "Game markets missing", tone: "watch", title: "Game market context missing; edge confidence is reduced." };
+}
+
+function identityChip(row: OutlierBoardRow): TrustChip {
+  const identity = rowPropIdentity(row);
+  if (identity.identityConfidence === "strong") {
+    return { label: "Identity strong", tone: "good", title: "Player, team, opponent, market, side, and line identity are verified." };
+  }
+  if (identity.identityConfidence === "medium") {
+    return { label: "Identity inferred", tone: "watch", title: identity.identityWarnings[0] || "Identity is inferred from board context. Research only." };
+  }
+  if (identity.identityConfidence === "weak") {
+    return { label: "Identity weak", tone: "risk", title: identity.identityWarnings[0] || "Team or opponent identity is incomplete. Research only." };
+  }
+  return { label: "Identity unknown", tone: "risk", title: identity.identityWarnings[0] || "Insufficient identity information. Research only." };
 }
 
 function missingDataChip(row: OutlierBoardRow): TrustChip | null {
