@@ -65,6 +65,23 @@ def base_row(**overrides: Any) -> dict[str, Any]:
     return row
 
 
+def playerboard_row(**overrides: Any) -> dict[str, Any]:
+    row = base_row(
+        american_odds="",
+        americanOdds="-115",
+        book="FanDuel",
+        bookKey="fanduel",
+        baseMarket="batter_hits",
+        isAltMarket="false",
+        rawLabel="Aaron Judge Over 0.5 Hits",
+        confidence="",
+        recommendation="",
+        missingData="",
+    )
+    row.update(overrides)
+    return row
+
+
 def test_scores_rows_with_tiny_market_model_and_writes_outputs(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     write_model(settings, "batter_hits", probability=0.62)
@@ -76,6 +93,7 @@ def test_scores_rows_with_tiny_market_model_and_writes_outputs(tmp_path: Path) -
     report = PlayerPropModelScoringService(settings=settings).score(
         date_label="2026-06-29",
         season=2026,
+        source="features",
         out_path=out,
         summary_out_path=summary_out,
     )
@@ -87,6 +105,96 @@ def test_scores_rows_with_tiny_market_model_and_writes_outputs(tmp_path: Path) -
     assert report["rows"][0]["action"] == "Research"
     assert out.exists()
     assert summary_out.exists()
+
+
+def test_playerboard_source_loads_playerboard_not_features(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.62)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-29.csv", [base_row(player="Feature Player")])
+    playerboard = settings.data_dir / "playerboard" / "playerboard_2026.csv"
+    write_csv(playerboard, [playerboard_row(player="Board Player")])
+
+    report = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="playerboard",
+        dry_run=True,
+    )
+
+    assert report["summary"]["inputSource"] == "playerboard"
+    assert report["summary"]["inputPath"] == str(playerboard)
+    assert report["summary"]["rowsLoaded"] == 1
+    assert report["rows"][0]["player"] == "Board Player"
+
+
+def test_playerboard_prediction_preserves_identity_and_generates_strong_key(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.62)
+    write_csv(settings.data_dir / "playerboard" / "playerboard_2026.csv", [playerboard_row()])
+
+    report = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="playerboard",
+        dry_run=True,
+    )
+    row = report["rows"][0]
+
+    assert row["team"] == "NYY"
+    assert row["opponent"] == "BOS"
+    assert row["book"] == "FanDuel"
+    assert row["bookKey"] == "fanduel"
+    assert row["rawLabel"] == "Aaron Judge Over 0.5 Hits"
+    assert row["predictionKey"] == "2026-06-29|batter_hits|aaron_judge|nyy|bos|fanduel|0.5|over|-115"
+    assert row["joinKeyStrength"] == "strong"
+    assert row["warnings"] == ""
+
+
+def test_playerboard_side_is_derived_from_raw_label_when_side_missing(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.62)
+    write_csv(
+        settings.data_dir / "playerboard" / "playerboard_2026.csv",
+        [playerboard_row(side="", rawLabel="Aaron Judge Under 1.5 Hits", line="1.5")],
+    )
+
+    row = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="playerboard",
+        dry_run=True,
+    )["rows"][0]
+
+    assert row["side"] == "Under"
+    assert row["modelProbabilityPercent"] == 38
+
+
+def test_playerboard_prediction_key_is_deterministic(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.62)
+    write_csv(settings.data_dir / "playerboard" / "playerboard_2026.csv", [playerboard_row()])
+    service = PlayerPropModelScoringService(settings=settings)
+
+    first = service.score(date_label="2026-06-29", season=2026, source="playerboard", dry_run=True)["rows"][0]
+    second = service.score(date_label="2026-06-29", season=2026, source="playerboard", dry_run=True)["rows"][0]
+
+    assert first["predictionKey"] == second["predictionKey"]
+
+
+def test_playerboard_missing_team_or_opponent_warns(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.62)
+    write_csv(settings.data_dir / "playerboard" / "playerboard_2026.csv", [playerboard_row(team="", opponent="BOS")])
+
+    row = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="playerboard",
+        dry_run=True,
+    )["rows"][0]
+
+    assert row["joinKeyStrength"] == "medium"
+    assert "missing_team_or_opponent" in row["warnings"]
 
 
 def test_runtime_scores_exact_market_model_with_metadata(tmp_path: Path) -> None:
@@ -110,7 +218,7 @@ def test_missing_model_skips_safely(tmp_path: Path) -> None:
     features = settings.data_dir / "features" / "prop_features_2026-06-29.csv"
     write_csv(features, [base_row(market="pitcher_strikeouts")])
 
-    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-29", season=2026, dry_run=True)
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-29", season=2026, source="features", dry_run=True)
 
     assert report["summary"]["rows_scored"] == 0
     assert report["summary"]["rows_skipped"] == 1
@@ -124,7 +232,7 @@ def test_bad_or_blank_odds_skip_safely(tmp_path: Path) -> None:
     features = settings.data_dir / "features" / "prop_features_2026-06-29.csv"
     write_csv(features, [base_row(american_odds=""), base_row(player="Juan Soto", american_odds="not-odds")])
 
-    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-29", season=2026, dry_run=True)
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-29", season=2026, source="features", dry_run=True)
 
     assert report["summary"]["rows_scored"] == 0
     assert report["summary"]["rows_skipped"] == 2
@@ -138,12 +246,34 @@ def test_outputs_remain_research_only_with_zero_stake(tmp_path: Path) -> None:
     features = settings.data_dir / "features" / "prop_features_2026-06-29.csv"
     write_csv(features, [base_row()])
 
-    row = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-29", season=2026, dry_run=True)["rows"][0]
+    row = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-29", season=2026, source="features", dry_run=True)["rows"][0]
 
     assert row["readinessLabel"] == "Experimental"
     assert row["action"] == "Research"
     assert row["stake"] == 0
     assert row["stakeUnits"] == 0
+
+
+def test_feature_source_blank_identity_fields_are_marked_unsafe(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings, "batter_hits", probability=0.62)
+    write_csv(
+        settings.data_dir / "features" / "prop_features_2026-06-29.csv",
+        [base_row(source_row_id="", prop_key="", game_pk="", team="", opponent="")],
+    )
+
+    row = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-29",
+        season=2026,
+        source="features",
+        dry_run=True,
+    )["rows"][0]
+
+    assert row["joinKeyStrength"] == "unsafe"
+    assert "unsafe_prediction_join_key" in row["warnings"]
+    assert row["source_row_id"] == ""
+    assert row["prop_key"] == ""
+    assert row["game_pk"] == ""
 
 
 def test_dry_run_does_not_write_prediction_artifacts(tmp_path: Path) -> None:
@@ -157,6 +287,7 @@ def test_dry_run_does_not_write_prediction_artifacts(tmp_path: Path) -> None:
     report = PlayerPropModelScoringService(settings=settings).score(
         date_label="2026-06-29",
         season=2026,
+        source="features",
         out_path=out,
         summary_out_path=summary_out,
         dry_run=True,

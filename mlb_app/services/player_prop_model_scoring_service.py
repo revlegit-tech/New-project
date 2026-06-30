@@ -22,12 +22,19 @@ from mlb_app.services.player_prop_model_runtime import (
 
 OUTPUT_FIELDS = [
     "date",
+    "season",
     "market",
+    "baseMarket",
+    "isAltMarket",
     "player",
     "team",
     "opponent",
+    "pitcher",
+    "book",
+    "bookKey",
     "line",
     "side",
+    "rawLabel",
     "americanOdds",
     "modelProbabilityPercent",
     "impliedProbabilityPercent",
@@ -39,6 +46,17 @@ OUTPUT_FIELDS = [
     "action",
     "stake",
     "stakeUnits",
+    "confidence",
+    "recommendation",
+    "missingData",
+    "predictionKey",
+    "joinKeyStrength",
+    "warnings",
+    "source_row_id",
+    "prop_key",
+    "game_pk",
+    "american_odds",
+    "implied_probability_percent",
 ]
 
 
@@ -72,6 +90,7 @@ class PlayerPropModelScoringService:
         paths = self.resolve_paths(
             date_label=selected_date,
             season=season,
+            source=source,
             features_path=Path(features_path) if features_path else None,
             playerboard_path=Path(playerboard_path) if playerboard_path else None,
             out_path=Path(out_path) if out_path else None,
@@ -117,25 +136,50 @@ class PlayerPropModelScoringService:
                 errors.append(f"{market}: {type(error).__name__}: {error}")
                 continue
 
-            side = _clean_side(first_value(row, ["side", "rawLabel"], "Over"))
+            side = _derive_side(row)
             probability = float(prediction.probability)
             if side.lower().startswith("under"):
                 probability = 1.0 - probability
             probability = min(max(probability, 0.0), 1.0)
-            implied = implied_probability_from_american(odds)
+            implied = _implied_probability(row, odds)
+            edge_percent = (probability - implied) * 100.0
+            model_probability_percent = probability * 100.0
+            warnings = _row_warnings(
+                row,
+                input_source=paths.input_source,
+                model_probability_percent=model_probability_percent,
+                edge_percent=edge_percent,
+            )
+            prediction_key = _prediction_key(row, selected_date=selected_date, market=market, side=side, odds=odds)
+            join_key_strength = _join_key_strength(
+                row,
+                input_source=paths.input_source,
+                prediction_key=prediction_key,
+                market=market,
+                side=side,
+            )
+            if join_key_strength == "unsafe" and "unsafe_prediction_join_key" not in warnings:
+                warnings.append("unsafe_prediction_join_key")
 
             output = {
                 "date": selected_date,
+                "season": int(season),
                 "market": market,
+                "baseMarket": str(first_value(row, ["baseMarket", "base_market"], "")).strip(),
+                "isAltMarket": str(first_value(row, ["isAltMarket", "is_alt_market"], "")).strip(),
                 "player": str(first_value(row, ["player"], "")).strip(),
                 "team": str(first_value(row, ["team"], "")).strip(),
                 "opponent": str(first_value(row, ["opponent"], "")).strip(),
+                "pitcher": str(first_value(row, ["pitcher"], "")).strip(),
+                "book": str(first_value(row, ["book", "sportsbook"], "")).strip(),
+                "bookKey": str(first_value(row, ["bookKey", "book_key", "sportsbookKey", "sportsbook_key"], "")).strip(),
                 "line": _number_or_blank(first_value(row, ["line", "sportsbook_line", "prop_line"], "")),
                 "side": side,
+                "rawLabel": str(first_value(row, ["rawLabel", "raw_label"], "")).strip(),
                 "americanOdds": _format_number(odds, 4),
-                "modelProbabilityPercent": _format_number(probability * 100.0, 2),
+                "modelProbabilityPercent": _format_number(model_probability_percent, 2),
                 "impliedProbabilityPercent": _format_number(implied * 100.0, 2),
-                "edgePercent": _format_number((probability - implied) * 100.0, 2),
+                "edgePercent": _format_number(edge_percent, 2),
                 "fairOdds": american_from_probability(probability),
                 "expectedValue": _format_number(expected_value_per_unit(probability, odds), 4),
                 "modelPath": _safe_model_id(model_path, self.settings),
@@ -143,25 +187,51 @@ class PlayerPropModelScoringService:
                 "action": "Research",
                 "stake": 0,
                 "stakeUnits": 0,
+                "confidence": str(first_value(row, ["confidence"], "")).strip(),
+                "recommendation": str(first_value(row, ["recommendation"], "Research")).strip() or "Research",
+                "missingData": str(first_value(row, ["missingData", "missing_data"], "")).strip(),
+                "predictionKey": prediction_key,
+                "joinKeyStrength": join_key_strength,
+                "warnings": "|".join(sorted(set(warnings))),
+                "source_row_id": str(first_value(row, ["source_row_id"], "")).strip(),
+                "prop_key": str(first_value(row, ["prop_key"], "")).strip(),
+                "game_pk": str(first_value(row, ["game_pk", "gamePk"], "")).strip(),
+                "american_odds": _format_number(odds, 4),
+                "implied_probability_percent": _format_number(implied * 100.0, 2),
             }
             predictions.append(output)
             scored_by_market[market] += 1
 
+        blank_team_opponent_rows = sum(1 for row in predictions if not row.get("team") or not row.get("opponent"))
+        unsafe_join_key_rows = sum(1 for row in predictions if row.get("joinKeyStrength") == "unsafe")
+        extreme_probability_rows = sum(1 for row in predictions if to_float(row.get("modelProbabilityPercent"), 0.0) >= 80.0)
+        extreme_edge_rows = sum(1 for row in predictions if to_float(row.get("edgePercent"), 0.0) >= 40.0)
         summary = {
             "date": selected_date,
             "season": int(season),
             "source": source,
             "input_source": paths.input_source,
             "input_path": str(paths.input_path),
+            "inputSource": paths.input_source,
+            "inputPath": str(paths.input_path),
             "output_path": str(paths.out_path),
             "summary_output_path": str(paths.summary_out_path),
             "dry_run": bool(dry_run),
             "rows_loaded": len(rows),
             "rows_scored": len(predictions),
+            "rowsLoaded": len(rows),
+            "rowsScored": len(predictions),
+            "blankTeamOpponentRows": blank_team_opponent_rows,
+            "unsafeJoinKeyRows": unsafe_join_key_rows,
+            "extremeProbabilityRows": extreme_probability_rows,
+            "extremeEdgeRows": extreme_edge_rows,
             "rows_skipped": len(rows) - len(predictions),
             "skipped_by_reason": dict(sorted(skipped_by_reason.items())),
             "scored_by_market": dict(sorted(scored_by_market.items())),
             "missing_model_markets": sorted(missing_model_markets),
+            "skippedByReason": dict(sorted(skipped_by_reason.items())),
+            "scoredByMarket": dict(sorted(scored_by_market.items())),
+            "missingModelMarkets": sorted(missing_model_markets),
             "errors": errors,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -180,20 +250,24 @@ class PlayerPropModelScoringService:
         *,
         date_label: str,
         season: int,
+        source: str,
         features_path: Path | None,
         playerboard_path: Path | None,
         out_path: Path | None,
         summary_out_path: Path | None,
     ) -> ScorePaths:
+        normalized_source = str(source or "playerboard").strip().lower()
+        if normalized_source not in {"playerboard", "features"}:
+            raise ValueError(f"Unsupported scoring source: {source!r}. Use 'playerboard' or 'features'.")
+
         feature_candidates = [
             self.settings.data_dir / "features" / f"prop_features_{date_label}.csv",
             self.settings.data_dir / "warehouse" / "ml_features" / f"player_prop_features_{date_label}.csv",
         ]
-        explicit_features = features_path is not None
-        selected_features = features_path if explicit_features else next((path for path in feature_candidates if path.is_file()), None)
         selected_playerboard = playerboard_path or (self.settings.data_dir / "playerboard" / f"playerboard_{season}.csv")
 
-        if selected_features is not None and selected_features.is_file():
+        if normalized_source == "features":
+            selected_features = features_path or next((path for path in feature_candidates if path.is_file()), feature_candidates[0])
             input_path = selected_features
             input_source = "features"
         else:
@@ -236,6 +310,27 @@ def _american_odds(row: dict[str, Any]) -> float | None:
     return float(odds)
 
 
+def _implied_probability(row: dict[str, Any], odds: float) -> float:
+    value = first_value(row, ["sportsbookImpliedPercent", "implied_probability_percent"], "")
+    parsed = to_float(value, math.nan)
+    if not math.isnan(parsed):
+        return parsed / 100.0 if parsed > 1.0 else parsed
+    return implied_probability_from_american(odds)
+
+
+def _derive_side(row: dict[str, Any]) -> str:
+    side = str(first_value(row, ["side"], "")).strip()
+    if side:
+        return _clean_side(side)
+    raw_label = str(first_value(row, ["rawLabel", "raw_label"], "")).strip()
+    tokens = [token.strip(" :/-_()[]{}").lower() for token in raw_label.split()]
+    if "under" in tokens:
+        return "Under"
+    if "over" in tokens:
+        return "Over"
+    return "Over"
+
+
 def _clean_side(value: Any) -> str:
     text = str(value or "").strip()
     return text[:1].upper() + text[1:].lower() if text else "Over"
@@ -249,6 +344,80 @@ def _number_or_blank(value: Any) -> float | str:
 def _format_number(value: float, places: int) -> float:
     rounded = round(float(value), places)
     return int(rounded) if rounded.is_integer() else rounded
+
+
+def _prediction_key(row: dict[str, Any], *, selected_date: str, market: str, side: str, odds: float) -> str:
+    player = str(first_value(row, ["player"], "")).strip()
+    team = str(first_value(row, ["team"], "")).strip()
+    opponent = str(first_value(row, ["opponent"], "")).strip()
+    book = str(first_value(row, ["bookKey", "book_key", "sportsbookKey", "sportsbook_key", "book", "sportsbook"], "")).strip()
+    line = _number_or_blank(first_value(row, ["line", "sportsbook_line", "prop_line"], ""))
+    parts = [
+        selected_date,
+        market,
+        _identity_key(player),
+        _identity_key(team),
+        _identity_key(opponent),
+        _identity_key(book),
+        str(line),
+        _identity_key(side),
+        str(_format_number(odds, 4)),
+    ]
+    if not selected_date or not market or not player or not book or not side:
+        return ""
+    return "|".join(parts)
+
+
+def _join_key_strength(row: dict[str, Any], *, input_source: str, prediction_key: str, market: str, side: str) -> str:
+    player = str(first_value(row, ["player"], "")).strip()
+    team = str(first_value(row, ["team"], "")).strip()
+    opponent = str(first_value(row, ["opponent"], "")).strip()
+    book = str(first_value(row, ["bookKey", "book_key", "sportsbookKey", "sportsbook_key", "book", "sportsbook"], "")).strip()
+    if input_source == "features":
+        required = ["source_row_id", "prop_key", "game_pk", "team", "opponent"]
+        if any(not _feature_identity_value(row, key) for key in required):
+            return "unsafe"
+    if prediction_key and team and opponent and book and player and market and side:
+        return "strong"
+    if prediction_key and (team or opponent):
+        return "medium"
+    return "unsafe"
+
+
+def _row_warnings(
+    row: dict[str, Any],
+    *,
+    input_source: str,
+    model_probability_percent: float,
+    edge_percent: float,
+) -> list[str]:
+    warnings: list[str] = []
+    team = str(first_value(row, ["team"], "")).strip()
+    opponent = str(first_value(row, ["opponent"], "")).strip()
+    if not team or not opponent:
+        warnings.append("missing_team_or_opponent")
+    if input_source == "features":
+        required = ["source_row_id", "prop_key", "game_pk", "team", "opponent"]
+        if any(not _feature_identity_value(row, key) for key in required):
+            warnings.append("unsafe_prediction_join_key")
+    if model_probability_percent >= 80.0 or edge_percent >= 40.0:
+        warnings.append("experimental_extreme_probability_review_required")
+    return warnings
+
+
+def _feature_identity_value(row: dict[str, Any], key: str) -> str:
+    aliases = {
+        "source_row_id": ["source_row_id", "sourceRowId"],
+        "prop_key": ["prop_key", "propKey"],
+        "game_pk": ["game_pk", "gamePk"],
+        "team": ["team"],
+        "opponent": ["opponent"],
+    }
+    return str(first_value(row, aliases.get(key, [key]), "")).strip()
+
+
+def _identity_key(value: Any) -> str:
+    return "_".join(str(value or "").strip().lower().split())
 
 
 def _safe_model_id(model_path: Path, settings: Settings) -> str:

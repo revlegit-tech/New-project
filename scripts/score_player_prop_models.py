@@ -17,7 +17,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Score MLB player props with exact trained market model artifacts.")
     parser.add_argument("--date", required=True, help="Slate date in YYYY-MM-DD format.")
     parser.add_argument("--season", type=int, default=2026)
-    parser.add_argument("--source", default="playerboard")
+    parser.add_argument("--source", choices=("playerboard", "features"), default="playerboard")
     parser.add_argument("--features", default="", help="Optional feature CSV path.")
     parser.add_argument("--playerboard", default="", help="Optional playerboard CSV path.")
     parser.add_argument("--out", default="", help="Prediction CSV output path.")
