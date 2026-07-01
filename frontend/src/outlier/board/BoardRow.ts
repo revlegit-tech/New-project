@@ -61,7 +61,8 @@ export function renderBoardRow(row: OutlierBoardRow, options: BoardRowRenderOpti
   const actionability = rowActionability(row);
   const attributionChip = rowAttributionChip(row);
   const trustChips = rowTrustChips(row).filter((chip) => !attributionChip || chip.label !== attributionChip.label);
-  const chips = attributionChip ? [attributionChip, ...trustChips].slice(0, 4) : trustChips.slice(0, 4);
+  const prioritizedChips = attributionChip ? [attributionChip, ...trustChips] : trustChips;
+  const chips = prioritizedChips.slice(0, 6);
   const market = rowMarketKey(row) || identity.market;
   const sideLine = [identity.side, text(rowLine(row), "")].filter(Boolean).join(" ");
   const isExperimental = readiness.label.toLowerCase().includes("experimental") || readiness.status.includes("experimental");
