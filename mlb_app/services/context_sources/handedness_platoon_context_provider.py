@@ -17,6 +17,7 @@ from mlb_app.services.context_sources.base import (
     to_float,
     write_csv_rows,
 )
+from mlb_app.services.player_prop_context_identity_service import normalize_opponent, normalize_player_name, normalize_team
 
 
 HAND_PLATOON_FIELDS = [
@@ -25,6 +26,10 @@ HAND_PLATOON_FIELDS = [
     "player",
     "team",
     "opponent",
+    "normalizedPlayer",
+    "normalizedTeam",
+    "normalizedOpponent",
+    "subjectRole",
     "batter_hand",
     "pitcher_hand",
     "batter_avg_vs_hand",
@@ -154,6 +159,10 @@ def _platoon_summary(
         "player": player,
         "team": team,
         "opponent": opponent,
+        "normalizedPlayer": normalize_player_name(player),
+        "normalizedTeam": normalize_team(team),
+        "normalizedOpponent": normalize_opponent(opponent),
+        "subjectRole": "batter",
         "batter_hand": _normalized_hand(first_value(latest, ["bats", "stand", "batter_hand"])),
         "pitcher_hand": pitcher_hand,
         "batter_avg_vs_hand": _avg(split_rows),

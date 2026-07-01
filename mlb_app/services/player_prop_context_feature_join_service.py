@@ -9,6 +9,7 @@ from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
 from mlb_app.services.player_prop_context_identity_service import (
+    align_board_context_identity,
     normalize_book_key,
     normalize_opponent,
     normalize_player_name,
@@ -34,6 +35,7 @@ class ContextJoinResult:
     counts: dict[str, Any]
     warnings: list[str] = field(default_factory=list)
     diagnostics: dict[str, Any] = field(default_factory=dict)
+    board_alignment_diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 CONTEXT_ARTIFACTS = (
@@ -119,9 +121,10 @@ class PlayerPropContextFeatureJoinService:
         season: int,
         input_source: str,
     ) -> ContextJoinResult:
-        output = [dict(row) for row in rows]
+        output = [align_board_context_identity(row) for row in rows]
         artifacts = self.load_artifacts(date_label=date_label)
         warnings: list[str] = []
+        board_alignment_diagnostics = _board_alignment_diagnostics(output)
         diagnostics = _new_diagnostics(artifacts)
         counts: dict[str, Any] = {
             "oddsMovementRowsLoaded": artifacts["odds_movement"]["rows"],
@@ -186,10 +189,12 @@ class PlayerPropContextFeatureJoinService:
                 date_label=date_label,
                 season=season,
                 input_source=input_source,
-                context_name_aliases=("player", "playerName", "name"),
-                row_name_aliases=("player", "playerName", "name"),
-                context_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
-                row_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
+                context_name_aliases=("normalizedPlayer", "normalized_player", "player", "playerName", "name"),
+                row_name_aliases=("subjectName", "normalizedSubjectName", "player", "playerName", "name"),
+                context_team_aliases=("normalizedTeam", "normalized_team", "team", "teamAbbr", "team_abbr", "teamCode"),
+                row_team_aliases=("subjectTeam", "normalizedSubjectTeam", "team", "teamAbbr", "team_abbr", "teamCode"),
+                row_opponent_aliases=("subjectOpponent", "normalizedSubjectOpponent", "opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
+                allowed_row_roles=("batter",),
                 loaded_key="playerRecentFormRowsLoaded",
                 joined_key="playerRecentFormRowsJoined",
                 skipped_key="playerRecentFormRowsSkipped",
@@ -210,10 +215,12 @@ class PlayerPropContextFeatureJoinService:
                 date_label=date_label,
                 season=season,
                 input_source=input_source,
-                context_name_aliases=("pitcher", "player", "playerName", "name"),
-                row_name_aliases=("pitcher", "probablePitcher", "opposingPitcher"),
-                context_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
-                row_team_aliases=("opponent", "opponentAbbr", "opponent_abbr", "opponentCode", "team", "teamAbbr"),
+                context_name_aliases=("normalizedPitcher", "normalizedPlayer", "pitcher", "player", "playerName", "name"),
+                row_name_aliases=("subjectName", "normalizedSubjectName", "pitcher", "probablePitcher"),
+                context_team_aliases=("normalizedTeam", "team", "teamAbbr", "team_abbr", "teamCode"),
+                row_team_aliases=("subjectTeam", "normalizedSubjectTeam", "team", "teamAbbr"),
+                row_opponent_aliases=("subjectOpponent", "normalizedSubjectOpponent", "opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
+                allowed_row_roles=("pitcher",),
                 loaded_key="pitcherContextRowsLoaded",
                 joined_key="pitcherContextRowsJoined",
                 skipped_key="pitcherContextRowsSkipped",
@@ -234,13 +241,14 @@ class PlayerPropContextFeatureJoinService:
                 date_label=date_label,
                 season=season,
                 input_source=input_source,
-                context_name_aliases=("player", "playerName", "name"),
-                row_name_aliases=("player", "playerName", "name"),
-                context_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
-                row_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
-                context_opponent_aliases=("opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
-                row_opponent_aliases=("opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
+                context_name_aliases=("normalizedPlayer", "normalized_player", "player", "playerName", "name"),
+                row_name_aliases=("subjectName", "normalizedSubjectName", "player", "playerName", "name"),
+                context_team_aliases=("normalizedTeam", "normalized_team", "team", "teamAbbr", "team_abbr", "teamCode"),
+                row_team_aliases=("subjectTeam", "normalizedSubjectTeam", "team", "teamAbbr", "team_abbr", "teamCode"),
+                context_opponent_aliases=("normalizedOpponent", "normalized_opponent", "opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
+                row_opponent_aliases=("subjectOpponent", "normalizedSubjectOpponent", "opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
                 allow_missing_side_unique=True,
+                allowed_row_roles=("batter",),
                 loaded_key="statcastRowsLoaded",
                 joined_key="statcastRowsJoined",
                 skipped_key="statcastRowsSkipped",
@@ -261,13 +269,14 @@ class PlayerPropContextFeatureJoinService:
                 date_label=date_label,
                 season=season,
                 input_source=input_source,
-                context_name_aliases=("player", "playerName", "name"),
-                row_name_aliases=("player", "playerName", "name"),
-                context_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
-                row_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
-                context_opponent_aliases=("opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
-                row_opponent_aliases=("opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
+                context_name_aliases=("normalizedPlayer", "normalized_player", "player", "playerName", "name"),
+                row_name_aliases=("subjectName", "normalizedSubjectName", "player", "playerName", "name"),
+                context_team_aliases=("normalizedTeam", "normalized_team", "team", "teamAbbr", "team_abbr", "teamCode"),
+                row_team_aliases=("subjectTeam", "normalizedSubjectTeam", "team", "teamAbbr", "team_abbr", "teamCode"),
+                context_opponent_aliases=("normalizedOpponent", "normalized_opponent", "opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
+                row_opponent_aliases=("subjectOpponent", "normalizedSubjectOpponent", "opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
                 allow_missing_side_unique=True,
+                allowed_row_roles=("batter",),
                 loaded_key="handednessPlatoonRowsLoaded",
                 joined_key="handednessPlatoonRowsJoined",
                 skipped_key="handednessPlatoonRowsSkipped",
@@ -302,6 +311,7 @@ class PlayerPropContextFeatureJoinService:
             counts=counts,
             warnings=sorted(set(warnings)),
             diagnostics=diagnostics,
+            board_alignment_diagnostics=board_alignment_diagnostics,
         )
 
     def load_artifacts(self, *, date_label: str) -> dict[str, dict[str, Any]]:
@@ -410,6 +420,7 @@ class PlayerPropContextFeatureJoinService:
         context_opponent_aliases: tuple[str, ...] = (),
         row_opponent_aliases: tuple[str, ...] = (),
         allow_missing_side_unique: bool = False,
+        allowed_row_roles: tuple[str, ...] = (),
         loaded_key: str,
         joined_key: str,
         skipped_key: str,
@@ -450,6 +461,13 @@ class PlayerPropContextFeatureJoinService:
             group_diag["ambiguousRows"] += duplicate_rows
 
         for row in rows:
+            role = str(first_value(row, ["subjectRole"], "") or "unknown").strip().lower() or "unknown"
+            if allowed_row_roles and role not in allowed_row_roles:
+                skipped_reasons[f"{spec.group}_role_not_applicable"] += 1
+                counts[skipped_key] += 1
+                _diagnostic_reason(group_diag, "role_not_applicable")
+                _add_sample(group_diag["unmatchedScoringSamples"], _sample_from_row(row, reason="role_not_applicable"))
+                continue
             if _identity_confidence(row, input_source=input_source) not in {"strong", "medium"}:
                 skipped_reasons[f"{spec.group}_weak_or_unknown_identity"] += 1
                 counts[skipped_key] += 1
@@ -533,6 +551,53 @@ def _public_artifacts(artifacts: dict[str, dict[str, Any]]) -> dict[str, dict[st
 
 def _new_diagnostics(artifacts: dict[str, dict[str, Any]]) -> dict[str, Any]:
     return {group: {**_empty_group_diagnostics(), "rowsLoaded": int(payload.get("rows") or 0)} for group, payload in artifacts.items()}
+
+
+def _board_alignment_diagnostics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "rowsWithCleanSubjectName": 0,
+        "rowsWithSubjectTeam": 0,
+        "rowsWithSubjectOpponent": 0,
+        "rowsMissingSubjectTeam": 0,
+        "rowsMissingSubjectOpponent": 0,
+        "rowsSuspectedTeamOpponentReversed": 0,
+        "rowsFixedTeamOpponentReversed": 0,
+        "rowsSkippedUnsafeTeamInference": 0,
+        "subjectRoleCounts": {},
+        "sampleAlignmentFixes": [],
+        "sampleMissingTeamRows": [],
+        "sampleReversedCandidates": [],
+    }
+    roles: Counter[str] = Counter()
+    for row in rows:
+        role = str(first_value(row, ["subjectRole"], "") or "unknown").strip() or "unknown"
+        roles[role] += 1
+        subject_name = str(first_value(row, ["subjectName"], "") or "").strip()
+        normalized_name = str(first_value(row, ["normalizedSubjectName"], "") or "").strip()
+        subject_team = str(first_value(row, ["normalizedSubjectTeam", "subjectTeam"], "") or "").strip()
+        subject_opponent = str(first_value(row, ["normalizedSubjectOpponent", "subjectOpponent"], "") or "").strip()
+        warnings = set(str(first_value(row, ["subjectIdentityWarnings"], "") or "").split("|"))
+        if subject_name and normalized_name:
+            payload["rowsWithCleanSubjectName"] += 1
+        if subject_team:
+            payload["rowsWithSubjectTeam"] += 1
+        else:
+            payload["rowsMissingSubjectTeam"] += 1
+            _add_sample(payload["sampleMissingTeamRows"], _sample_from_row(row, reason="missing_subject_team"))
+        if subject_opponent:
+            payload["rowsWithSubjectOpponent"] += 1
+        else:
+            payload["rowsMissingSubjectOpponent"] += 1
+        if row.get("subjectTeamOpponentSuspectedReversed") is True:
+            payload["rowsSuspectedTeamOpponentReversed"] += 1
+            _add_sample(payload["sampleReversedCandidates"], _sample_from_row(row, reason="team_opponent_mismatch"))
+        if row.get("subjectTeamOpponentFixed") is True:
+            payload["rowsFixedTeamOpponentReversed"] += 1
+            _add_sample(payload["sampleAlignmentFixes"], _sample_from_row(row, reason="team_opponent_reversed_fixed"))
+        if "skipped_unsafe_team_inference" in warnings:
+            payload["rowsSkippedUnsafeTeamInference"] += 1
+    payload["subjectRoleCounts"] = dict(sorted(roles.items()))
+    return payload
 
 
 def _empty_group_diagnostics() -> dict[str, Any]:

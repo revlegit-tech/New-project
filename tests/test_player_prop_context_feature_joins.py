@@ -41,30 +41,31 @@ def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str] | No
 
 
 def write_model(settings: Settings) -> None:
-    path = settings.model_dir / "prop_model_batter_hits.joblib"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(TinyProbabilityModel(), path)
-    metadata_path_for_model(path).write_text(
-        json.dumps(
-            {
-                "numericFeatures": [
-                    "line",
-                    "book_implied_probability",
-                    "odds_move",
-                    "line_move",
-                    "recent_games",
-                    "rolling_avg_5",
-                    "pitcher_k_rate",
-                    "pitcher_days_rest",
-                    "barrel_rate",
-                    "hard_hit_rate",
-                    "batter_avg_vs_hand",
-                    "batter_k_rate_vs_hand",
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
+    settings.model_dir.mkdir(parents=True, exist_ok=True)
+    for market in ("batter_hits", "pitcher_strikeouts"):
+        path = settings.model_dir / f"prop_model_{market}.joblib"
+        joblib.dump(TinyProbabilityModel(), path)
+        metadata_path_for_model(path).write_text(
+            json.dumps(
+                {
+                    "numericFeatures": [
+                        "line",
+                        "book_implied_probability",
+                        "odds_move",
+                        "line_move",
+                        "recent_games",
+                        "rolling_avg_5",
+                        "pitcher_k_rate",
+                        "pitcher_days_rest",
+                        "barrel_rate",
+                        "hard_hit_rate",
+                        "batter_avg_vs_hand",
+                        "batter_k_rate_vs_hand",
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
 
 
 def base_row(**overrides: Any) -> dict[str, Any]:
@@ -298,7 +299,10 @@ def test_player_recent_form_joins_on_safe_identity(tmp_path: Path) -> None:
 def test_pitcher_context_joins_on_safe_identity(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     write_model(settings)
-    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row(pitcher="Gerrit Cole")])
+    write_csv(
+        settings.data_dir / "features" / "prop_features_2026-06-30.csv",
+        [base_row(player="Gerrit Cole Strikeouts Thrown", team="BOS", opponent="NYY", market="pitcher_strikeouts")],
+    )
     write_csv(
         settings.data_dir / "context" / "pitcher_context" / "pitcher_context_2026-06-30.csv",
         [pitcher_context_row()],
@@ -308,11 +312,28 @@ def test_pitcher_context_joins_on_safe_identity(tmp_path: Path) -> None:
 
     row = report["rows"][0]
     summary = report["summary"]
+    assert row["subjectName"] == "Gerrit Cole"
+    assert row["subjectRole"] == "pitcher"
     assert row["pitcher_k_rate"] == 0.31
     assert row["pitcher_days_rest"] == 5
     assert summary["contextJoinCounts"]["pitcherContextRowsLoaded"] == 1
     assert summary["contextJoinCounts"]["pitcherContextRowsJoined"] == 1
     assert summary["featureCompleteness"]["pitcher_context"]["populatedPercent"] > 0
+
+
+def test_pitcher_context_skips_batter_rows_as_role_not_applicable(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row(pitcher="Gerrit Cole")])
+    write_csv(
+        settings.data_dir / "context" / "pitcher_context" / "pitcher_context_2026-06-30.csv",
+        [pitcher_context_row()],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    assert report["rows"][0]["pitcher_k_rate"] == ""
+    assert report["summary"]["contextIdentityDiagnostics"]["pitcher_context"]["contextJoinSkipReasons"]["role_not_applicable"] == 1
 
 
 def test_statcast_rows_join_on_safe_identity(tmp_path: Path) -> None:
@@ -369,6 +390,27 @@ def test_handedness_platoon_rows_join_on_safe_identity(tmp_path: Path) -> None:
     assert summary["contextJoinCounts"]["handednessPlatoonRowsJoined"] == 1
     assert summary["featureCompleteness"]["handedness_platoon"]["populatedPercent"] > 0
     assert summary["contextIdentityDiagnostics"]["handedness_platoon"]["rowsJoined"] == 1
+    assert summary["boardContextAlignmentDiagnostics"]["rowsWithSubjectTeam"] == 1
+    assert summary["boardContextAlignmentDiagnostics"]["subjectRoleCounts"]["batter"] == 1
+
+
+def test_handedness_platoon_skips_pitcher_rows_as_role_not_applicable(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(
+        settings.data_dir / "features" / "prop_features_2026-06-30.csv",
+        [base_row(player="Tarik Skubal Strikeouts Thrown", team="DET", opponent="HOU", market="pitcher_strikeouts")],
+    )
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row(player="Tarik Skubal", team="DET", opponent="HOU")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    assert report["rows"][0]["subjectName"] == "Tarik Skubal"
+    assert report["rows"][0]["batter_avg_vs_hand"] == ""
+    assert report["summary"]["contextIdentityDiagnostics"]["handedness_platoon"]["contextJoinSkipReasons"]["role_not_applicable"] == 1
 
 
 def test_handedness_platoon_joins_when_team_aliases_normalize(tmp_path: Path) -> None:
