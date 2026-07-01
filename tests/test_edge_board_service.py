@@ -337,9 +337,40 @@ def test_edge_board_unsafe_identity_key_does_not_join(tmp_path: Path) -> None:
     assert payload["meta"]["predictionsMissing"] == 1
 
 
-def test_edge_board_team_conflict_blocks_prediction_join(tmp_path: Path) -> None:
+def test_edge_board_corrected_team_mismatch_does_not_join_wrong_team_prediction(tmp_path: Path) -> None:
     date_label = "2026-06-29"
     row = _board_row(date_label=date_label) | {"player": "Jazz Chisholm", "team": "DET", "opponent": "NYY"}
+    settings = _settings(tmp_path)
+    _write_predictions(settings, date_label, [_prediction_for(row, date_label=date_label)])
+
+    payload = _prediction_service_payload(settings, [row], date_label=date_label)
+
+    corrected = payload["rows"][0]
+    assert corrected["predictionMatched"] is not True
+    assert corrected["attributionStatus"] == "corrected"
+    assert corrected["attributionConfidence"] == "high"
+    assert corrected["attributionCorrectionApplied"] is True
+    assert corrected["team"] == "NEW YORK YANKEES"
+    assert corrected["opponent"] == "DETROIT TIGERS"
+    assert corrected["resolvedTeam"] == "NEW YORK YANKEES"
+    assert corrected["resolvedOpponent"] == "DETROIT TIGERS"
+    assert corrected["correctedTeam"] == "NEW YORK YANKEES"
+    assert corrected["correctedOpponent"] == "DETROIT TIGERS"
+    assert corrected["contextBlockedByAttribution"] is False
+    assert "source_team_mismatch_corrected" in corrected["attributionWarnings"]
+    assert corrected["modelProbabilityPercent"] == ""
+    assert corrected["edgePercent"] == ""
+    assert corrected["action"] == "No bet"
+    assert corrected["stakeUnits"] == 0
+    assert corrected["betActionAllowed"] is False
+    assert payload["meta"]["predictionsMatched"] == 0
+    assert payload["meta"]["predictionsMissing"] == 1
+    assert payload["meta"]["predictionsBlockedByAttribution"] == 0
+
+
+def test_edge_board_uncorrectable_team_conflict_blocks_prediction_join(tmp_path: Path) -> None:
+    date_label = "2026-06-29"
+    row = _board_row(date_label=date_label) | {"player": "Jazz Chisholm", "team": "DET", "opponent": "BAL"}
     settings = _settings(tmp_path)
     _write_predictions(settings, date_label, [_prediction_for(row, date_label=date_label)])
 
@@ -349,8 +380,17 @@ def test_edge_board_team_conflict_blocks_prediction_join(tmp_path: Path) -> None
     assert blocked["predictionMatched"] is not True
     assert blocked["attributionStatus"] == "conflict"
     assert blocked["attributionConfidence"] == "low"
+    assert blocked["playerVerified"] is False
+    assert blocked["teamVerified"] is False
+    assert blocked["opponentVerified"] is False
     assert blocked["contextBlockedByAttribution"] is True
+    assert "context_limited_by_attribution" in blocked["predictionWarnings"]
     assert blocked["modelProbabilityPercent"] == ""
+    assert blocked["edgePercent"] == ""
+    assert blocked["action"] == "No bet"
+    assert blocked["stakeUnits"] == 0
+    assert blocked["betActionAllowed"] is False
+    assert payload["meta"]["predictionsMatched"] == 0
     assert payload["meta"]["predictionsBlockedByAttribution"] == 1
 
 
