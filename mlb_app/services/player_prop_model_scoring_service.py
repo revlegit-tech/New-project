@@ -480,7 +480,13 @@ class PlayerPropModelScoringService:
             "contextJoinWarnings": context_join_result.warnings,
             "contextIdentityDiagnostics": context_join_result.diagnostics,
             "boardContextAlignmentDiagnostics": context_join_result.board_alignment_diagnostics,
-            "handednessProviderDiagnostics": _handedness_provider_diagnostics(self.settings, selected_date),
+            "playerRecentFormProviderDiagnostics": _context_provider_diagnostics(
+                self.settings, selected_date, "player_recent_form"
+            ),
+            "pitcherContextProviderDiagnostics": _context_provider_diagnostics(
+                self.settings, selected_date, "pitcher_context"
+            ),
+            "handednessProviderDiagnostics": _context_provider_diagnostics(self.settings, selected_date, "handedness_platoon"),
             "oddsMovementRowsLoaded": context_join_result.counts.get("oddsMovementRowsLoaded", 0),
             "oddsMovementRowsJoined": context_join_result.counts.get("oddsMovementRowsJoined", 0),
             "oddsMovementRowsSkipped": context_join_result.counts.get("oddsMovementRowsSkipped", 0),
@@ -731,16 +737,18 @@ def _context_feature_artifacts(settings: Settings, date_label: str) -> dict[str,
     return artifacts
 
 
-def _handedness_provider_diagnostics(settings: Settings, date_label: str) -> dict[str, Any]:
+def _context_provider_diagnostics(settings: Settings, date_label: str, provider: str) -> dict[str, Any]:
     audit_path = settings.data_dir / "context" / f"context_source_audit_{date_label}.json"
     if audit_path.is_file():
         try:
             payload = json.loads(audit_path.read_text(encoding="utf-8"))
-            diagnostics = ((payload.get("providers") or {}).get("handedness_platoon") or {}).get("diagnostics")
+            diagnostics = ((payload.get("providers") or {}).get(provider) or {}).get("diagnostics")
             if isinstance(diagnostics, dict):
                 return diagnostics
         except Exception:
             pass
+    if provider != "handedness_platoon":
+        return {}
     path = settings.data_dir / "context" / "handedness_platoon" / f"handedness_platoon_{date_label}.csv"
     if not path.is_file():
         return {}

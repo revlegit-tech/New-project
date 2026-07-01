@@ -781,7 +781,7 @@ def _identity_context_entry(
         return None, "season_mismatch"
     if not name:
         return None, "missing_name"
-    if is_context and group in {"statcast", "handedness_platoon"}:
+    if is_context and group in {"player_recent_form", "pitcher_context", "statcast", "handedness_platoon"}:
         if _flag_false(first_value(row, ["pregameSafe", "pregame_safe"], True)):
             return None, "not_pregame_safe"
         if _flag_false(first_value(row, ["labelsExcluded", "labels_excluded"], True)):

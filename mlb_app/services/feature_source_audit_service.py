@@ -14,6 +14,7 @@ from mlb_app.services.context_sources.handedness_platoon_context_provider import
     HandednessPlatoonContextProvider,
 )
 from mlb_app.services.context_sources.mlb_stats_context_provider import MLBStatsContextProvider
+from mlb_app.services.context_sources.mlb_stats_context_provider import PITCHER_CONTEXT_FIELDS, PLAYER_RECENT_FORM_FIELDS
 from mlb_app.services.context_sources.odds_movement_context_provider import OddsMovementContextProvider
 from mlb_app.services.context_sources.savant_statcast_context_provider import STATCAST_FIELDS, SavantStatcastContextProvider
 from mlb_app.services.context_sources.umpire_context_provider import UmpireContextProvider
@@ -21,6 +22,8 @@ from mlb_app.services.context_sources.weather_context_provider import WeatherCon
 
 
 AUDIT_FIELD_CONTRACTS = {
+    "player_recent_form": PLAYER_RECENT_FORM_FIELDS,
+    "pitcher_context": PITCHER_CONTEXT_FIELDS,
     "statcast": STATCAST_FIELDS,
     "handedness_platoon": HAND_PLATOON_FIELDS,
 }
@@ -62,6 +65,14 @@ class FeatureSourceAuditService:
                     providers[name]["rowsWithBatterHand"] = diagnostics.get("contextRowsWithBatterHand", 0)
                     providers[name]["rowsWithPitcherHand"] = diagnostics.get("contextRowsWithPitcherHand", 0)
                     providers[name]["rowsWithSplitStats"] = diagnostics.get("contextRowsWithSplitStats", 0)
+                    providers[name]["externalApiCallsMade"] = diagnostics.get("externalApiCallsMade", providers[name].get("externalApiCallsMade", 0))
+                    providers[name]["pregameSafe"] = diagnostics.get("pregameSafe", providers[name].get("pregameSafe", True))
+                    providers[name]["labelsExcluded"] = diagnostics.get("labelsExcluded", providers[name].get("labelsExcluded", True))
+                if name in {"player_recent_form", "pitcher_context"}:
+                    diagnostics = providers[name].get("diagnostics") or {}
+                    providers[name]["rowsGenerated"] = diagnostics.get("rowsGenerated", providers[name].get("rows", 0))
+                    providers[name]["rowsGeneratedFromBoard"] = diagnostics.get("rowsGeneratedFromBoard", 0)
+                    providers[name]["historicalRowsUsed"] = diagnostics.get("historicalRowsUsed", 0)
                     providers[name]["externalApiCallsMade"] = diagnostics.get("externalApiCallsMade", providers[name].get("externalApiCallsMade", 0))
                     providers[name]["pregameSafe"] = diagnostics.get("pregameSafe", providers[name].get("pregameSafe", True))
                     providers[name]["labelsExcluded"] = diagnostics.get("labelsExcluded", providers[name].get("labelsExcluded", True))
