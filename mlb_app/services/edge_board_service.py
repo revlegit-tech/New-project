@@ -19,7 +19,7 @@ from mlb_app.services.player_prop_identity_confidence import (
 )
 from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository
 from mlb_app.services.playerboard_read_service import prop_key_for_row
-from mlb_app.services.playerboard_service import PlayerboardService
+from mlb_app.services.playerboard_service import PlayerboardService, _apply_selected_book_to_row
 from mlb_app.services.prop_side_normalization import normalize_prop_side
 from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryService
 
@@ -99,6 +99,9 @@ class EdgeBoardService:
 
         board = self.playerboard_service.board_payload(query)
         raw_rows = _list_rows(board.get("top") or board.get("rows") or [])
+        selected_book = _query_value(query, "selectedBook")
+        if selected_book:
+            raw_rows = [_apply_selected_book_to_row(row, selected_book) for row in raw_rows]
         raw_rows = self._game_market_enriched_rows(raw_rows)
         game_context_index = _phase18_v7_game_context_index(query, board)
         self._cards = self._load_cards()
@@ -330,8 +333,9 @@ class EdgeBoardService:
             return None
         if not rows:
             return None
+        selected_book = _query_value(query, "selectedBook")
         selected_rows = [
-            self._snapshot_contract_row(row)
+            _apply_selected_book_to_row(self._snapshot_contract_row(row), selected_book)
             for row in self._game_market_enriched_rows(rows[:limit])
         ]
         snapshot_at = _clean(meta.get("snapshotAt"))
@@ -848,7 +852,8 @@ def _board_cache_key(query: dict[str, list[str]]) -> Hashable:
     date_label = _query_value(query, "date")
     market = _query_value(query, "market").lower()
     limit = _int_query(query, "limit", 50)
-    return (EDGE_BOARD_VERSION, season, date_label, market, limit)
+    selected_book = _query_value(query, "selectedBook").lower()
+    return (EDGE_BOARD_VERSION, season, date_label, market, limit, selected_book)
 
 
 def _playerboard_dependency_paths(query: dict[str, list[str]]) -> tuple[Path, ...]:

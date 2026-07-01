@@ -8,6 +8,9 @@ export interface BoardTableRenderOptions {
   rows: OutlierBoardRow[];
   selectedIndex: number;
   freshnessFallback: string;
+  sportsbook?: string;
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
   emptyState?: { title: string; copy: string };
   resetScroll?: boolean;
   rowHeight?: number;
@@ -47,6 +50,9 @@ class BoardTableController {
   private rows: OutlierBoardRow[] = [];
   private selectedIndex = -1;
   private freshnessFallback = "Research";
+  private sportsbook = "";
+  private sortBy = "";
+  private sortDir: "asc" | "desc" = "desc";
   private rowHeight = DEFAULT_BOARD_ROW_HEIGHT;
   private overscanRows = DEFAULT_BOARD_OVERSCAN_ROWS;
   private table: HTMLTableElement | null = null;
@@ -66,6 +72,9 @@ class BoardTableController {
     this.rows = options.rows;
     this.selectedIndex = options.selectedIndex;
     this.freshnessFallback = options.freshnessFallback;
+    this.sportsbook = options.sportsbook || "";
+    this.sortBy = options.sortBy || "";
+    this.sortDir = options.sortDir || "desc";
     this.rowHeight = options.rowHeight ?? DEFAULT_BOARD_ROW_HEIGHT;
     this.overscanRows = options.overscanRows ?? DEFAULT_BOARD_OVERSCAN_ROWS;
     this.host.style.setProperty("--ob-row-height", `${this.rowHeight}px`);
@@ -96,7 +105,7 @@ class BoardTableController {
   private ensureDom(): void {
     if (this.table && this.tbody && this.table.isConnected) return;
     this.tbody = document.createElement("tbody");
-    this.table = h("table", { className: "ob-table ob-virtual-table", attrs: { "aria-label": "Outlier board", "aria-rowcount": String(this.rows.length) } }, [renderBoardHeader(), this.tbody]);
+    this.table = h("table", { className: "ob-table ob-virtual-table", attrs: { "aria-label": "Outlier board", "aria-rowcount": String(this.rows.length) } }, [renderBoardHeader(this.sortBy, this.sortDir), this.tbody]);
     clear(this.host, [this.table]);
   }
 
@@ -128,12 +137,15 @@ class BoardTableController {
   private paint(): void {
     if (!this.tbody || !this.table) return;
     this.table.setAttribute("aria-rowcount", String(this.rows.length));
+    const oldHead = this.table.tHead;
+    const nextHead = renderBoardHeader(this.sortBy, this.sortDir);
+    if (oldHead) this.table.replaceChild(nextHead, oldHead);
     const window = this.computeWindow();
     this.lastWindow = window;
     const children: HTMLElement[] = [];
     if (window.offsetTop > 0) children.push(spacerRow(window.offsetTop));
     for (let index = window.startIndex; index < window.endIndex; index += 1) {
-      children.push(renderBoardRow(this.rows[index], { index, selectedIndex: this.selectedIndex, freshnessFallback: this.freshnessFallback }));
+      children.push(renderBoardRow(this.rows[index], { index, selectedIndex: this.selectedIndex, freshnessFallback: this.freshnessFallback, sportsbook: this.sportsbook }));
     }
     if (window.offsetBottom > 0) children.push(spacerRow(window.offsetBottom));
     this.tbody.replaceChildren(...children);

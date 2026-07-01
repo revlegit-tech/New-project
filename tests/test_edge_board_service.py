@@ -98,6 +98,62 @@ def test_edge_board_enriches_playerboard_rows_with_trust_context() -> None:
     assert row["reasons"]
 
 
+def test_edge_board_selected_book_uses_requested_quote_without_fake_odds() -> None:
+    row = _board_row(date_label="2026-05-07") | {
+        "americanOdds": "-255",
+        "book": "DraftKings",
+        "bookKey": "draftkings",
+        "books": [
+            {"book": "DraftKings", "bookKey": "draftkings", "americanOdds": -255},
+            {"book": "FanDuel", "bookKey": "fanduel", "americanOdds": 420},
+        ],
+        "allBookQuotes": [
+            {"book": "DraftKings", "bookKey": "draftkings", "americanOdds": -255},
+            {"book": "FanDuel", "bookKey": "fanduel", "americanOdds": 420},
+        ],
+    }
+
+    payload = EdgeBoardService(
+        playerboard_service=FakePlayerboardService([row]),
+        model_card_service=FakeModelCardService(),
+    ).payload({"season": ["2026"], "selectedBook": ["FanDuel"]})
+
+    priced = payload["rows"][0]
+    assert priced["selectedBook"] == "FanDuel"
+    assert str(priced["selectedBookAmericanOdds"]) == "420"
+    assert abs(priced["selectedBookImpliedProbability"] - (100 / 520)) < 0.00001
+    assert priced["bestBook"] == "FanDuel"
+    assert str(priced["bestAmericanOdds"]) == "420"
+    assert priced["quoteCount"] == 2
+    assert set(priced["availableBooks"]) == {"DraftKings", "FanDuel"}
+    assert priced["action"] in {"Research", "No bet"}
+    assert priced["stakeUnits"] == 0
+    assert priced["betActionAllowed"] is False
+
+
+def test_edge_board_missing_selected_book_returns_no_quote_state() -> None:
+    row = _board_row(date_label="2026-05-07") | {
+        "americanOdds": "-255",
+        "book": "DraftKings",
+        "bookKey": "draftkings",
+        "books": [{"book": "DraftKings", "bookKey": "draftkings", "americanOdds": -255}],
+        "allBookQuotes": [{"book": "DraftKings", "bookKey": "draftkings", "americanOdds": -255}],
+    }
+
+    payload = EdgeBoardService(
+        playerboard_service=FakePlayerboardService([row]),
+        model_card_service=FakeModelCardService(),
+    ).payload({"season": ["2026"], "selectedBook": ["FanDuel"]})
+
+    missing = payload["rows"][0]
+    assert missing["selectedBook"] == "FanDuel"
+    assert missing["selectedBookAmericanOdds"] is None
+    assert missing["selectedBookImpliedProbability"] is None
+    assert missing["selectedBookQuoteStatus"] == "no_quote_at_selected_book"
+    assert str(missing["bestAmericanOdds"]) == "-255"
+    assert missing.get("selectedBookAmericanOdds") not in {100, "+100", -110, "-110"}
+
+
 def test_edge_board_prediction_match_populates_model_probability_and_edge(tmp_path: Path) -> None:
     date_label = "2026-06-29"
     row = _board_row(date_label=date_label)

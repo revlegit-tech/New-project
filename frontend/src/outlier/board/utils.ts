@@ -18,12 +18,47 @@ export function rowOdds(row: OutlierBoardRow): unknown {
   return row.americanOdds ?? row.odds;
 }
 
+export function rowSelectedBook(row: OutlierBoardRow): string {
+  return text(row.selectedBook ?? row.book ?? row.bestBook, "");
+}
+
+export function rowBestBook(row: OutlierBoardRow): string {
+  return text(row.bestBook ?? row.book, "");
+}
+
+export function rowSelectedOdds(row: OutlierBoardRow): unknown {
+  return row.selectedBookAmericanOdds ?? row.americanOdds ?? row.odds;
+}
+
+export function rowBestOdds(row: OutlierBoardRow): unknown {
+  return row.bestAmericanOdds ?? row.americanOdds ?? row.odds;
+}
+
+export function rowQuoteCount(row: OutlierBoardRow): number {
+  const parsed = Number(row.quoteCount ?? row.bookCount ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function rowAvailableBooks(row: OutlierBoardRow): string[] {
+  const value = row.availableBooks;
+  if (Array.isArray(value)) return value.map((book) => text(book, "")).filter(Boolean);
+  return [];
+}
+
 export function rowModelProbability(row: OutlierBoardRow): unknown {
   return row.trust?.modelEdge?.modelProbabilityPercent ?? row.modelProbabilityPercent ?? row.modelProbability ?? row.probability ?? row.prob;
 }
 
 export function rowImpliedProbability(row: OutlierBoardRow): unknown {
   return row.trust?.modelEdge?.impliedProbabilityPercent ?? row.impliedProbabilityPercent ?? row.impliedProbability ?? row.sportsbookImpliedPercent ?? row.impliedPercent;
+}
+
+export function rowSelectedImpliedProbability(row: OutlierBoardRow): unknown {
+  return row.selectedBookImpliedProbability ?? row.impliedProbability ?? row.impliedProbabilityPercent ?? row.sportsbookImpliedPercent;
+}
+
+export function rowBestImpliedProbability(row: OutlierBoardRow): unknown {
+  return row.bestImpliedProbability ?? row.impliedProbability ?? row.impliedProbabilityPercent ?? row.sportsbookImpliedPercent;
 }
 
 export function matchup(row: OutlierBoardRow): string {
