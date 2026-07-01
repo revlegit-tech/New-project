@@ -21,6 +21,7 @@ from mlb_app.services.player_prop_prediction_repository import PlayerPropPredict
 from mlb_app.services.playerboard_read_service import prop_key_for_row
 from mlb_app.services.playerboard_service import PlayerboardService
 from mlb_app.services.prop_side_normalization import normalize_prop_side
+from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryService
 
 EDGE_BOARD_VERSION = "2026-05-edge-board-v1"
 
@@ -44,6 +45,7 @@ class EdgeBoardService:
         game_market_feature_lookup_service: GameMarketFeatureLookupService | None = None,
         player_prop_prediction_repository: PlayerPropPredictionRepository | None = None,
         metrics: MetricsRegistry | None = None,
+        market_registry_service: MLBMarketRegistryService | None = None,
         settings: Settings = default_settings,
     ) -> None:
         self.settings = settings
@@ -52,6 +54,7 @@ class EdgeBoardService:
         self.snapshot_repository = snapshot_repository
         self.game_market_feature_lookup_service = game_market_feature_lookup_service
         self.player_prop_prediction_repository = player_prop_prediction_repository or PlayerPropPredictionRepository(settings=settings)
+        self.market_registry_service = market_registry_service or MLBMarketRegistryService(settings=settings)
         self.metrics = metrics
         self.board_cache = board_cache or BoardCache(
             ttl_seconds=default_settings.board_cache_ttl_seconds,
@@ -118,6 +121,7 @@ class EdgeBoardService:
             prediction_meta["predictionsMissing"] = len(rows)
             prediction_meta["predictionsRejectedDateMismatch"] = 0
 
+        registry = self._market_registry_payload(query)
         return {
             "status": "ok",
             "schemaVersion": board.get("schemaVersion"),
@@ -146,6 +150,12 @@ class EdgeBoardService:
             },
             "filters": self._filter_options(rows),
             "summary": self._summary(rows),
+            "marketRegistry": {
+                "date": registry.get("date", ""),
+                "markets": registry.get("markets", []),
+                "groups": registry.get("groups", []),
+            },
+            "marketCoverage": registry.get("marketCoverage", {}),
             "trust": board.get("trust", {}),
             "productState": board.get("productState"),
             "latestFullyGradedDate": board.get("latestFullyGradedDate", ""),
@@ -158,6 +168,21 @@ class EdgeBoardService:
                 **prediction_meta,
             },
         }
+
+    def _market_registry_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        try:
+            return self.market_registry_service.payload(query)
+        except Exception as error:
+            return {
+                "markets": [],
+                "groups": [],
+                "marketCoverage": {
+                    "marketsFound": 0,
+                    "marketsShownInDropdown": [],
+                    "marketsHiddenFromDropdown": [],
+                    "warnings": [str(error)],
+                },
+            }
 
     @staticmethod
     def _prediction_meta_defaults() -> dict[str, Any]:
@@ -310,6 +335,7 @@ class EdgeBoardService:
             for row in self._game_market_enriched_rows(rows[:limit])
         ]
         snapshot_at = _clean(meta.get("snapshotAt"))
+        registry = self._market_registry_payload(query)
         return {
             "status": "ok",
             "schemaVersion": "edge-board.snapshot.v1",
@@ -341,6 +367,12 @@ class EdgeBoardService:
             },
             "filters": self._filter_options(selected_rows),
             "summary": self._summary(selected_rows),
+            "marketRegistry": {
+                "date": registry.get("date", ""),
+                "markets": registry.get("markets", []),
+                "groups": registry.get("groups", []),
+            },
+            "marketCoverage": registry.get("marketCoverage", {}),
             "trust": {},
             "productState": None,
             "latestFullyGradedDate": "",

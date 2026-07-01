@@ -14,6 +14,7 @@ from mlb_app.services.player_prop_prediction_repository import PlayerPropPredict
 from mlb_app.services.playerboard_builder import build_playerboard, market_capability
 from mlb_app.services.playerboard_read_service import PlayerboardReadService, PlayerboardSnapshot
 from mlb_app.services.product_state_service import ProductStateService
+from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryService
 
 
 class PlayerboardService:
@@ -29,6 +30,7 @@ class PlayerboardService:
         read_service: PlayerboardReadService | None = None,
         game_market_feature_lookup_service: GameMarketFeatureLookupService | None = None,
         player_prop_prediction_repository: PlayerPropPredictionRepository | None = None,
+        market_registry_service: MLBMarketRegistryService | None = None,
         settings: Settings = default_settings,
     ) -> None:
         self.settings = settings
@@ -38,6 +40,7 @@ class PlayerboardService:
         self.product_state_service = product_state_service or ProductStateService(settings=settings)
         self.game_market_feature_lookup_service = game_market_feature_lookup_service
         self.player_prop_prediction_repository = player_prop_prediction_repository or PlayerPropPredictionRepository(settings=settings)
+        self.market_registry_service = market_registry_service or MLBMarketRegistryService(settings=settings)
         self.read_service = read_service or PlayerboardReadService(
             repository=self.repository,
             grading_service=self.grading_service,
@@ -54,7 +57,7 @@ class PlayerboardService:
         return self.read_service.get_snapshot(season=season, date_label=requested_date, market=market)
 
     def health_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
-        return self.snapshot_for_query(query).health.to_dict()
+        return self._attach_market_registry(self.snapshot_for_query(query).health.to_dict(), query)
 
     def board_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
         season = self.settings.season_from_query(query)
@@ -71,6 +74,7 @@ class PlayerboardService:
             snapshot = self.read_service.get_snapshot(season=season, date_label=date_label, market=market)
             payload = self._payload_from_snapshot(snapshot, market=market, limit=limit)
             payload = self._apply_game_market_enrichment(payload, requested_date=date_label)
+            payload = self._attach_market_registry(payload, query)
             if payload.get("cacheHit") or not build_if_missing:
                 return payload
 
@@ -83,7 +87,8 @@ class PlayerboardService:
             replace_date=replace_date,
             source_mode=source_mode,
         )
-        return self._apply_game_market_enrichment(self._attach_trust(payload, query), requested_date=date_label)
+        payload = self._apply_game_market_enrichment(self._attach_trust(payload, query), requested_date=date_label)
+        return self._attach_market_registry(payload, query)
 
     def _payload_from_snapshot(self, snapshot: PlayerboardSnapshot, *, market: str, limit: int) -> dict[str, Any]:
         rows = list(snapshot.rows)[:limit]
@@ -234,6 +239,20 @@ class PlayerboardService:
             "eligibleProductionMarkets": list(training.get("eligibleProductionMarkets") or []),
         }
         return payload
+
+    def _attach_market_registry(self, payload: dict[str, Any], query: dict[str, list[str]]) -> dict[str, Any]:
+        try:
+            registry = self.market_registry_service.payload(query)
+        except Exception:
+            return payload
+        enriched = dict(payload)
+        enriched["marketRegistry"] = {
+            "date": registry.get("date", ""),
+            "markets": registry.get("markets", []),
+            "groups": registry.get("groups", []),
+        }
+        enriched["marketCoverage"] = registry.get("marketCoverage", {})
+        return enriched
 
     @staticmethod
     def _data_confidence(*, ok: bool, grading_state: str, rows: int) -> str:

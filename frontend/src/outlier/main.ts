@@ -1,7 +1,7 @@
 import "../shared/styles/tokens.css";
 import "../shared/styles/layout.css";
 import { jsonFetch } from "../shared/api/client";
-import { MARKET_SELECT_OPTIONS, MARKETS } from "../shared/markets/markets";
+import { fallbackMarketGroups, MARKETS, MarketRegistryPayload, RegistryMarket, RegistryMarketGroup } from "../shared/markets/markets";
 import { number, text, todayIso } from "../shared/formatting";
 import { h, clear } from "../shared/components/dom";
 import { applyDensity, densityRowHeight, normalizeDensity } from "./app/density";
@@ -75,16 +75,14 @@ function renderMain() {
       renderFilters(),
     ]),
     h("section", { id: "researchReportPanel", className: "ob-panel ob-report-panel" }),
+    h("section", { id: "marketCoveragePanel", className: "ob-panel ob-coverage-panel" }),
     h("section", { className: "ob-panel" }, [h("div", { id: "boardMeta", className: "ob-board-meta", text: "Loading board…" }), h("div", { id: "boardHost", className: "ob-table-wrap" })]),
   ]);
 }
 
 function renderFilters() {
   const market = h("select", { id: "marketFilter", className: "ob-select", attrs: { "aria-label": "Market filter" } });
-  MARKET_SELECT_OPTIONS.forEach((item) => {
-    const node = option(item.key, item.label);
-    market.append(node);
-  });
+  renderMarketOptions(market, null);
   const action = h("select", { id: "actionLabelFilter", className: "ob-select", attrs: { "aria-label": "Action label filter" } }, [option("", "Any action")]);
   const capability = h("select", { id: "marketCapabilityFilter", className: "ob-select", attrs: { "aria-label": "Market capability filter" } }, [option("", "Any capability")]);
   const production = h("select", { id: "productionEligibleFilter", className: "ob-select", attrs: { "aria-label": "Production eligibility filter" } }, [option("", "Any eligibility"), option("true", "Production eligible"), option("false", "Research only")]);
@@ -268,9 +266,13 @@ async function loadBoard() {
     appState.requestId = requestId || payload?.meta?.requestId || appState.requestId;
     appState.boardFreshness = payload?.freshness || null;
     appState.boardTrust = payload?.trust || null;
+    appState.marketRegistry = payload?.marketRegistry || null;
+    appState.marketCoverage = payload?.marketCoverage || payload?.marketRegistry?.marketCoverage || null;
     appState.selectedIndex = -1;
     lastBoardSource = payload?.source?.label || payload?.source?.path || "EdgeBoard";
     renderTrustSurface(payload, appState.requestId, latestStatusExtras);
+    await loadMarketRegistry();
+    renderMarketCoverage();
     syncTrustFilters();
     applyFilters();
     renderBoard({ resetScroll: true });
@@ -340,6 +342,71 @@ function renderBoard(options: { resetScroll?: boolean } = {}) {
   const windowCopy = result.rowCount > result.renderedCount ? ` · rendering rows ${result.startIndex + 1}-${result.endIndex} of ${result.rowCount}` : "";
   setMeta(`${appState.filteredRows.length}/${appState.rows.length} MLB props · ${lastBoardSource}${windowCopy}${appState.requestId ? ` · ${appState.requestId}` : ""}`);
   updatePositiveCount();
+}
+
+function renderMarketOptions(select: HTMLSelectElement, registry: MarketRegistryPayload | null) {
+  const current = select.value;
+  const groups = marketGroups(registry);
+  const allCount = coverageCount(registry, "rawPropsPulled") || groups.reduce((total, group) => total + Number(group.rowCount || 0), 0);
+  select.replaceChildren(option("", `All MLB markets${allCount ? ` - ${allCount}` : ""}`));
+  groups.filter((group) => group.key !== "all" && Array.isArray(group.markets) && group.markets.length).forEach((group) => {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = group.label;
+    group.markets.forEach((market) => optgroup.append(option(market.marketKey, marketOptionLabel(market))));
+    select.append(optgroup);
+  });
+  select.value = current && Array.from(select.options).some((item) => item.value === current) ? current : "";
+  appState.market = select.value;
+}
+
+function marketGroups(registry: MarketRegistryPayload | null): RegistryMarketGroup[] {
+  const groups = Array.isArray(registry?.groups) ? registry!.groups : [];
+  return groups.length ? groups : fallbackMarketGroups();
+}
+
+function marketOptionLabel(market: RegistryMarket): string {
+  const count = Number(market.rowCount || market.quoteCount || 0);
+  const badges = (market.badges || []).slice(0, 2).join(", ");
+  const suffix = [count ? String(count) : "", badges].filter(Boolean).join(" - ");
+  return `${market.displayName || market.marketKey}${suffix ? ` - ${suffix}` : ""}`;
+}
+
+function renderMarketCoverage() {
+  const host = document.getElementById("marketCoveragePanel");
+  const coverage = appState.marketCoverage || {};
+  const registry = appState.marketRegistry || {};
+  const markets = Array.isArray(registry.markets) ? registry.markets : [];
+  const topMarkets = markets.filter((market: RegistryMarket) => Number(market.rowCount || 0) > 0).slice(0, 12);
+  clear(host, [
+    h("div", { className: "ob-coverage-head" }, [
+      h("div", {}, [h("strong", { text: "Market Coverage" }), h("span", { text: `${number(coverage.marketsFound, markets.length)} markets found` })]),
+      h("div", { className: "ob-coverage-badges" }, [
+        coverageBadge("Visible", coverage.marketsShownInDropdown?.length),
+        coverageBadge("Hidden", coverage.marketsHiddenFromDropdown?.length),
+        coverageBadge("Odds only", coverage.oddsOnlyMarketCount),
+        coverageBadge("Missing model", coverage.missingModelMarketCount),
+      ]),
+    ]),
+    h("div", { className: "ob-coverage-grid" }, [
+      coverageStat("Raw props", coverage.rawPropsPulled),
+      coverageStat("Rows w/ market", coverage.marketsWithRows?.length),
+      coverageStat("Alt markets", coverage.altMarketsFound?.length),
+      coverageStat("Game markets", coverage.gameMarketsFound?.length),
+      coverageStat("Team markets", coverage.teamMarketsFound?.length),
+      coverageStat("F5 markets", coverage.firstFiveMarketsFound?.length),
+    ]),
+    h("div", { className: "ob-coverage-list" }, topMarkets.map((market: RegistryMarket) => h("div", { className: "ob-coverage-row" }, [
+      h("span", { text: market.displayName || market.marketKey }),
+      h("em", { text: `${number(market.rowCount, 0)} rows / ${number(market.quoteCount, 0)} quotes` }),
+      h("strong", { text: market.modelStatus || "unknown" }),
+    ]))),
+  ]);
+}
+
+function coverageBadge(label: string, value: unknown) { return h("span", { className: "ob-chip", text: `${label}: ${number(value, 0)}` }); }
+function coverageStat(label: string, value: unknown) { return h("div", { className: "ob-coverage-stat" }, [h("span", { text: label }), h("strong", { text: number(value, 0) })]); }
+function coverageCount(registry: MarketRegistryPayload | null, key: string): number {
+  return Number(registry?.marketCoverage?.[key] || registry?.coverage?.[key] || 0);
 }
 
 function selectRow(index: number) {
@@ -440,6 +507,21 @@ function renderTrustSurface(payload: any, requestId: string, extras: { actionnet
     trustCard("Model readiness", `${marketsReady} MLB markets`, modelMode, marketsReady ? "fresh" : "aging"),
     trustCard("Schema version", schemaVersion, requestId ? `Request ${requestId}` : "Contract checked", "fresh"),
   ]);
+}
+
+async function loadMarketRegistry() {
+  try {
+    const params = new URLSearchParams();
+    if (appState.date) params.set("date", appState.date);
+    const { payload } = await jsonFetch<MarketRegistryPayload>(`/api/mlb/market-registry?${params.toString()}`);
+    appState.marketRegistry = payload;
+    appState.marketCoverage = payload?.marketCoverage || payload?.coverage || appState.marketCoverage;
+  } catch (error) {
+    if (!appState.marketRegistry) appState.marketRegistry = { groups: fallbackMarketGroups(), markets: [] };
+    appState.marketCoverage = appState.marketCoverage || { warnings: [error instanceof Error ? error.message : String(error)] };
+  }
+  const select = document.getElementById("marketFilter");
+  if (select instanceof HTMLSelectElement) renderMarketOptions(select, appState.marketRegistry);
 }
 
 function modeledMarketCount(payload: any): number {

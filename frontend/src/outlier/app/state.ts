@@ -24,6 +24,8 @@ export function createInitialOutlierState() {
     status: null as any,
     boardFreshness: null as any,
     boardTrust: null as any,
+    marketRegistry: null as any,
+    marketCoverage: null as any,
     exposure: null as any,
     requestId: "",
   };

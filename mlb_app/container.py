@@ -47,6 +47,7 @@ from mlb_app.services.ml_feature_export_service import MLFeatureExportService
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.model_readiness_service import ModelReadinessService
 from mlb_app.services.model_registry_service import ModelRegistryService
+from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryService
 from mlb_app.services.model_training_service import ModelTrainingService
 from mlb_app.services.picks_service import PicksService
 from mlb_app.services.player_prop_label_builder_service import PlayerPropLabelBuilderService
@@ -108,6 +109,7 @@ class AppContainer:
     feature_store_service: FeatureStoreService = field(init=False)
     product_state_service: ProductStateService = field(init=False)
     model_registry_service: ModelRegistryService = field(init=False)
+    mlb_market_registry_service: MLBMarketRegistryService = field(init=False)
     model_training_service: ModelTrainingService = field(init=False)
     model_loader: ModelLoader = field(init=False)
     probability_blender: ProbabilityBlender = field(init=False)
@@ -218,6 +220,7 @@ class AppContainer:
             game_market_feature_lookup_service=self.game_market_feature_lookup_service,
         )
         self.model_registry_service = ModelRegistryService(settings=self.settings)
+        self.mlb_market_registry_service = MLBMarketRegistryService(settings=self.settings)
         self.model_training_service = ModelTrainingService(settings=self.settings)
         self.model_loader = ModelLoader(
             settings=self.settings,
@@ -262,6 +265,7 @@ class AppContainer:
             product_state_service=self.product_state_service,
             read_service=self.playerboard_read_service,
             game_market_feature_lookup_service=self.game_market_feature_lookup_service,
+            market_registry_service=self.mlb_market_registry_service,
             settings=self.settings,
         )
         self.bankroll_service = BankrollService(
@@ -280,6 +284,7 @@ class AppContainer:
             board_cache=self.board_cache,
             game_market_feature_lookup_service=self.game_market_feature_lookup_service,
             metrics=self.metrics,
+            market_registry_service=self.mlb_market_registry_service,
             settings=self.settings,
         )
         self.edge_report_service = EdgeReportService(

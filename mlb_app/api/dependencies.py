@@ -26,6 +26,7 @@ from mlb_app.observability.metrics import MetricsRegistry
 from mlb_app.services.alert_service import AlertService
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.model_registry_service import ModelRegistryService
+from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryService
 from mlb_app.services.model_training_service import ModelTrainingService
 from mlb_app.services.prediction_audit_service import PredictionAuditService
 from mlb_app.ml.inference.prediction_service import PredictionService
@@ -134,6 +135,10 @@ def get_workflow_health_service(container: Annotated[AppContainer, Depends(get_c
 
 def get_model_registry_service(container: Annotated[AppContainer, Depends(get_container)]) -> ModelRegistryService:
     return container.model_registry_service
+
+
+def get_mlb_market_registry_service(container: Annotated[AppContainer, Depends(get_container)]) -> MLBMarketRegistryService:
+    return container.mlb_market_registry_service
 
 
 def get_model_training_service(container: Annotated[AppContainer, Depends(get_container)]) -> ModelTrainingService:

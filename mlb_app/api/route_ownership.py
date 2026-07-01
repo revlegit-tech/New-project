@@ -17,6 +17,7 @@ class RouteOwnership:
 ROUTE_OWNERSHIP: tuple[RouteOwnership, ...] = (
     RouteOwnership("GET", "/api/app/status", "FastAPI", "native_app_status", "mlb_app.routes.health.app_status", "delete_after_parity", "Canonical product status endpoint."),
     RouteOwnership("GET", "/api/edge-board", "FastAPI", "native_edge_board", "mlb_app.routes.edge_board.edge_board", "delete", "High-traffic board endpoint; no legacy fallback."),
+    RouteOwnership("GET", "/api/mlb/market-registry", "FastAPI", "mlb_market_registry", "none", "no_legacy_handler", "Dynamic MLB market registry for board dropdowns and coverage diagnostics."),
     RouteOwnership("GET", "/api/research/report", "FastAPI", "native_research_report", "none", "no_legacy_handler", "Daily productized MLB research report generated from EdgeBoard rows."),
     RouteOwnership("GET", "/api/playerboard", "FastAPI", "native_playerboard", "mlb_app.routes.playerboard.playerboard", "delete_after_contract_parity", "Board payload must flow through AppContainer.playerboard_service."),
     RouteOwnership("GET", "/api/playerboard/health", "FastAPI", "native_playerboard_health", "mlb_app.routes.playerboard.playerboard_health", "delete_after_health_parity", "Health contract derives from native PlayerboardService."),

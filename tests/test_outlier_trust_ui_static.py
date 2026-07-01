@@ -17,6 +17,18 @@ def test_outlier_ui_loads_runtime_model_and_actionnetwork_trust() -> None:
     assert "MLB markets" in source
 
 
+def test_outlier_ui_uses_dynamic_market_registry() -> None:
+    source = Path("frontend/src/outlier/main.ts").read_text(encoding="utf-8")
+    markets = Path("frontend/src/shared/markets/markets.ts").read_text(encoding="utf-8")
+
+    assert "/api/mlb/market-registry" in source
+    assert "renderMarketOptions" in source
+    assert "Market Coverage" in source
+    assert "marketCoveragePanel" in source
+    assert "RegistryMarketGroup" in markets
+    assert "fallbackMarketGroups" in markets
+
+
 def test_outlier_rows_and_detail_rail_render_trust_chips() -> None:
     row = Path("frontend/src/outlier/board/BoardRow.ts").read_text(encoding="utf-8")
     rail = Path("frontend/src/outlier/detail-rail/DetailRail.ts").read_text(encoding="utf-8")
