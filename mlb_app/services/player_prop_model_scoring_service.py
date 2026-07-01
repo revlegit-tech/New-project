@@ -480,6 +480,7 @@ class PlayerPropModelScoringService:
             "contextJoinWarnings": context_join_result.warnings,
             "contextIdentityDiagnostics": context_join_result.diagnostics,
             "boardContextAlignmentDiagnostics": context_join_result.board_alignment_diagnostics,
+            "handednessProviderDiagnostics": _handedness_provider_diagnostics(self.settings, selected_date),
             "oddsMovementRowsLoaded": context_join_result.counts.get("oddsMovementRowsLoaded", 0),
             "oddsMovementRowsJoined": context_join_result.counts.get("oddsMovementRowsJoined", 0),
             "oddsMovementRowsSkipped": context_join_result.counts.get("oddsMovementRowsSkipped", 0),
@@ -728,6 +729,55 @@ def _context_feature_artifacts(settings: Settings, date_label: str) -> dict[str,
             continue
         artifacts[group] = {"path": str(path), "rows": rows, "fields": fields}
     return artifacts
+
+
+def _handedness_provider_diagnostics(settings: Settings, date_label: str) -> dict[str, Any]:
+    audit_path = settings.data_dir / "context" / f"context_source_audit_{date_label}.json"
+    if audit_path.is_file():
+        try:
+            payload = json.loads(audit_path.read_text(encoding="utf-8"))
+            diagnostics = ((payload.get("providers") or {}).get("handedness_platoon") or {}).get("diagnostics")
+            if isinstance(diagnostics, dict):
+                return diagnostics
+        except Exception:
+            pass
+    path = settings.data_dir / "context" / "handedness_platoon" / f"handedness_platoon_{date_label}.csv"
+    if not path.is_file():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            rows = [dict(row) for row in reader]
+            fields = [field for field in (reader.fieldnames or []) if field]
+    except Exception:
+        return {"providerSourceMode": "unknown", "contextRowsGenerated": 0}
+    board_seeded_rows = [row for row in rows if str(row.get("seedSource") or "").strip() == "playerboard"]
+    return {
+        "providerSourceMode": "playerboard" if board_seeded_rows else ("artifact" if rows else "none"),
+        "contextRowsGenerated": len(rows),
+        "contextRowsGeneratedFromBoard": len(board_seeded_rows),
+        "contextRowsWithBatterHand": _artifact_populated_count(rows, "batter_hand"),
+        "contextRowsWithPitcherHand": _artifact_populated_count(rows, "pitcher_hand"),
+        "contextRowsWithSplitStats": sum(
+            1
+            for row in rows
+            if any(
+                _is_populated_feature_value(row.get(field))
+                for field in (
+                    "batter_avg_vs_hand",
+                    "batter_k_rate_vs_hand",
+                    "batter_recent_hits_vs_lhp",
+                    "batter_recent_hits_vs_rhp",
+                    "pitcher_avg_allowed_vs_hand",
+                )
+            )
+        ),
+        "fields": fields,
+    }
+
+
+def _artifact_populated_count(rows: list[dict[str, Any]], field: str) -> int:
+    return sum(1 for row in rows if str(row.get(field) or "").strip())
 
 
 def _feature_completeness_warnings(

@@ -78,11 +78,19 @@ class FeatureSourceAuditService:
 
 def _field_status(result: ContextProviderResult, expected_fields: list[str]) -> dict[str, list[str]]:
     fields: list[str] = []
+    rows: list[dict[str, Any]] = []
     try:
         with open(result.path, "r", encoding="utf-8-sig", newline="") as handle:
-            fields = [field for field in (csv.DictReader(handle).fieldnames or []) if field]
+            reader = csv.DictReader(handle)
+            fields = [field for field in (reader.fieldnames or []) if field]
+            rows = [dict(row) for row in reader]
     except OSError:
         fields = []
-    ready = [field for field in expected_fields if field in fields]
-    missing = [field for field in expected_fields if field not in fields]
+    ready = [field for field in expected_fields if field in fields and any(_populated(row.get(field)) for row in rows)]
+    missing = [field for field in expected_fields if field not in ready]
     return {"readyFields": ready, "missingFields": missing}
+
+
+def _populated(value: Any) -> bool:
+    text = str(value or "").strip()
+    return bool(text and text.lower() not in {"nan", "none", "null"})

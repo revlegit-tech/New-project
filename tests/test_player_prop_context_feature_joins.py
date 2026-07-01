@@ -516,6 +516,40 @@ def test_handedness_artifact_rows_do_not_make_feature_ready_without_scoring_popu
     assert any("handedness_platoon artifact has rows but no scoring rows joined safely" in warning for warning in summary["contextJoinWarnings"])
 
 
+def test_handedness_joined_all_null_features_does_not_make_feature_ready(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row()])
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [
+            platoon_context_row(
+                batter_hand="",
+                pitcher_hand="",
+                batter_avg_vs_hand="",
+                batter_k_rate_vs_hand="",
+                batter_recent_hits_vs_lhp="",
+                batter_recent_hits_vs_rhp="",
+                pitcher_avg_allowed_vs_hand="",
+            )
+        ],
+    )
+
+    summary = PlayerPropModelScoringService(settings=settings).score(
+        date_label="2026-06-30", season=2026, source="features", dry_run=True
+    )["summary"]
+
+    assert summary["contextJoinCounts"]["handednessPlatoonRowsJoined"] == 1
+    assert summary["contextJoinCounts"]["handednessPlatoonRowsJoinedButAllNullFeatures"] == 1
+    assert summary["featureCompleteness"]["handedness_platoon"]["populatedPercent"] == 0
+    assert "handedness_platoon" not in summary["featureGroupsReady"]
+    assert "handedness_platoon" in summary["featureGroupsMissing"]
+    assert any(
+        "handedness_platoon joined rows but no feature fields populated" in warning
+        for warning in summary["contextJoinWarnings"]
+    )
+
+
 def test_ambiguous_player_recent_form_skips_safely(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     write_model(settings)

@@ -313,6 +313,21 @@ def test_statcast_missing_local_cache_warns_without_crashing(tmp_path: Path) -> 
 def test_handedness_provider_returns_contract_without_inventing_missing_handedness(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     write_csv(
+        settings.data_dir / "playerboard" / "playerboard_2026.csv",
+        [
+            {
+                "date": "2026-06-30",
+                "season": "2026",
+                "player": "Aaron Judge",
+                "team": "NYY",
+                "opponent": "BOS",
+                "market": "batter_hits",
+                "side": "Over",
+                "line": "0.5",
+            }
+        ],
+    )
+    write_csv(
         settings.data_dir / "warehouse" / "season_logs" / "batter_game_logs_2026.csv",
         [
             {
@@ -339,6 +354,8 @@ def test_handedness_provider_returns_contract_without_inventing_missing_handedne
     assert "batter_hand unknown" in rows[0]["warnings"]
     assert result.pregameSafe is True
     assert result.labelsExcluded is True
+    assert result.diagnostics["providerSourceMode"] == "playerboard"
+    assert result.diagnostics["boardSeedBatterRows"] == 1
 
 
 def test_weather_provider_returns_missing_safely_without_configured_source(tmp_path: Path) -> None:

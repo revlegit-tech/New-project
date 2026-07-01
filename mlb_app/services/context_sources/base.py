@@ -27,6 +27,7 @@ class ContextProviderResult:
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     criticalForBoard: bool = True
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.status not in CONTEXT_STATUSES:
@@ -47,6 +48,7 @@ class ContextProviderResult:
             "warnings": list(self.warnings),
             "errors": list(self.errors),
             "criticalForBoard": bool(self.criticalForBoard),
+            "diagnostics": dict(self.diagnostics),
         }
 
 

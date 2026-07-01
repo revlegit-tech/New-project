@@ -147,6 +147,10 @@ class PlayerPropContextFeatureJoinService:
             "handednessPlatoonRowsJoined": 0,
             "handednessPlatoonRowsSkipped": 0,
             "handednessPlatoonAmbiguousRows": 0,
+            "handednessPlatoonRowsJoinedButAllNullFeatures": 0,
+            "contextRowsJoinedButAllNullFeatures": 0,
+            "boardBatterRowsWithoutContext": 0,
+            "contextRowsNotOnBoard": 0,
             "loadedByGroup": {group: int(payload.get("rows") or 0) for group, payload in artifacts.items()},
             "joinedByGroup": {
                 "odds_movement": 0,
@@ -304,7 +308,17 @@ class PlayerPropContextFeatureJoinService:
             warnings.append("statcast artifact has rows but no scoring rows joined safely.")
         if int(artifacts["handedness_platoon"]["rows"] or 0) > 0 and counts["handednessPlatoonRowsJoined"] == 0:
             warnings.append("handedness_platoon artifact has rows but no scoring rows joined safely.")
+        if counts.get("handednessPlatoonRowsJoinedButAllNullFeatures"):
+            warnings.append("handedness_platoon joined rows but no feature fields populated.")
         _finalize_diagnostics(diagnostics, counts)
+        _finalize_handedness_alignment_diagnostics(
+            output,
+            artifacts["handedness_platoon"].get("data") or [],
+            diagnostics,
+            counts,
+            date_label,
+            season,
+        )
         return ContextJoinResult(
             rows=output,
             artifacts=_public_artifacts(artifacts),
@@ -525,11 +539,36 @@ class PlayerPropContextFeatureJoinService:
                     joined = True
             if joined:
                 counts[joined_key] += 1
+                if spec.group == "handedness_platoon":
+                    group_diag["contextRowsJoinedToScoring"] = int(group_diag.get("contextRowsJoinedToScoring") or 0) + 1
+                    _add_sample(
+                        group_diag.setdefault("sampleJoinedContextRows", []),
+                        _sample_from_row(row, reason="joined", key=row_entry["key"]),
+                    )
             else:
-                skipped_reasons[f"{spec.group}_matched_but_no_populated_fields"] += 1
-                counts[skipped_key] += 1
-                _diagnostic_reason(group_diag, "matched_but_no_populated_fields")
-                _add_sample(group_diag["unmatchedScoringSamples"], _sample_from_row(row, reason="matched_but_no_populated_fields", key=row_entry["key"]))
+                if spec.group == "handedness_platoon":
+                    counts[joined_key] += 1
+                    counts["contextRowsJoinedButAllNullFeatures"] = int(counts.get("contextRowsJoinedButAllNullFeatures") or 0) + 1
+                    counts["handednessPlatoonRowsJoinedButAllNullFeatures"] = int(
+                        counts.get("handednessPlatoonRowsJoinedButAllNullFeatures") or 0
+                    ) + 1
+                    group_diag["contextRowsJoinedToScoring"] = int(group_diag.get("contextRowsJoinedToScoring") or 0) + 1
+                    group_diag["contextRowsJoinedButAllNullFeatures"] = int(
+                        group_diag.get("contextRowsJoinedButAllNullFeatures") or 0
+                    ) + 1
+                    _diagnostic_reason(group_diag, "matched_but_no_populated_fields")
+                    _add_sample(
+                        group_diag.setdefault("sampleJoinedContextRows", []),
+                        _sample_from_row(row, reason="joined_all_null_features", key=row_entry["key"]),
+                    )
+                else:
+                    skipped_reasons[f"{spec.group}_matched_but_no_populated_fields"] += 1
+                    counts[skipped_key] += 1
+                    _diagnostic_reason(group_diag, "matched_but_no_populated_fields")
+                    _add_sample(
+                        group_diag["unmatchedScoringSamples"],
+                        _sample_from_row(row, reason="matched_but_no_populated_fields", key=row_entry["key"]),
+                    )
 
         if counts[ambiguous_key]:
             warnings.append(f"{spec.group} skipped {counts[ambiguous_key]} ambiguous context rows.")
@@ -614,6 +653,13 @@ def _empty_group_diagnostics() -> dict[str, Any]:
         "unmatchedScoringSamples": [],
         "contextJoinKeyExamples": [],
         "contextJoinSkipReasons": {},
+        "contextRowsJoinedToScoring": 0,
+        "contextRowsJoinedButAllNullFeatures": 0,
+        "boardBatterRowsWithoutContext": 0,
+        "contextRowsNotOnBoard": 0,
+        "sampleBoardBatterWithoutContext": [],
+        "sampleContextNotOnBoard": [],
+        "sampleJoinedContextRows": [],
     }
 
 
@@ -636,6 +682,48 @@ def _finalize_diagnostics(diagnostics: dict[str, Any], counts: dict[str, Any]) -
         payload["rowsJoined"] = int(counts.get(joined_keys.get(group, ""), 0) or 0)
         payload["rowsSkipped"] = int(counts.get(skipped_keys.get(group, ""), 0) or 0)
         payload["contextJoinSkipReasons"] = dict(sorted(Counter(payload.get("contextJoinSkipReasons") or {}).items()))
+
+
+def _finalize_handedness_alignment_diagnostics(
+    rows: list[dict[str, Any]],
+    context_rows: list[dict[str, Any]],
+    diagnostics: dict[str, Any],
+    counts: dict[str, Any],
+    date_label: str,
+    season: int,
+) -> None:
+    payload = diagnostics.setdefault("handedness_platoon", _empty_group_diagnostics())
+    board_rows = [row for row in rows if str(first_value(row, ["subjectRole"], "") or "").strip().lower() == "batter"]
+    board_keys = {_identity_key_for_diag(row, date_label, season, context=False) for row in board_rows}
+    context_keys = {_identity_key_for_diag(row, date_label, season, context=True) for row in context_rows}
+    board_without_context = [
+        row for row in board_rows if _identity_key_for_diag(row, date_label, season, context=False) not in context_keys
+    ]
+    context_not_on_board = [
+        row for row in context_rows if _identity_key_for_diag(row, date_label, season, context=True) not in board_keys
+    ]
+    payload["boardBatterRowsWithoutContext"] = len(board_without_context)
+    payload["contextRowsNotOnBoard"] = len(context_not_on_board)
+    payload["contextRowsJoinedToScoring"] = int(counts.get("handednessPlatoonRowsJoined") or 0)
+    payload["contextRowsJoinedButAllNullFeatures"] = int(counts.get("handednessPlatoonRowsJoinedButAllNullFeatures") or 0)
+    for row in board_without_context[:10]:
+        _add_sample(payload["sampleBoardBatterWithoutContext"], _sample_from_row(row, reason="board_batter_without_context"))
+    for row in context_not_on_board[:10]:
+        _add_sample(payload["sampleContextNotOnBoard"], _sample_from_row(row, reason="context_not_on_board"))
+    counts["boardBatterRowsWithoutContext"] = len(board_without_context)
+    counts["contextRowsNotOnBoard"] = len(context_not_on_board)
+
+
+def _identity_key_for_diag(row: dict[str, Any], date_label: str, season: int, *, context: bool) -> str:
+    if context:
+        name = normalize_player_name(first_value(row, ["normalizedPlayer", "normalized_player", "player", "playerName", "name"], ""))
+        team = normalize_team(first_value(row, ["normalizedTeam", "normalized_team", "team", "teamAbbr"], ""))
+        opponent = normalize_opponent(first_value(row, ["normalizedOpponent", "normalized_opponent", "opponent", "opponentAbbr"], ""))
+    else:
+        name = normalize_player_name(first_value(row, ["normalizedSubjectName", "subjectName", "player", "playerName", "name"], ""))
+        team = normalize_team(first_value(row, ["normalizedSubjectTeam", "subjectTeam", "team", "teamAbbr"], ""))
+        opponent = normalize_opponent(first_value(row, ["normalizedSubjectOpponent", "subjectOpponent", "opponent", "opponentAbbr"], ""))
+    return "|".join([date_label, str(season), name, team, opponent])
 
 
 def _odds_join_key(row: dict[str, Any], *, date_label: str, season: int, is_context: bool) -> tuple[str, str]:
