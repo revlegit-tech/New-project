@@ -705,6 +705,8 @@ def rank_value(card: dict[str, Any]) -> tuple[float, float]:
 
 
 def parse_json_field(value: Any, default: Any) -> Any:
+    if isinstance(value, (list, dict)):
+        return copy.deepcopy(value)
     text = clean(value)
     if not text:
         return copy.deepcopy(default)
@@ -714,8 +716,147 @@ def parse_json_field(value: Any, default: Any) -> Any:
         return copy.deepcopy(default)
 
 
+def parse_json_dict_field(value: Any) -> dict[str, Any]:
+    parsed = parse_json_field(value, {})
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _nullable_american_odds(value: Any) -> int | None:
+    text = clean(value).replace(",", "")
+    if not text:
+        return None
+    try:
+        odds = int(float(text))
+    except (TypeError, ValueError):
+        return None
+    return odds if odds != 0 else None
+
+
+def american_implied_probability(value: Any) -> float | None:
+    odds = _nullable_american_odds(value)
+    if odds is None:
+        return None
+    if odds > 0:
+        return round(100.0 / (odds + 100.0), 6)
+    return round(abs(odds) / (abs(odds) + 100.0), 6)
+
+
+def _quote_with_implied_probability(quote: dict[str, Any]) -> dict[str, Any]:
+    hydrated = dict(quote)
+    odds = _nullable_american_odds(hydrated.get("americanOdds"))
+    if odds is not None:
+        implied = american_implied_probability(odds)
+        hydrated["impliedProbability"] = implied
+        hydrated["impliedProbabilityPercent"] = round(implied * 100.0, 2) if implied is not None else None
+    else:
+        hydrated["impliedProbability"] = None
+        hydrated["impliedProbabilityPercent"] = None
+    return hydrated
+
+
+def _quote_list(value: Any) -> list[dict[str, Any]]:
+    parsed = value
+    if isinstance(value, str):
+        parsed = parse_json_field(value, [])
+    if not isinstance(parsed, list):
+        return []
+    return [_quote_with_implied_probability(item) for item in parsed if isinstance(item, dict)]
+
+
+def _infer_over_under_side(row: dict[str, Any]) -> str:
+    label = clean(row.get("rawLabel") or row.get("side") or row.get("outcome") or row.get("label"))
+    match = re.search(r"\b(over|under)\b", label, flags=re.IGNORECASE)
+    return match.group(1).lower() if match else ""
+
+
+def hydrate_playerboard_quote_fields(row: dict[str, Any]) -> dict[str, Any]:
+    """Fill quote summary fields from bundled quotes or the visible row quote."""
+
+    out = dict(row)
+    warnings = list(out.get("trustWarnings") or [])
+    quotes = _quote_list(out.get("allBookQuotes")) or _quote_list(out.get("books"))
+    row_odds = _nullable_american_odds(out.get("americanOdds"))
+    row_implied = american_implied_probability(row_odds)
+    row_book = clean(out.get("book") or out.get("bestBook"))
+
+    if not clean(out.get("side")):
+        inferred_side = _infer_over_under_side(out)
+        if inferred_side:
+            out["side"] = inferred_side
+
+    if not quotes and row_odds is not None:
+        quote = _quote_with_implied_probability(
+            {
+                "book": row_book,
+                "bookKey": clean(out.get("bookKey")),
+                "americanOdds": row_odds,
+                "decimalOdds": out.get("decimalOdds") or "",
+                "lastUpdate": clean(out.get("lastUpdate") or out.get("bestBookLastUpdate")),
+                "quoteFreshness": clean(out.get("quoteFreshness")),
+                "side": clean(out.get("side")) or display_side_for_prop(out),
+                "line": canonical_prop_line(out) or clean(out.get("line")),
+                "rawSource": clean(out.get("rawSource")),
+            }
+        )
+        quotes = [quote]
+        out["quoteDetailUnavailable"] = True
+        out["quoteHydrationWarning"] = "quote bundle unavailable; hydrated from visible row odds"
+        if out["quoteHydrationWarning"] not in warnings:
+            warnings.append(out["quoteHydrationWarning"])
+    elif not quotes and row_odds is None:
+        out["quoteDetailUnavailable"] = True
+        out["quoteHydrationWarning"] = "missing row american odds"
+        if out["quoteHydrationWarning"] not in warnings:
+            warnings.append(out["quoteHydrationWarning"])
+    elif quotes:
+        out["quoteDetailUnavailable"] = False
+
+    valid_quotes = [quote for quote in quotes if _nullable_american_odds(quote.get("americanOdds")) is not None]
+    valid_quotes.sort(key=lambda quote: odds_sort_value(quote.get("americanOdds")), reverse=True)
+    ordered_quotes = valid_quotes + [
+        quote for quote in quotes if _nullable_american_odds(quote.get("americanOdds")) is None
+    ]
+
+    if row_odds is not None:
+        out["impliedProbability"] = row_implied
+
+    if ordered_quotes:
+        best_quote = ordered_quotes[0]
+        best_odds = _nullable_american_odds(best_quote.get("americanOdds"))
+        out["books"] = ordered_quotes
+        out["allBookQuotes"] = ordered_quotes
+        out["availableBooks"] = list(dict.fromkeys(clean(quote.get("book")) for quote in ordered_quotes if clean(quote.get("book"))))
+        out["quoteCount"] = len(ordered_quotes)
+        if best_odds is not None:
+            out["bestBook"] = clean(best_quote.get("book")) or row_book
+            out["bestAmericanOdds"] = best_quote.get("americanOdds")
+            out["bestImpliedProbability"] = american_implied_probability(best_odds)
+            out["bestBookLastUpdate"] = clean(best_quote.get("lastUpdate") or out.get("bestBookLastUpdate"))
+    else:
+        out["availableBooks"] = []
+        out["allBookQuotes"] = []
+        out["quoteCount"] = None
+
+    selected_odds = _nullable_american_odds(out.get("selectedBookAmericanOdds"))
+    if selected_odds is None and row_odds is not None:
+        selected_odds = row_odds
+        out["selectedBookAmericanOdds"] = out.get("americanOdds")
+    if selected_odds is not None:
+        out["selectedBook"] = clean(out.get("selectedBook") or row_book or out.get("bestBook"))
+        out["selectedBookImpliedProbability"] = american_implied_probability(selected_odds)
+        out["selectedBookQuoteStatus"] = clean(out.get("selectedBookQuoteStatus")) or "best_available"
+        out["selectedBookMode"] = clean(out.get("selectedBookMode")) or "best_available"
+    elif "selectedBookImpliedProbability" not in out or out.get("selectedBookImpliedProbability") == "":
+        out["selectedBookImpliedProbability"] = None
+
+    if warnings:
+        out["trustWarnings"] = warnings
+    return out
+
+
 def saved_card_from_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+    extra = row.get("_extra") if isinstance(row.get("_extra"), dict) else {}
+    return hydrate_playerboard_quote_fields({
         "season": int(to_float(row.get("season"), default_settings.current_season)),
         "date": clean(row.get("date")),
         "snapshotAt": clean(row.get("snapshotAt")),
@@ -745,9 +886,23 @@ def saved_card_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "originalMarket": clean(row.get("originalMarket")),
         "rawLabel": clean(row.get("rawLabel")),
         "marketFamily": clean(row.get("marketFamily")) or market_family(row.get("market")),
-        "hitRates": parse_json_field(row.get("hitRates"), {}),
+        "hitRates": parse_json_dict_field(row.get("hitRates")),
         "recentGames": parse_json_field(row.get("recentGames"), []),
-    }
+        "side": clean(row.get("side") or extra.get("side")),
+        "allBookQuotes": extra.get("allBookQuotes") or extra.get("all_book_quotes") or [],
+        "availableBooks": extra.get("availableBooks") or [],
+        "quoteCount": extra.get("quoteCount"),
+        "selectedBook": extra.get("selectedBook"),
+        "selectedBookAmericanOdds": extra.get("selectedBookAmericanOdds"),
+        "selectedBookImpliedProbability": extra.get("selectedBookImpliedProbability"),
+        "selectedBookLastUpdate": extra.get("selectedBookLastUpdate"),
+        "selectedBookQuoteStatus": extra.get("selectedBookQuoteStatus"),
+        "selectedBookMode": extra.get("selectedBookMode"),
+        "bestBook": extra.get("bestBook"),
+        "bestAmericanOdds": extra.get("bestAmericanOdds"),
+        "bestImpliedProbability": extra.get("bestImpliedProbability"),
+        "bestBookLastUpdate": extra.get("bestBookLastUpdate"),
+    })
 
 
 def load_saved_playerboard(season: int = default_settings.current_season, date_label: str = "", market: str = "", limit: int = 5000) -> dict[str, Any]:
@@ -1180,14 +1335,14 @@ def canonical_prop_line(row: dict[str, Any]) -> str:
 
 def book_price_row(row: dict[str, Any]) -> dict[str, Any]:
     odds = clean(row.get("americanOdds"))
-    implied = american_implied_percent(odds) if odds else None
+    implied = american_implied_probability(odds)
     return {
         "book": clean(row.get("book")) or "Book",
         "bookKey": clean(row.get("bookKey")),
         "americanOdds": odds,
         "decimalOdds": row.get("decimalOdds") or "",
-        "impliedProbability": round(implied / 100.0, 6) if implied is not None else None,
-        "impliedProbabilityPercent": round(implied, 2) if implied is not None else None,
+        "impliedProbability": implied,
+        "impliedProbabilityPercent": round(implied * 100.0, 2) if implied is not None else None,
         "noVigImpliedProbability": row.get("noVigImpliedProbability"),
         "lastUpdate": clean(row.get("lastUpdate")),
         "quoteFreshness": clean(row.get("quoteFreshness")),
@@ -1278,7 +1433,7 @@ def aggregate_book_prices(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             )
             if clean(part)
         )
-        collapsed.append(best)
+        collapsed.append(hydrate_playerboard_quote_fields(best))
 
     return collapsed
 
@@ -1459,12 +1614,8 @@ def can_use_direct_team_game_card(prop: dict[str, Any]) -> bool:
 
 
 def american_implied_percent(value: Any) -> float:
-    odds = to_float(value)
-    if odds == 0:
-        return 50.0
-    if odds > 0:
-        return 100.0 / (odds + 100.0) * 100.0
-    return abs(odds) / (abs(odds) + 100.0) * 100.0
+    implied = american_implied_probability(value)
+    return implied * 100.0 if implied is not None else 0.0
 
 
 def game_context_from_prop(prop: dict[str, Any]) -> tuple[str, str, str]:
@@ -1494,7 +1645,8 @@ def game_context_from_prop(prop: dict[str, Any]) -> tuple[str, str, str]:
 
 def odds_only_player_card(prop: dict[str, Any]) -> dict[str, Any]:
     team, opponent, game = game_context_from_prop(prop)
-    implied = american_implied_percent(prop.get("americanOdds")) if clean(prop.get("americanOdds")) else None
+    implied_probability = american_implied_probability(prop.get("americanOdds"))
+    implied = implied_probability * 100.0 if implied_probability is not None else None
     missing = [
         "PropLine did not provide player team/opponent, so this row is shown as odds-only.",
         "Fill/verify team context before relying on model probability.",

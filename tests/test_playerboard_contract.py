@@ -299,3 +299,173 @@ def test_playerboard_endpoint_returns_empty_saved_dict_without_snapshot(tmp_path
     payload = response.json()
     assert payload["rows"] == []
     assert payload["saved"] == {}
+
+
+def test_playerboard_endpoint_hydrates_single_row_quote_fields(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    repository = PlayerboardRepository(settings=settings)
+    path = repository.path_for_season(2026)
+    _write_playerboard(
+        path,
+        PLAYERBOARD_FIELDS,
+        [
+            _current_row()
+            | {
+                "market": "batter_hits",
+                "marketDisplay": "Batter Hits",
+                "baseMarket": "batter_hits",
+                "isAltMarket": "false",
+                "rawLabel": "Over",
+                "line": "0.5",
+                "americanOdds": "-255",
+                "book": "DraftKings",
+                "bookKey": "draftkings",
+                "bookCount": "",
+                "books": "[]",
+                "finalProbabilityPercent": "",
+                "sportsbookImpliedPercent": "",
+                "finalEdgePercent": "",
+            }
+        ],
+    )
+    client = TestClient(create_app(container=AppContainer(settings=settings)), client=("127.0.0.1", 50000))
+
+    response = client.get("/api/playerboard?season=2026&date=2026-05-04&limit=5")
+
+    assert response.status_code == 200
+    row = response.json()["rows"][0]
+    assert str(row["americanOdds"]) == "-255"
+    assert row["impliedProbability"] == pytest.approx(255 / 355)
+    assert str(row["selectedBookAmericanOdds"]) == "-255"
+    assert row["selectedBookImpliedProbability"] == pytest.approx(255 / 355)
+    assert row["bestBook"] == "DraftKings"
+    assert str(row["bestAmericanOdds"]) == "-255"
+    assert row["bestImpliedProbability"] == pytest.approx(255 / 355)
+    assert row["quoteCount"] == 1
+    assert "DraftKings" in row["availableBooks"]
+    assert row["selectedBook"] == "DraftKings"
+    assert row["selectedBookQuoteStatus"] in {"best_available", "quoted"}
+    assert row["side"] == "over"
+    assert row["action"] == "Research"
+    assert row["readinessLabel"] == "Experimental"
+    assert row["stakeUnits"] == 0
+    assert row["betActionAllowed"] is False
+
+
+def test_playerboard_endpoint_does_not_fake_missing_odds(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    repository = PlayerboardRepository(settings=settings)
+    path = repository.path_for_season(2026)
+    _write_playerboard(
+        path,
+        PLAYERBOARD_FIELDS,
+        [
+            _current_row()
+            | {
+                "market": "batter_hits",
+                "marketDisplay": "Batter Hits",
+                "baseMarket": "batter_hits",
+                "isAltMarket": "false",
+                "rawLabel": "Over",
+                "line": "0.5",
+                "americanOdds": "",
+                "book": "DraftKings",
+                "bookKey": "draftkings",
+                "books": "[]",
+                "finalProbabilityPercent": "",
+                "sportsbookImpliedPercent": "",
+                "finalEdgePercent": "",
+            }
+        ],
+    )
+    client = TestClient(create_app(container=AppContainer(settings=settings)), client=("127.0.0.1", 50000))
+
+    response = client.get("/api/playerboard?season=2026&date=2026-05-04&limit=5")
+
+    assert response.status_code == 200
+    row = response.json()["rows"][0]
+    assert row.get("americanOdds") in {None, ""}
+    assert row.get("impliedProbability") is None
+    assert row.get("selectedBookImpliedProbability") is None
+    assert row.get("bestAmericanOdds") not in {100, "+100", -110, "-110"}
+    assert row.get("impliedProbability") != 0.5
+    assert row["quoteDetailUnavailable"] is True
+    assert "missing row american odds" in row["quoteHydrationWarning"]
+
+
+def test_playerboard_endpoint_preserves_multi_book_quotes(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    repository = PlayerboardRepository(settings=settings)
+    path = repository.path_for_season(2026)
+    quotes = [
+        {"book": "DraftKings", "bookKey": "draftkings", "americanOdds": -255},
+        {"book": "Bovada", "bookKey": "bovada", "americanOdds": -238},
+    ]
+    _write_playerboard(
+        path,
+        PLAYERBOARD_FIELDS,
+        [
+            _current_row()
+            | {
+                "market": "batter_hits",
+                "marketDisplay": "Batter Hits",
+                "baseMarket": "batter_hits",
+                "isAltMarket": "false",
+                "rawLabel": "Over",
+                "line": "0.5",
+                "americanOdds": "-255",
+                "book": "DraftKings",
+                "bookKey": "draftkings",
+                "bookCount": "2",
+                "books": json.dumps(quotes),
+                "finalProbabilityPercent": "",
+                "sportsbookImpliedPercent": "",
+                "finalEdgePercent": "",
+            }
+        ],
+    )
+    client = TestClient(create_app(container=AppContainer(settings=settings)), client=("127.0.0.1", 50000))
+
+    response = client.get("/api/playerboard?season=2026&date=2026-05-04&limit=5")
+
+    assert response.status_code == 200
+    row = response.json()["rows"][0]
+    assert row["quoteCount"] == 2
+    assert set(row["availableBooks"]) == {"DraftKings", "Bovada"}
+    assert row["bestBook"] == "Bovada"
+    assert str(row["bestAmericanOdds"]) == "-238"
+    assert len(row["allBookQuotes"]) == 2
+
+
+def test_playerboard_and_market_registry_smoke_with_hydrated_quotes(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    repository = PlayerboardRepository(settings=settings)
+    path = repository.path_for_season(2026)
+    _write_playerboard(
+        path,
+        PLAYERBOARD_FIELDS,
+        [
+            _current_row()
+            | {
+                "market": "pitcher_strikeouts",
+                "marketDisplay": "Pitcher Strikeouts",
+                "baseMarket": "pitcher_strikeouts",
+                "isAltMarket": "false",
+                "rawLabel": "Over",
+                "line": "5.5",
+                "americanOdds": "-160",
+                "book": "Bovada",
+                "bookKey": "bovada",
+                "books": "[]",
+            }
+        ],
+    )
+    client = TestClient(create_app(container=AppContainer(settings=settings)), client=("127.0.0.1", 50000))
+
+    board_response = client.get("/api/playerboard?season=2026&date=2026-05-04&limit=5")
+    registry_response = client.get("/api/mlb/market-registry?season=2026&date=2026-05-04")
+
+    assert board_response.status_code == 200
+    assert len(board_response.json()["rows"]) == 1
+    assert board_response.json()["rows"][0]["impliedProbability"] == pytest.approx(160 / 260)
+    assert registry_response.status_code == 200

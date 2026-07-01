@@ -12,6 +12,7 @@ from mlb_app.services.data_source_capability_service import DataSourceCapability
 from mlb_app.services.model_training_readiness_service import ModelTrainingReadinessService
 from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository
 from mlb_app.services.playerboard_builder import build_playerboard, market_capability
+from mlb_app.services.playerboard_builder import american_implied_probability, hydrate_playerboard_quote_fields
 from mlb_app.services.playerboard_read_service import PlayerboardReadService, PlayerboardSnapshot
 from mlb_app.services.product_state_service import ProductStateService
 from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryService
@@ -301,10 +302,12 @@ def _quote_implied_probability(quote: dict[str, Any]) -> Any:
     if value not in {None, ""}:
         return value
     percent = quote.get("impliedProbabilityPercent")
+    if percent in {None, ""}:
+        return american_implied_probability(quote.get("americanOdds"))
     try:
-        return round(float(percent) / 100.0, 6) if percent not in {None, ""} else None
+        return round(float(percent) / 100.0, 6)
     except (TypeError, ValueError):
-        return None
+        return american_implied_probability(quote.get("americanOdds"))
 
 
 def _select_quote(row: dict[str, Any], selected_book: str) -> dict[str, Any]:
@@ -327,7 +330,7 @@ def _select_quote(row: dict[str, Any], selected_book: str) -> dict[str, Any]:
 
 
 def _apply_selected_book_to_row(row: dict[str, Any], selected_book: str) -> dict[str, Any]:
-    out = dict(row)
+    out = hydrate_playerboard_quote_fields(row)
     quotes = _list_rows(out.get("allBookQuotes") or out.get("books") or [])
     if quotes:
         out["allBookQuotes"] = quotes
@@ -337,10 +340,14 @@ def _apply_selected_book_to_row(row: dict[str, Any], selected_book: str) -> dict
 
     best_quote = quotes[0] if quotes else {}
     if best_quote:
-        out.setdefault("bestBook", best_quote.get("book"))
-        out.setdefault("bestAmericanOdds", best_quote.get("americanOdds"))
-        out.setdefault("bestImpliedProbability", _quote_implied_probability(best_quote))
-        out.setdefault("bestBookLastUpdate", best_quote.get("lastUpdate"))
+        if out.get("bestBook") in {None, ""}:
+            out["bestBook"] = best_quote.get("book")
+        if out.get("bestAmericanOdds") in {None, ""}:
+            out["bestAmericanOdds"] = best_quote.get("americanOdds")
+        if out.get("bestImpliedProbability") in {None, ""}:
+            out["bestImpliedProbability"] = _quote_implied_probability(best_quote)
+        if out.get("bestBookLastUpdate") in {None, ""}:
+            out["bestBookLastUpdate"] = best_quote.get("lastUpdate")
 
     selected_quote = _select_quote(out, selected_book)
     if selected_quote:
@@ -444,6 +451,10 @@ def _annotate_market_trust(row: dict[str, Any]) -> dict[str, Any]:
 
 def _prediction_default_row(row: dict[str, Any]) -> dict[str, Any]:
     return dict(row) | {
+        "action": "Research",
+        "readinessLabel": "Experimental",
+        "stakeUnits": 0,
+        "betActionAllowed": False,
         "predictionMatched": False,
         "predictionKey": _clean(row.get("predictionKey")),
         "predictionSource": _clean(row.get("predictionSource")),

@@ -76,6 +76,8 @@ class EdgeBoardRow(StrictPayload):
     quoteCount: Any = None
     availableBooks: list[Any] = Field(default_factory=list)
     allBookQuotes: list[Any] = Field(default_factory=list)
+    quoteHydrationWarning: str | None = None
+    quoteDetailUnavailable: bool | None = None
     americanOdds: Any = None
     rawModelProbability: Any = None
     calibratedProbability: Any = None
