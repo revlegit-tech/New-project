@@ -229,6 +229,76 @@ def test_statcast_provider_derives_safe_contract_and_excludes_same_day(tmp_path:
     assert rows[0]["labelsExcluded"] == "True"
 
 
+def test_statcast_provider_parses_savant_player_name_and_mlbam_columns(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "cache" / "savant" / "statcast_2026_sample.csv",
+        [
+            {
+                "game_date": "2026-06-29",
+                "player_name": "Judge, Aaron",
+                "batter": "592450",
+                "pitcher_name": "Sale, Chris",
+                "pitcher": "519242",
+                "bat_team": "NYY",
+                "events": "walk",
+                "launch_speed": "",
+                "estimated_woba_using_speedangle": "0.7",
+            }
+        ],
+    )
+
+    result = SavantStatcastContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.rows == 1
+    assert rows[0]["player"] == "Aaron Judge"
+    assert rows[0]["player_mlbam_id"] == "592450"
+    assert rows[0]["pitcher"] == "Chris Sale"
+    assert rows[0]["pitcher_mlbam_id"] == "519242"
+
+
+def test_statcast_provider_skips_rows_without_safe_player_identity(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "features" / "statcast_context_2026-06-30.csv",
+        [{"game_date": "2026-06-29", "batter": "592450", "events": "single", "launch_speed": "101"}],
+    )
+
+    result = SavantStatcastContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.status == "missing"
+    assert rows == []
+    assert any("no safely identifiable batter rows" in warning for warning in result.warnings)
+
+
+def test_statcast_provider_does_not_treat_pitcher_player_name_as_batter(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "cache" / "savant" / "statcast_2026_raw.csv",
+        [
+            {
+                "game_date": "2026-06-29",
+                "player_name": "Lopez, Pablo",
+                "batter": "665742",
+                "pitcher": "641154",
+                "away_team": "MIN",
+                "home_team": "HOU",
+                "inning_topbot": "Top",
+                "events": "single",
+                "launch_speed": "101",
+            }
+        ],
+    )
+
+    result = SavantStatcastContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert rows == []
+    assert any("no safely identifiable batter rows" in warning for warning in result.warnings)
+
+
 def test_statcast_missing_local_cache_warns_without_crashing(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
 

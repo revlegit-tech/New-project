@@ -114,6 +114,8 @@ OUTPUT_FIELDS = [
     "batter_ld_rate",
     "batter_gb_rate",
     "batter_sprint_speed",
+    "batter_hand",
+    "pitcher_hand",
     "batter_avg_vs_hand",
     "batter_k_rate_vs_hand",
     "batter_recent_hits_vs_lhp",
@@ -151,6 +153,8 @@ FEATURE_GROUPS = {
     "weather": ["temperature", "wind_mph", "wind_out_score", "wind_out_flag", "turf_flag", "cold_game_flag"],
     "umpire": ["ump_k_rate", "ump_zone_size_zscore", "ump_favor_batter_score"],
     "handedness_platoon": [
+        "batter_hand",
+        "pitcher_hand",
         "batter_avg_vs_hand",
         "batter_k_rate_vs_hand",
         "batter_recent_hits_vs_lhp",
@@ -374,6 +378,8 @@ class PlayerPropModelScoringService:
                 "batter_ld_rate": _number_or_blank(first_value(row, ["batter_ld_rate", "batterLdRate"], "")),
                 "batter_gb_rate": _number_or_blank(first_value(row, ["batter_gb_rate", "batterGbRate"], "")),
                 "batter_sprint_speed": _number_or_blank(first_value(row, ["batter_sprint_speed", "batterSprintSpeed"], "")),
+                "batter_hand": str(first_value(row, ["batter_hand", "batterHand"], "")).strip(),
+                "pitcher_hand": str(first_value(row, ["pitcher_hand", "pitcherHand"], "")).strip(),
                 "batter_avg_vs_hand": _number_or_blank(first_value(row, ["batter_avg_vs_hand", "batterAvgVsHand"], "")),
                 "batter_k_rate_vs_hand": _number_or_blank(first_value(row, ["batter_k_rate_vs_hand", "batterKRateVsHand"], "")),
                 "batter_recent_hits_vs_lhp": _number_or_blank(
@@ -452,6 +458,7 @@ class PlayerPropModelScoringService:
             "contextFeatureArtifacts": context_artifacts,
             "contextJoinCounts": context_join_result.counts,
             "contextJoinWarnings": context_join_result.warnings,
+            "contextIdentityDiagnostics": context_join_result.diagnostics,
             "oddsMovementRowsLoaded": context_join_result.counts.get("oddsMovementRowsLoaded", 0),
             "oddsMovementRowsJoined": context_join_result.counts.get("oddsMovementRowsJoined", 0),
             "oddsMovementRowsSkipped": context_join_result.counts.get("oddsMovementRowsSkipped", 0),
@@ -646,11 +653,11 @@ def _feature_completeness(
                 if not available:
                     warnings = [warning for warning in warnings if not warning.startswith(f"No populated {group}")]
                     warnings.append(f"{group} context artifact available but no scoring rows joined safely.")
-            elif group in {"player_recent_form", "pitcher_context"}:
+            elif group in {"player_recent_form", "pitcher_context", "statcast", "handedness_platoon"}:
                 populated_percent = round((populated / denominator) * 100.0, 2)
                 if not available:
                     warnings = [warning for warning in warnings if not warning.startswith(f"No populated {group}")]
-                    warnings.append(f"{group} context artifact available but no scoring rows joined safely.")
+                    warnings.append(f"{group} artifact has rows but no scoring rows joined safely.")
                 elif artifact_fields and missing:
                     warnings.append(f"{len(missing)} {group} artifact fields were not populated in scoring rows.")
             elif artifact_fields:

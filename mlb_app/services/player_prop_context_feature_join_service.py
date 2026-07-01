@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
+from mlb_app.services.player_prop_context_identity_service import (
+    normalize_book_key,
+    normalize_opponent,
+    normalize_player_name,
+    normalize_team,
+)
 from mlb_app.services.player_prop_identity_confidence import identity_confidence_for_row
 from mlb_app.services.player_prop_model_runtime import first_value, model_market_key, to_float
 from mlb_app.services.prop_side_normalization import normalize_prop_side
@@ -27,6 +33,7 @@ class ContextJoinResult:
     artifacts: dict[str, dict[str, Any]]
     counts: dict[str, Any]
     warnings: list[str] = field(default_factory=list)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 CONTEXT_ARTIFACTS = (
@@ -86,6 +93,8 @@ CONTEXT_ARTIFACTS = (
         "handedness_platoon",
         "handedness_platoon_{date}.csv",
         (
+            "batter_hand",
+            "pitcher_hand",
             "batter_avg_vs_hand",
             "batter_k_rate_vs_hand",
             "batter_recent_hits_vs_lhp",
@@ -113,6 +122,7 @@ class PlayerPropContextFeatureJoinService:
         output = [dict(row) for row in rows]
         artifacts = self.load_artifacts(date_label=date_label)
         warnings: list[str] = []
+        diagnostics = _new_diagnostics(artifacts)
         counts: dict[str, Any] = {
             "oddsMovementRowsLoaded": artifacts["odds_movement"]["rows"],
             "oddsMovementRowsJoined": 0,
@@ -162,6 +172,7 @@ class PlayerPropContextFeatureJoinService:
                 input_source=input_source,
                 counts=counts,
                 warnings=warnings,
+                diagnostics=diagnostics,
             )
         elif artifacts["odds_movement"].get("exists"):
             counts["oddsMovementRowsSkipped"] = len(output)
@@ -185,6 +196,7 @@ class PlayerPropContextFeatureJoinService:
                 ambiguous_key="playerRecentFormAmbiguousRows",
                 counts=counts,
                 warnings=warnings,
+                diagnostics=diagnostics,
             )
         elif artifacts["player_recent_form"].get("exists"):
             counts["playerRecentFormRowsSkipped"] = len(output)
@@ -208,6 +220,7 @@ class PlayerPropContextFeatureJoinService:
                 ambiguous_key="pitcherContextAmbiguousRows",
                 counts=counts,
                 warnings=warnings,
+                diagnostics=diagnostics,
             )
         elif artifacts["pitcher_context"].get("exists"):
             counts["pitcherContextRowsSkipped"] = len(output)
@@ -225,12 +238,16 @@ class PlayerPropContextFeatureJoinService:
                 row_name_aliases=("player", "playerName", "name"),
                 context_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
                 row_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
+                context_opponent_aliases=("opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
+                row_opponent_aliases=("opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
+                allow_missing_side_unique=True,
                 loaded_key="statcastRowsLoaded",
                 joined_key="statcastRowsJoined",
                 skipped_key="statcastRowsSkipped",
                 ambiguous_key="statcastAmbiguousRows",
                 counts=counts,
                 warnings=warnings,
+                diagnostics=diagnostics,
             )
         elif artifacts["statcast"].get("exists"):
             counts["statcastRowsSkipped"] = len(output)
@@ -248,12 +265,16 @@ class PlayerPropContextFeatureJoinService:
                 row_name_aliases=("player", "playerName", "name"),
                 context_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
                 row_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
+                context_opponent_aliases=("opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
+                row_opponent_aliases=("opponent", "opponentAbbr", "opponent_abbr", "opponentCode"),
+                allow_missing_side_unique=True,
                 loaded_key="handednessPlatoonRowsLoaded",
                 joined_key="handednessPlatoonRowsJoined",
                 skipped_key="handednessPlatoonRowsSkipped",
                 ambiguous_key="handednessPlatoonAmbiguousRows",
                 counts=counts,
                 warnings=warnings,
+                diagnostics=diagnostics,
             )
         elif artifacts["handedness_platoon"].get("exists"):
             counts["handednessPlatoonRowsSkipped"] = len(output)
@@ -271,10 +292,17 @@ class PlayerPropContextFeatureJoinService:
         if int(artifacts["pitcher_context"]["rows"] or 0) > 0 and counts["pitcherContextRowsJoined"] == 0:
             warnings.append("pitcher_context context artifact available but no scoring rows joined safely.")
         if int(artifacts["statcast"]["rows"] or 0) > 0 and counts["statcastRowsJoined"] == 0:
-            warnings.append("statcast context artifact available but no scoring rows joined safely.")
+            warnings.append("statcast artifact has rows but no scoring rows joined safely.")
         if int(artifacts["handedness_platoon"]["rows"] or 0) > 0 and counts["handednessPlatoonRowsJoined"] == 0:
-            warnings.append("handedness_platoon context artifact available but no scoring rows joined safely.")
-        return ContextJoinResult(rows=output, artifacts=_public_artifacts(artifacts), counts=counts, warnings=sorted(set(warnings)))
+            warnings.append("handedness_platoon artifact has rows but no scoring rows joined safely.")
+        _finalize_diagnostics(diagnostics, counts)
+        return ContextJoinResult(
+            rows=output,
+            artifacts=_public_artifacts(artifacts),
+            counts=counts,
+            warnings=sorted(set(warnings)),
+            diagnostics=diagnostics,
+        )
 
     def load_artifacts(self, *, date_label: str) -> dict[str, dict[str, Any]]:
         artifacts: dict[str, dict[str, Any]] = {}
@@ -313,6 +341,7 @@ class PlayerPropContextFeatureJoinService:
         input_source: str,
         counts: dict[str, Any],
         warnings: list[str],
+        diagnostics: dict[str, Any],
     ) -> None:
         context_by_key: dict[str, list[dict[str, Any]]] = {}
         ambiguous_keys: set[str] = set()
@@ -378,64 +407,98 @@ class PlayerPropContextFeatureJoinService:
         row_name_aliases: tuple[str, ...],
         context_team_aliases: tuple[str, ...],
         row_team_aliases: tuple[str, ...],
+        context_opponent_aliases: tuple[str, ...] = (),
+        row_opponent_aliases: tuple[str, ...] = (),
+        allow_missing_side_unique: bool = False,
         loaded_key: str,
         joined_key: str,
         skipped_key: str,
         ambiguous_key: str,
         counts: dict[str, Any],
         warnings: list[str],
+        diagnostics: dict[str, Any],
     ) -> None:
-        context_by_key: dict[str, list[dict[str, Any]]] = {}
-        ambiguous_keys: set[str] = set()
+        context_entries: list[dict[str, Any]] = []
         skipped_reasons: Counter[str] = Counter(counts.get("skippedByReason") or {})
+        group_diag = diagnostics.setdefault(spec.group, _empty_group_diagnostics())
 
         for context_row in context_rows:
-            key, reason = _identity_context_key(
+            entry, reason = _identity_context_entry(
                 context_row,
                 name_aliases=context_name_aliases,
                 team_aliases=context_team_aliases,
+                opponent_aliases=context_opponent_aliases,
                 date_label=date_label,
                 season=season,
                 is_context=True,
+                group=spec.group,
             )
-            if not key:
+            if not entry:
                 skipped_reasons[f"{spec.group}_context_{reason}"] += 1
+                _diagnostic_reason(group_diag, reason)
+                _add_sample(group_diag["unmatchedContextSamples"], _sample_from_row(context_row, reason=reason))
                 continue
-            context_by_key.setdefault(key, []).append(context_row)
-        for key, candidates in context_by_key.items():
-            if len(candidates) > 1:
-                ambiguous_keys.add(key)
-                counts[ambiguous_key] += len(candidates)
+            context_entries.append(entry)
+            _add_sample(group_diag["contextJoinKeyExamples"], entry["key"])
+
+        duplicate_counts = Counter(entry["key"] for entry in context_entries)
+        duplicate_keys = {key for key, value in duplicate_counts.items() if value > 1}
+        if duplicate_keys:
+            duplicate_rows = sum(1 for entry in context_entries if entry["key"] in duplicate_keys)
+            counts[ambiguous_key] += duplicate_rows
+            group_diag["duplicateContextKeyRows"] += duplicate_rows
+            group_diag["ambiguousRows"] += duplicate_rows
 
         for row in rows:
             if _identity_confidence(row, input_source=input_source) not in {"strong", "medium"}:
                 skipped_reasons[f"{spec.group}_weak_or_unknown_identity"] += 1
                 counts[skipped_key] += 1
+                group_diag["weakIdentityRows"] += 1
+                _diagnostic_reason(group_diag, "weak_or_unknown_identity")
+                _add_sample(group_diag["unmatchedScoringSamples"], _sample_from_row(row, reason="weak_or_unknown_identity"))
                 continue
-            key, reason = _identity_context_key(
+            row_entry, reason = _identity_context_entry(
                 row,
                 name_aliases=row_name_aliases,
                 team_aliases=row_team_aliases,
+                opponent_aliases=row_opponent_aliases,
                 date_label=date_label,
                 season=season,
                 is_context=False,
+                group=spec.group,
             )
-            if not key:
+            if not row_entry:
                 skipped_reasons[f"{spec.group}_{reason}"] += 1
                 counts[skipped_key] += 1
+                if reason.startswith("missing"):
+                    group_diag["missingKeyRows"] += 1
+                _diagnostic_reason(group_diag, reason)
+                _add_sample(group_diag["unmatchedScoringSamples"], _sample_from_row(row, reason=reason))
                 continue
-            if key in ambiguous_keys:
+            candidates = [
+                entry for entry in context_entries if _entries_match(row_entry, entry)
+            ]
+            if not allow_missing_side_unique:
+                candidates = [entry for entry in candidates if _entries_have_required_sides(row_entry, entry)]
+            if any(entry["key"] in duplicate_keys for entry in candidates) or len(candidates) > 1:
                 skipped_reasons[f"{spec.group}_ambiguous_match"] += 1
                 counts[skipped_key] += 1
+                group_diag["ambiguousRows"] += 1
+                _diagnostic_reason(group_diag, "ambiguous_match")
+                _add_sample(group_diag["unmatchedScoringSamples"], _sample_from_row(row, reason="ambiguous_match", key=row_entry["key"]))
                 continue
-            matches = context_by_key.get(key) or []
-            if len(matches) != 1:
+            if len(candidates) != 1:
                 skipped_reasons[f"{spec.group}_no_unique_match"] += 1
                 counts[skipped_key] += 1
+                group_diag["noMatchRows"] += 1
+                _diagnostic_reason(group_diag, "no_unique_match")
+                _add_sample(group_diag["unmatchedScoringSamples"], _sample_from_row(row, reason="no_unique_match", key=row_entry["key"]))
                 continue
+            if _uses_unique_missing_side(row_entry, candidates[0]):
+                _diagnostic_reason(group_diag, "team_or_opponent_unavailable_but_key_unique")
             joined = False
             for field in spec.join_fields:
-                value = first_value(matches[0], [field, _camel(field)], "")
+                value = first_value(candidates[0]["row"], [field, _camel(field)], "")
                 if _is_numeric(value):
                     row[field] = _format_number(to_float(value, math.nan), 6)
                     joined = True
@@ -447,6 +510,8 @@ class PlayerPropContextFeatureJoinService:
             else:
                 skipped_reasons[f"{spec.group}_matched_but_no_populated_fields"] += 1
                 counts[skipped_key] += 1
+                _diagnostic_reason(group_diag, "matched_but_no_populated_fields")
+                _add_sample(group_diag["unmatchedScoringSamples"], _sample_from_row(row, reason="matched_but_no_populated_fields", key=row_entry["key"]))
 
         if counts[ambiguous_key]:
             warnings.append(f"{spec.group} skipped {counts[ambiguous_key]} ambiguous context rows.")
@@ -466,10 +531,52 @@ def _public_artifacts(artifacts: dict[str, dict[str, Any]]) -> dict[str, dict[st
     return public
 
 
+def _new_diagnostics(artifacts: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    return {group: {**_empty_group_diagnostics(), "rowsLoaded": int(payload.get("rows") or 0)} for group, payload in artifacts.items()}
+
+
+def _empty_group_diagnostics() -> dict[str, Any]:
+    return {
+        "rowsLoaded": 0,
+        "rowsJoined": 0,
+        "rowsSkipped": 0,
+        "ambiguousRows": 0,
+        "missingKeyRows": 0,
+        "weakIdentityRows": 0,
+        "noMatchRows": 0,
+        "duplicateContextKeyRows": 0,
+        "unmatchedContextSamples": [],
+        "unmatchedScoringSamples": [],
+        "contextJoinKeyExamples": [],
+        "contextJoinSkipReasons": {},
+    }
+
+
+def _finalize_diagnostics(diagnostics: dict[str, Any], counts: dict[str, Any]) -> None:
+    joined_keys = {
+        "odds_movement": "oddsMovementRowsJoined",
+        "player_recent_form": "playerRecentFormRowsJoined",
+        "pitcher_context": "pitcherContextRowsJoined",
+        "statcast": "statcastRowsJoined",
+        "handedness_platoon": "handednessPlatoonRowsJoined",
+    }
+    skipped_keys = {
+        "odds_movement": "oddsMovementRowsSkipped",
+        "player_recent_form": "playerRecentFormRowsSkipped",
+        "pitcher_context": "pitcherContextRowsSkipped",
+        "statcast": "statcastRowsSkipped",
+        "handedness_platoon": "handednessPlatoonRowsSkipped",
+    }
+    for group, payload in diagnostics.items():
+        payload["rowsJoined"] = int(counts.get(joined_keys.get(group, ""), 0) or 0)
+        payload["rowsSkipped"] = int(counts.get(skipped_keys.get(group, ""), 0) or 0)
+        payload["contextJoinSkipReasons"] = dict(sorted(Counter(payload.get("contextJoinSkipReasons") or {}).items()))
+
+
 def _odds_join_key(row: dict[str, Any], *, date_label: str, season: int, is_context: bool) -> tuple[str, str]:
     row_date = str(first_value(row, ["date", "game_date", "gameDate", "event_date"], "")).strip() or (date_label if is_context else "")
     row_season = str(first_value(row, ["season"], "")).strip() or str(season)
-    player = _key(first_value(row, ["player", "playerName", "name"], ""))
+    player = normalize_player_name(first_value(row, ["player", "playerName", "name"], ""))
     market = model_market_key(first_value(row, ["market", "baseMarket"], ""))
     side = normalize_prop_side(
         first_value(row, ["side"], ""),
@@ -478,7 +585,7 @@ def _odds_join_key(row: dict[str, Any], *, date_label: str, season: int, is_cont
         first_value(row, ["outcome", "outcomeName", "outcome_name", "selection"], ""),
     )
     line = _line_key(first_value(row, ["line", "sportsbook_line", "prop_line"], ""))
-    book = _key(first_value(row, ["bookKey", "book_key", "sportsbookKey", "sportsbook_key", "book", "sportsbook"], ""))
+    book = normalize_book_key(first_value(row, ["bookKey", "book_key", "sportsbookKey", "sportsbook_key", "book", "sportsbook"], ""))
     if row_date != date_label:
         return "", "date_mismatch"
     if row_season and str(row_season) != str(season):
@@ -499,28 +606,86 @@ def _odds_join_key(row: dict[str, Any], *, date_label: str, season: int, is_cont
     return "|".join([date_label, str(season), player, market, _key(side), line, book]), ""
 
 
-def _identity_context_key(
+def _identity_context_entry(
     row: dict[str, Any],
     *,
     name_aliases: tuple[str, ...],
     team_aliases: tuple[str, ...],
+    opponent_aliases: tuple[str, ...],
     date_label: str,
     season: int,
     is_context: bool,
-) -> tuple[str, str]:
+    group: str,
+) -> tuple[dict[str, Any] | None, str]:
     row_date = str(first_value(row, ["date", "game_date", "gameDate", "event_date"], "")).strip() or (date_label if is_context else "")
     row_season = str(first_value(row, ["season"], "")).strip() or str(season)
-    name = _key(first_value(row, list(name_aliases), ""))
-    team = _key(first_value(row, list(team_aliases), ""))
+    name = normalize_player_name(first_value(row, list(name_aliases), ""))
+    team = normalize_team(first_value(row, list(team_aliases), ""))
+    opponent = normalize_opponent(first_value(row, list(opponent_aliases), "")) if opponent_aliases else ""
     if row_date != date_label:
-        return "", "date_mismatch"
+        return None, "date_mismatch"
     if row_season and str(row_season) != str(season):
-        return "", "season_mismatch"
+        return None, "season_mismatch"
     if not name:
-        return "", "missing_name"
-    if not team:
-        return "", "missing_team"
-    return "|".join([date_label, str(season), name, team]), ""
+        return None, "missing_name"
+    if is_context and group in {"statcast", "handedness_platoon"}:
+        if _flag_false(first_value(row, ["pregameSafe", "pregame_safe"], True)):
+            return None, "not_pregame_safe"
+        if _flag_false(first_value(row, ["labelsExcluded", "labels_excluded"], True)):
+            return None, "labels_not_excluded"
+        confidence = str(first_value(row, ["identityConfidence", "identity_confidence"], "") or "").strip().lower()
+        if confidence in {"weak", "unknown"}:
+            return None, "weak_or_unknown_identity"
+    key = "|".join([date_label, str(season), name, team or "*", opponent or "*"])
+    return {"key": key, "date": date_label, "season": str(season), "name": name, "team": team, "opponent": opponent, "row": row}, ""
+
+
+def _entries_match(scoring: dict[str, Any], context: dict[str, Any]) -> bool:
+    if scoring["date"] != context["date"] or scoring["season"] != context["season"]:
+        return False
+    if scoring["name"] != context["name"]:
+        return False
+    if scoring["team"] and context["team"] and scoring["team"] != context["team"]:
+        return False
+    if scoring["opponent"] and context["opponent"] and scoring["opponent"] != context["opponent"]:
+        return False
+    return True
+
+
+def _uses_unique_missing_side(scoring: dict[str, Any], context: dict[str, Any]) -> bool:
+    return bool((not scoring["team"] or not context["team"] or not scoring["opponent"] or not context["opponent"]))
+
+
+def _entries_have_required_sides(scoring: dict[str, Any], context: dict[str, Any]) -> bool:
+    return bool(scoring["team"] and context["team"])
+
+
+def _flag_false(value: Any) -> bool:
+    text = str(value).strip().lower()
+    return text in {"0", "false", "no", "n"}
+
+
+def _diagnostic_reason(payload: dict[str, Any], reason: str) -> None:
+    reasons = Counter(payload.get("contextJoinSkipReasons") or {})
+    reasons[reason or "unknown"] += 1
+    payload["contextJoinSkipReasons"] = dict(reasons)
+
+
+def _add_sample(samples: list[Any], sample: Any, *, limit: int = 10) -> None:
+    if sample in samples:
+        return
+    if len(samples) < limit:
+        samples.append(sample)
+
+
+def _sample_from_row(row: dict[str, Any], *, reason: str, key: str = "") -> dict[str, Any]:
+    return {
+        "reason": reason,
+        "key": key,
+        "player": str(first_value(row, ["player", "playerName", "name", "batter_name", "player_name"], "") or "").strip(),
+        "team": str(first_value(row, ["team", "teamAbbr", "team_abbr", "teamCode", "bat_team"], "") or "").strip(),
+        "opponent": str(first_value(row, ["opponent", "opponentAbbr", "opponent_abbr", "opponentCode"], "") or "").strip(),
+    }
 
 
 def _identity_confidence(row: dict[str, Any], *, input_source: str) -> str:

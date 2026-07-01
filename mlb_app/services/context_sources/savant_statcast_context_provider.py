@@ -23,7 +23,9 @@ STATCAST_FIELDS = [
     "date",
     "season",
     "player",
+    "player_mlbam_id",
     "pitcher",
+    "pitcher_mlbam_id",
     "team",
     "barrel_rate",
     "hard_hit_rate",
@@ -94,7 +96,9 @@ class SavantStatcastContextProvider:
             self.settings.data_dir / "features" / f"statcast_context_{date_label}.csv",
             self.settings.data_dir / "warehouse" / "statcast" / f"statcast_{season}.csv",
             self.settings.data_dir / "cache" / "statcast" / f"statcast_{season}.csv",
+            *sorted((self.settings.data_dir / "cache" / "savant").glob(f"statcast_{season}_*.csv")),
             *sorted((self.settings.data_dir / "cache" / "savant" / "raw").glob(f"statcast_{season}_*.csv")),
+            *sorted((self.settings.data_dir / "context" / "statcast").glob(f"*{season}*.csv")),
         ]
 
 
@@ -105,7 +109,7 @@ def _pregame_rows(rows: list[dict[str, str]], date_label: str) -> list[dict[str,
         return []
     output: list[dict[str, str]] = []
     for row in rows:
-        raw = clean(first_value(row, ["date", "game_date", "gameDate"]))
+        raw = clean(first_value(row, ["date", "game_date", "gameDate", "game_date_est"]))
         try:
             row_date = date.fromisoformat(raw[:10])
         except ValueError:
@@ -118,17 +122,17 @@ def _pregame_rows(rows: list[dict[str, str]], date_label: str) -> list[dict[str,
 def _group_batter_rows(rows: list[dict[str, str]]) -> list[list[dict[str, str]]]:
     grouped: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
     for row in rows:
-        player = _normal_name(clean(first_value(row, ["player", "batter_name", "batterName", "name"])))
+        player = _batter_name(row)
         if not player:
             continue
-        team = clean(first_value(row, ["team", "bat_team", "batTeam", "away_team", "home_team"]))
+        team = _batter_team(row)
         grouped[(key(player), team)].append(row)
     return list(grouped.values())
 
 
 def _statcast_summary(date_label: str, season: int, rows: list[dict[str, str]], source: Path, generated_at: str) -> dict[str, Any]:
     latest = rows[-1]
-    player = _normal_name(clean(first_value(latest, ["player", "batter_name", "batterName", "name"])))
+    player = _batter_name(latest)
     batted_ball_rows = [row for row in rows if clean(first_value(row, ["launch_speed", "launchSpeed"]))]
     pa_rows = _plate_appearance_rows(rows)
     at_bats = [row for row in pa_rows if _event(row) not in {"walk", "hit_by_pitch", "sac_bunt", "sac_fly", "catcher_interf"}]
@@ -141,8 +145,10 @@ def _statcast_summary(date_label: str, season: int, rows: list[dict[str, str]], 
         "date": date_label,
         "season": season,
         "player": player,
-        "pitcher": "",
-        "team": clean(first_value(latest, ["team", "bat_team", "batTeam", "away_team", "home_team"])),
+        "player_mlbam_id": clean(first_value(latest, ["batter", "batter_id", "player_mlbam_id"])),
+        "pitcher": _normal_name(clean(first_value(latest, ["pitcher_name", "pitcherPlayerName"]))),
+        "pitcher_mlbam_id": clean(first_value(latest, ["pitcher", "pitcher_id", "pitcher_mlbam_id"])),
+        "team": _batter_team(latest),
         "barrel_rate": _rate(sum(1 for row in batted_ball_rows if clean(first_value(row, ["launch_speed_angle"])) == "6"), len(batted_ball_rows)),
         "hard_hit_rate": _rate(sum(1 for row in batted_ball_rows if to_float(first_value(row, ["launch_speed"]), -1) >= 95), len(batted_ball_rows)),
         "xwoba": _avg(rows, ["estimated_woba_using_speedangle", "xwoba"]),
@@ -168,6 +174,32 @@ def _normal_name(value: str) -> str:
         last, first = [part.strip() for part in value.split(",", 1)]
         return f"{first} {last}".strip()
     return value
+
+
+def _batter_name(row: dict[str, str]) -> str:
+    explicit = _normal_name(clean(first_value(row, ["player", "batter_name", "batterName", "name"])))
+    if explicit:
+        return explicit
+    player_name = _normal_name(clean(first_value(row, ["player_name"])))
+    if not player_name:
+        return ""
+    raw_pitcher_id = clean(first_value(row, ["pitcher", "pitcher_id"]))
+    pitcher_name = clean(first_value(row, ["pitcher_name", "pitcherPlayerName"]))
+    if raw_pitcher_id and not pitcher_name:
+        return ""
+    return player_name
+
+
+def _batter_team(row: dict[str, str]) -> str:
+    explicit = clean(first_value(row, ["team", "bat_team", "batTeam", "batting_team"]))
+    if explicit:
+        return explicit
+    half = clean(first_value(row, ["inning_topbot"])).lower()
+    if half.startswith("top"):
+        return clean(first_value(row, ["away_team", "awayTeam"]))
+    if half.startswith("bot"):
+        return clean(first_value(row, ["home_team", "homeTeam"]))
+    return clean(first_value(row, ["away_team", "home_team", "awayTeam", "homeTeam"]))
 
 
 def _plate_appearance_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:

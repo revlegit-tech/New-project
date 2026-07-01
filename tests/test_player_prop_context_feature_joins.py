@@ -361,11 +361,63 @@ def test_handedness_platoon_rows_join_on_safe_identity(tmp_path: Path) -> None:
 
     row = report["rows"][0]
     summary = report["summary"]
+    assert row["batter_hand"] == "R"
+    assert row["pitcher_hand"] == "L"
     assert row["batter_avg_vs_hand"] == 0.3
     assert row["pitcher_avg_allowed_vs_hand"] == 0.25
     assert summary["contextJoinCounts"]["handednessPlatoonRowsLoaded"] == 1
     assert summary["contextJoinCounts"]["handednessPlatoonRowsJoined"] == 1
     assert summary["featureCompleteness"]["handedness_platoon"]["populatedPercent"] > 0
+    assert summary["contextIdentityDiagnostics"]["handedness_platoon"]["rowsJoined"] == 1
+
+
+def test_handedness_platoon_joins_when_team_aliases_normalize(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row(player="Aaron Judge Jr.", team="New York Yankees")])
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row(player="Aaron Judge", team="NYY")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    assert report["rows"][0]["batter_avg_vs_hand"] == 0.3
+    assert report["summary"]["contextJoinCounts"]["handednessPlatoonRowsJoined"] == 1
+
+
+def test_handedness_platoon_allows_missing_context_team_only_when_unique(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row()])
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row(team="")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    diagnostics = report["summary"]["contextIdentityDiagnostics"]["handedness_platoon"]
+    assert report["rows"][0]["batter_avg_vs_hand"] == 0.3
+    assert diagnostics["rowsJoined"] == 1
+    assert diagnostics["contextJoinSkipReasons"]["team_or_opponent_unavailable_but_key_unique"] == 1
+
+
+def test_handedness_platoon_does_not_join_ambiguous_context_rows(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row()])
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row(team=""), platoon_context_row(team="")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    diagnostics = report["summary"]["contextIdentityDiagnostics"]["handedness_platoon"]
+    assert report["rows"][0]["batter_avg_vs_hand"] == ""
+    assert report["summary"]["contextJoinCounts"]["handednessPlatoonAmbiguousRows"] == 2
+    assert diagnostics["duplicateContextKeyRows"] == 2
 
 
 def test_weak_identity_prevents_statcast_and_handedness_joins(tmp_path: Path) -> None:
@@ -386,6 +438,40 @@ def test_weak_identity_prevents_statcast_and_handedness_joins(tmp_path: Path) ->
     assert row["batter_avg_vs_hand"] == ""
     assert report["summary"]["contextJoinCounts"]["statcastRowsJoined"] == 0
     assert report["summary"]["contextJoinCounts"]["handednessPlatoonRowsJoined"] == 0
+
+
+def test_context_identity_diagnostics_include_unmatched_samples(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row(player="Juan Soto", source_row_id="row-2")])
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row(player="Aaron Judge")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    diagnostics = report["summary"]["contextIdentityDiagnostics"]["handedness_platoon"]
+    assert diagnostics["noMatchRows"] == 1
+    assert diagnostics["unmatchedScoringSamples"][0]["player"] == "Juan Soto"
+    assert diagnostics["contextJoinKeyExamples"]
+
+
+def test_handedness_artifact_rows_do_not_make_feature_ready_without_scoring_population(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row(player="Juan Soto", source_row_id="row-2")])
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row(player="Aaron Judge")],
+    )
+
+    summary = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)["summary"]
+
+    assert summary["featureCompleteness"]["handedness_platoon"]["populatedPercent"] == 0
+    assert "handedness_platoon" not in summary["featureGroupsReady"]
+    assert "handedness_platoon" in summary["featureGroupsMissing"]
+    assert any("handedness_platoon artifact has rows but no scoring rows joined safely" in warning for warning in summary["contextJoinWarnings"])
 
 
 def test_ambiguous_player_recent_form_skips_safely(tmp_path: Path) -> None:
