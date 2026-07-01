@@ -15,6 +15,7 @@ from mlb_app.services.player_prop_context_identity_service import (
     normalize_player_name,
     normalize_team,
 )
+from mlb_app.services.player_attribution import apply_attribution
 from mlb_app.services.player_prop_identity_confidence import identity_confidence_for_row
 from mlb_app.services.player_prop_model_runtime import first_value, model_market_key, to_float
 from mlb_app.services.prop_side_normalization import normalize_prop_side
@@ -121,7 +122,8 @@ class PlayerPropContextFeatureJoinService:
         season: int,
         input_source: str,
     ) -> ContextJoinResult:
-        output = [align_board_context_identity(row) for row in rows]
+        output = [align_board_context_identity(apply_attribution(row)) for row in rows]
+        attribution_join_diagnostics = _attribution_context_diagnostics(rows, output, date_label, season)
         artifacts = self.load_artifacts(date_label=date_label)
         warnings: list[str] = []
         board_alignment_diagnostics = _board_alignment_diagnostics(output)
@@ -149,6 +151,8 @@ class PlayerPropContextFeatureJoinService:
             "handednessPlatoonAmbiguousRows": 0,
             "handednessPlatoonRowsJoinedButAllNullFeatures": 0,
             "contextRowsJoinedButAllNullFeatures": 0,
+            "contextRowsUsingCorrectedAttribution": attribution_join_diagnostics["contextRowsUsingCorrectedAttribution"],
+            "contextRowsSkippedByAttributionConflict": 0,
             "boardBatterRowsWithoutContext": 0,
             "contextRowsNotOnBoard": 0,
             "loadedByGroup": {group: int(payload.get("rows") or 0) for group, payload in artifacts.items()},
@@ -319,6 +323,7 @@ class PlayerPropContextFeatureJoinService:
             date_label,
             season,
         )
+        diagnostics.update(attribution_join_diagnostics)
         return ContextJoinResult(
             rows=output,
             artifacts=_public_artifacts(artifacts),
@@ -387,6 +392,11 @@ class PlayerPropContextFeatureJoinService:
             if not key:
                 skipped_reasons[reason] += 1
                 counts["oddsMovementRowsSkipped"] += 1
+                continue
+            if _context_blocked_by_attribution(row):
+                skipped_reasons["odds_movement_attribution_blocked"] += 1
+                counts["oddsMovementRowsSkipped"] += 1
+                counts["contextRowsSkippedByAttributionConflict"] = int(counts.get("contextRowsSkippedByAttributionConflict") or 0) + 1
                 continue
             if _identity_confidence(row, input_source=input_source) not in {"strong", "medium"}:
                 skipped_reasons["weak_or_unknown_identity"] += 1
@@ -481,6 +491,13 @@ class PlayerPropContextFeatureJoinService:
                 counts[skipped_key] += 1
                 _diagnostic_reason(group_diag, "role_not_applicable")
                 _add_sample(group_diag["unmatchedScoringSamples"], _sample_from_row(row, reason="role_not_applicable"))
+                continue
+            if _context_blocked_by_attribution(row):
+                skipped_reasons[f"{spec.group}_attribution_blocked"] += 1
+                counts[skipped_key] += 1
+                counts["contextRowsSkippedByAttributionConflict"] = int(counts.get("contextRowsSkippedByAttributionConflict") or 0) + 1
+                _diagnostic_reason(group_diag, "attribution_blocked")
+                _add_sample(group_diag["unmatchedScoringSamples"], _sample_from_row(row, reason="attribution_blocked"))
                 continue
             if _identity_confidence(row, input_source=input_source) not in {"strong", "medium"}:
                 skipped_reasons[f"{spec.group}_weak_or_unknown_identity"] += 1
@@ -724,6 +741,69 @@ def _identity_key_for_diag(row: dict[str, Any], date_label: str, season: int, *,
         team = normalize_team(first_value(row, ["normalizedSubjectTeam", "subjectTeam", "team", "teamAbbr"], ""))
         opponent = normalize_opponent(first_value(row, ["normalizedSubjectOpponent", "subjectOpponent", "opponent", "opponentAbbr"], ""))
     return "|".join([date_label, str(season), name, team, opponent])
+
+
+def _attribution_context_diagnostics(
+    original_rows: list[dict[str, Any]],
+    aligned_rows: list[dict[str, Any]],
+    date_label: str,
+    season: int,
+) -> dict[str, Any]:
+    corrected_keys: list[str] = []
+    blocked_keys: list[str] = []
+    before_after: list[dict[str, Any]] = []
+    corrected_count = 0
+    blocked_count = 0
+    for original, aligned in zip(original_rows, aligned_rows):
+        status = str(aligned.get("attributionStatus") or "").strip().lower()
+        before_key = _raw_context_key_for_diag(original, aligned, date_label, season)
+        after_key = _identity_key_for_diag(aligned, date_label, season, context=False)
+        if aligned.get("attributionCorrectionApplied") and not _context_blocked_by_attribution(aligned):
+            corrected_count += 1
+            _add_sample(corrected_keys, after_key)
+            _add_sample(
+                before_after,
+                {
+                    "player": str(first_value(aligned, ["player", "subjectName"], "") or "").strip(),
+                    "beforeKey": before_key,
+                    "afterKey": after_key,
+                    "beforeTeam": str(first_value(original, ["originalTeam", "sourceTeam", "team", "teamAbbr"], "") or "").strip(),
+                    "beforeOpponent": str(first_value(original, ["originalOpponent", "sourceOpponent", "opponent", "opponentAbbr"], "") or "").strip(),
+                    "afterTeam": str(first_value(aligned, ["resolvedTeam", "team"], "") or "").strip(),
+                    "afterOpponent": str(first_value(aligned, ["resolvedOpponent", "opponent"], "") or "").strip(),
+                    "attributionStatus": status,
+                },
+            )
+        if status in {"conflict", "ambiguous", "invalid_player_label"} or _context_blocked_by_attribution(aligned):
+            blocked_count += 1
+            _add_sample(blocked_keys, after_key)
+    return {
+        "contextRowsUsingCorrectedAttribution": corrected_count,
+        "contextRowsSkippedByAttributionConflict": blocked_count,
+        "sampleCorrectedContextJoinKeys": corrected_keys,
+        "sampleBlockedContextJoinKeys": blocked_keys,
+        "sampleContextRowsBeforeAfterCorrection": before_after,
+    }
+
+
+def _raw_context_key_for_diag(original: dict[str, Any], aligned: dict[str, Any], date_label: str, season: int) -> str:
+    name = normalize_player_name(
+        first_value(
+            original,
+            ["rawPlayerName", "sourcePlayerLabel", "subjectName", "player", "playerName", "name"],
+            first_value(aligned, ["subjectName", "player"], ""),
+        )
+    )
+    team = normalize_team(first_value(original, ["originalTeam", "sourceTeam", "team", "teamAbbr", "team_abbr"], ""))
+    opponent = normalize_opponent(
+        first_value(original, ["originalOpponent", "sourceOpponent", "opponent", "opponentAbbr", "opponent_abbr"], "")
+    )
+    return "|".join([date_label, str(season), name, team, opponent])
+
+
+def _context_blocked_by_attribution(row: dict[str, Any]) -> bool:
+    status = str(row.get("attributionStatus") or "").strip().lower()
+    return bool(row.get("contextBlockedByAttribution")) or status in {"conflict", "ambiguous", "invalid_player_label"}
 
 
 def _odds_join_key(row: dict[str, Any], *, date_label: str, season: int, is_context: bool) -> tuple[str, str]:

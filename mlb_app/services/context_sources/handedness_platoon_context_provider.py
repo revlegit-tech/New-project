@@ -24,6 +24,7 @@ from mlb_app.services.player_prop_context_identity_service import (
     normalize_player_name,
     normalize_team,
 )
+from mlb_app.services.player_attribution import apply_attribution
 from mlb_app.services.player_handedness_lookup_service import PlayerHandednessLookupService
 
 
@@ -172,13 +173,43 @@ class HandednessPlatoonContextProvider:
             "boardSeedPitcherRows": 0,
             "boardSeedSkippedRows": 0,
             "boardSeedSkipReasons": {},
+            "contextRowsUsingCorrectedAttribution": 0,
+            "contextRowsSkippedByAttributionConflict": 0,
+            "sampleCorrectedContextJoinKeys": [],
+            "sampleBlockedContextJoinKeys": [],
+            "sampleContextRowsBeforeAfterCorrection": [],
         }
         deduped: dict[tuple[str, str, str], dict[str, Any]] = {}
         skip_reasons: defaultdict[str, int] = defaultdict(int)
         batter_rows = 0
         pitcher_rows = 0
         for raw in raw_rows:
-            aligned = align_board_context_identity(raw)
+            attributed = apply_attribution(raw)
+            aligned = align_board_context_identity(attributed)
+            status = clean(aligned.get("attributionStatus")).lower()
+            before_key = _raw_context_key(raw, aligned, date_label, season)
+            after_key = _context_key(aligned, date_label, season)
+            if aligned.get("attributionCorrectionApplied") and not aligned.get("contextBlockedByAttribution"):
+                diagnostics["contextRowsUsingCorrectedAttribution"] = int(diagnostics["contextRowsUsingCorrectedAttribution"]) + 1
+                _add_sample(diagnostics["sampleCorrectedContextJoinKeys"], after_key)
+                _add_sample(
+                    diagnostics["sampleContextRowsBeforeAfterCorrection"],
+                    {
+                        "player": clean(aligned.get("subjectName")) or clean(aligned.get("player")),
+                        "beforeKey": before_key,
+                        "afterKey": after_key,
+                        "beforeTeam": clean(first_value(raw, ["originalTeam", "sourceTeam", "team", "teamAbbr"])),
+                        "beforeOpponent": clean(first_value(raw, ["originalOpponent", "sourceOpponent", "opponent", "opponentAbbr"])),
+                        "afterTeam": clean(first_value(aligned, ["resolvedTeam", "team"])),
+                        "afterOpponent": clean(first_value(aligned, ["resolvedOpponent", "opponent"])),
+                        "attributionStatus": status,
+                    },
+                )
+            if status in {"conflict", "ambiguous", "invalid_player_label"} or aligned.get("contextBlockedByAttribution"):
+                diagnostics["contextRowsSkippedByAttributionConflict"] = int(diagnostics["contextRowsSkippedByAttributionConflict"]) + 1
+                skip_reasons[f"attribution_{status or 'blocked'}"] += 1
+                _add_sample(diagnostics["sampleBlockedContextJoinKeys"], after_key)
+                continue
             role = clean(aligned.get("subjectRole")).lower() or "unknown"
             if role == "pitcher":
                 pitcher_rows += 1
@@ -203,13 +234,23 @@ class HandednessPlatoonContextProvider:
             if not normalized_opponent:
                 skip_reasons["missing_subject_opponent"] += 1
                 continue
+            display_team = (
+                clean(first_value(aligned, ["correctedTeam", "resolvedTeam"]))
+                if aligned.get("attributionCorrectionApplied")
+                else team
+            )
+            display_opponent = (
+                clean(first_value(aligned, ["correctedOpponent", "resolvedOpponent"]))
+                if aligned.get("attributionCorrectionApplied")
+                else opponent
+            )
             seed_key = (normalized_player, normalized_team, normalized_opponent)
             seed = deduped.setdefault(
                 seed_key,
                 {
                     "player": player,
-                    "team": team or normalized_team,
-                    "opponent": opponent or normalized_opponent,
+                    "team": display_team or team or normalized_team,
+                    "opponent": display_opponent or opponent or normalized_opponent,
                     "normalizedPlayer": normalized_player,
                     "normalizedTeam": normalized_team,
                     "normalizedOpponent": normalized_opponent,
@@ -416,7 +457,10 @@ class _OpposingPitcherResolver:
         ]
         for path, date_aliases, source in sources:
             for raw in _read_date_rows(path, self.date_label, date_aliases=date_aliases):
-                row = align_board_context_identity(raw)
+                row = align_board_context_identity(apply_attribution(raw))
+                status = clean(row.get("attributionStatus")).lower()
+                if status in {"conflict", "ambiguous", "invalid_player_label"} or row.get("contextBlockedByAttribution"):
+                    continue
                 if clean(row.get("subjectRole")).lower() != "pitcher":
                     continue
                 name = clean(raw.get("subjectName")) or clean(raw.get("player")) or clean(row.get("subjectName"))
@@ -753,6 +797,33 @@ def _context_key(row: dict[str, Any], date_label: str, season: int) -> str:
             clean(row.get("normalizedOpponent")) or normalize_opponent(row.get("opponent")),
         ]
     )
+
+
+def _raw_context_key(raw: dict[str, Any], aligned: dict[str, Any], date_label: str, season: int) -> str:
+    return "|".join(
+        [
+            date_label,
+            str(season),
+            normalize_player_name(
+                first_value(
+                    raw,
+                    ["rawPlayerName", "sourcePlayerLabel", "subjectName", "player", "playerName", "name"],
+                    first_value(aligned, ["subjectName", "player"], ""),
+                )
+            ),
+            normalize_team(first_value(raw, ["originalTeam", "sourceTeam", "team", "teamAbbr", "team_abbr"], "")),
+            normalize_opponent(
+                first_value(raw, ["originalOpponent", "sourceOpponent", "opponent", "opponentAbbr", "opponent_abbr"], "")
+            ),
+        ]
+    )
+
+
+def _add_sample(samples: list[Any], sample: Any, *, limit: int = 10) -> None:
+    if sample in samples:
+        return
+    if len(samples) < limit:
+        samples.append(sample)
 
 
 def _sample(row: dict[str, Any]) -> dict[str, str]:

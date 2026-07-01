@@ -396,6 +396,104 @@ def test_handedness_platoon_rows_join_on_safe_identity(tmp_path: Path) -> None:
     assert summary["boardContextAlignmentDiagnostics"]["subjectRoleCounts"]["batter"] == 1
 
 
+def test_corrected_jazz_context_join_uses_resolved_yankees_key(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(
+        settings.data_dir / "features" / "prop_features_2026-06-30.csv",
+        [base_row(player="Jazz Chisholm", team="DET", opponent="NYY")],
+    )
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row(player="Jazz Chisholm", team="NYY", opponent="DET")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    row = report["rows"][0]
+    diagnostics = report["summary"]["contextIdentityDiagnostics"]
+    assert row["attributionStatus"] == "corrected"
+    assert row["team"] == "NEW YORK YANKEES"
+    assert row["opponent"] == "DETROIT TIGERS"
+    assert row["batter_avg_vs_hand"] == 0.3
+    assert "2026-06-30|2026|jazz chisholm|NYY|DET" in diagnostics["sampleCorrectedContextJoinKeys"]
+    assert diagnostics["sampleContextRowsBeforeAfterCorrection"][0]["beforeKey"] == "2026-06-30|2026|jazz chisholm|DET|NYY"
+    assert diagnostics["sampleContextRowsBeforeAfterCorrection"][0]["afterKey"] == "2026-06-30|2026|jazz chisholm|NYY|DET"
+    assert "new_york_yankees|detroit_tigers" in row["predictionKey"]
+
+
+def test_corrected_vladimir_context_join_uses_resolved_blue_jays_key(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(
+        settings.data_dir / "features" / "prop_features_2026-06-30.csv",
+        [base_row(player="Vladimir Guerrero Jr.", team="NYM", opponent="TOR")],
+    )
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row(player="Vladimir Guerrero Jr.", team="TOR", opponent="NYM")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    row = report["rows"][0]
+    diagnostics = report["summary"]["contextIdentityDiagnostics"]
+    assert row["attributionStatus"] == "corrected"
+    assert row["team"] == "TORONTO BLUE JAYS"
+    assert row["opponent"] == "NEW YORK METS"
+    assert row["batter_avg_vs_hand"] == 0.3
+    assert "2026-06-30|2026|vladimir guerrero|TOR|NYM" in diagnostics["sampleCorrectedContextJoinKeys"]
+    assert diagnostics["sampleContextRowsBeforeAfterCorrection"][0]["beforeKey"] == "2026-06-30|2026|vladimir guerrero|NYM|TOR"
+    assert diagnostics["sampleContextRowsBeforeAfterCorrection"][0]["afterKey"] == "2026-06-30|2026|vladimir guerrero|TOR|NYM"
+
+
+def test_corrected_jasson_context_join_uses_resolved_yankees_key(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(
+        settings.data_dir / "features" / "prop_features_2026-06-30.csv",
+        [base_row(player="Jasson Dominguez", team="DET", opponent="NYY")],
+    )
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row(player="Jasson Dominguez", team="NYY", opponent="DET")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    row = report["rows"][0]
+    diagnostics = report["summary"]["contextIdentityDiagnostics"]
+    assert row["attributionStatus"] == "corrected"
+    assert row["team"] == "NEW YORK YANKEES"
+    assert row["opponent"] == "DETROIT TIGERS"
+    assert row["batter_avg_vs_hand"] == 0.3
+    assert "2026-06-30|2026|jasson dominguez|NYY|DET" in diagnostics["sampleCorrectedContextJoinKeys"]
+    assert diagnostics["sampleContextRowsBeforeAfterCorrection"][0]["beforeKey"] == "2026-06-30|2026|jasson dominguez|DET|NYY"
+    assert diagnostics["sampleContextRowsBeforeAfterCorrection"][0]["afterKey"] == "2026-06-30|2026|jasson dominguez|NYY|DET"
+
+
+def test_context_join_blocks_uncorrectable_attribution_conflict(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(
+        settings.data_dir / "features" / "prop_features_2026-06-30.csv",
+        [base_row(player="Jazz Chisholm", team="DET", opponent="BAL")],
+    )
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row(player="Jazz Chisholm", team="DET", opponent="BAL")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    row = report["rows"][0]
+    diagnostics = report["summary"]["contextIdentityDiagnostics"]
+    assert row["attributionStatus"] == "conflict"
+    assert row["batter_avg_vs_hand"] == ""
+    assert diagnostics["contextRowsSkippedByAttributionConflict"] >= 1
+    assert "2026-06-30|2026|jazz chisholm|DET|BAL" in diagnostics["sampleBlockedContextJoinKeys"]
+
+
 def test_handedness_platoon_skips_pitcher_rows_as_role_not_applicable(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     write_model(settings)

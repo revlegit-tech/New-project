@@ -23,6 +23,7 @@ from mlb_app.services.player_prop_model_runtime import (
 )
 from mlb_app.services.player_prop_model_calibration_service import PlayerPropModelCalibrationService
 from mlb_app.services.player_prop_context_feature_join_service import PlayerPropContextFeatureJoinService
+from mlb_app.services.player_attribution import apply_attribution
 from mlb_app.services.player_prop_identity_confidence import (
     identity_confidence_for_row,
     serialize_identity_warnings,
@@ -575,7 +576,7 @@ class PlayerPropModelScoringService:
 
 
 def _enrich_safe_feature_rows(rows: list[dict[str, Any]], *, input_source: str) -> list[dict[str, Any]]:
-    enriched = [dict(row) for row in rows]
+    enriched = [apply_attribution(row) for row in rows]
     _fill_implied_probability(enriched)
     _fill_paired_vig(enriched, input_source=input_source)
     _fill_prior_snapshot_movement(enriched, input_source=input_source)
