@@ -14,6 +14,9 @@ export interface NormalizedPropIdentity {
   playerTeamVerified: boolean;
   opponentVerified: boolean;
   attributionStatus: string;
+  attributionCorrectionApplied: boolean;
+  attributionCorrectionReason: string;
+  playerTeamEvidenceStatus: string;
 }
 
 export interface NormalizedModelEdge {
@@ -90,6 +93,9 @@ export function rowPropIdentity(row: OutlierBoardRow): NormalizedPropIdentity {
     playerTeamVerified: Boolean(identity.playerTeamVerified ?? row.playerTeamVerified),
     opponentVerified: Boolean(identity.opponentVerified ?? row.opponentVerified),
     attributionStatus: normalizedStatus(identity.attributionStatus ?? row.attributionStatus),
+    attributionCorrectionApplied: Boolean(identity.attributionCorrectionApplied ?? row.attributionCorrectionApplied),
+    attributionCorrectionReason: text(identity.attributionCorrectionReason ?? row.attributionCorrectionReason, ""),
+    playerTeamEvidenceStatus: normalizedStatus(identity.playerTeamEvidenceStatus ?? row.playerTeamEvidenceStatus),
   };
 }
 
@@ -341,8 +347,14 @@ function identityChip(row: OutlierBoardRow): TrustChip {
   if (identity.attributionStatus === "conflict") {
     return { label: "Possible team mismatch", tone: "risk", title: identity.identityWarnings[0] || "Player/team attribution conflicts with local evidence." };
   }
+  if (identity.attributionStatus === "ambiguous") {
+    return { label: "Ambiguous player", tone: "risk", title: identity.identityWarnings[0] || "Player identity could not be uniquely resolved." };
+  }
   if (identity.attributionStatus === "invalid_player_label") {
     return { label: "Invalid player label", tone: "risk", title: identity.identityWarnings[0] || "Market label could not be safely treated as a player." };
+  }
+  if (identity.attributionCorrectionApplied || identity.attributionStatus === "corrected") {
+    return { label: "Corrected", tone: "good", title: identity.attributionCorrectionReason || "Source mismatch corrected by roster evidence." };
   }
   if (Boolean(row.contextBlockedByAttribution)) {
     return { label: "Context limited", tone: "risk", title: identity.identityWarnings[0] || "Model/context join blocked by attribution confidence." };

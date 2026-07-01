@@ -46,6 +46,9 @@ def test_outlier_rows_and_detail_rail_render_trust_chips() -> None:
     assert "Experimental model output. Research only. No staking recommendation." in row
     assert "Identity is inferred from board context. Research only." in trust
     assert "Identity inferred" in trust
+    assert "Corrected" in trust
+    assert "Ambiguous player" in trust
+    assert "Source mismatch corrected by roster evidence." in trust
     assert "Identity\", trustStatusLabel(identity.identityConfidence)" in rail
     assert "Identity is inferred from board context. Bet" not in trust
     assert "label: \"Bet\"" not in trust

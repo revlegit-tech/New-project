@@ -56,7 +56,18 @@ class EdgeBoardRow(StrictPayload):
     sourceOpponent: str | None = None
     resolvedTeam: str | None = None
     resolvedOpponent: str | None = None
+    resolvedTeamAbbr: str | None = None
+    resolvedOpponentAbbr: str | None = None
     resolvedGameId: str | None = None
+    attributionCorrectionApplied: bool | None = None
+    attributionCorrectionReason: str | None = None
+    originalTeam: str | None = None
+    originalOpponent: str | None = None
+    correctedTeam: str | None = None
+    correctedOpponent: str | None = None
+    playerTeamEvidenceStatus: str | None = None
+    playerTeamEvidenceSources: list[str] = Field(default_factory=list)
+    playerTeamEvidenceWarnings: list[str] = Field(default_factory=list)
     attributionConfidence: str | None = None
     attributionStatus: str | None = None
     attributionWarnings: list[str] = Field(default_factory=list)

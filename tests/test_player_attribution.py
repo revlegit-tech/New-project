@@ -4,6 +4,7 @@ from typing import Any
 
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.player_attribution import apply_attribution, clean_player_label
+from mlb_app.services.player_team_resolver import normalize_player_name
 
 
 def test_pitcher_label_cleanup_strips_market_suffix() -> None:
@@ -21,21 +22,37 @@ def test_invalid_ladder_labels_are_not_treated_as_players() -> None:
         assert resolved["contextBlockedByAttribution"] is True
 
 
-def test_suspicious_team_conflicts_downgrade_and_block_context() -> None:
+def test_roster_backed_game_side_correction_unblocks_context() -> None:
     examples = [
-        ("Jazz Chisholm", "DET"),
-        ("Jasson Dominguez", "DET"),
-        ("Vladimir Guerrero Jr.", "NYM"),
+        ("Jazz Chisholm", "DET", "NYY", "NEW YORK YANKEES", "DETROIT TIGERS"),
+        ("Jasson Dominguez", "DET", "NYY", "NEW YORK YANKEES", "DETROIT TIGERS"),
+        ("Vladimir Guerrero Jr.", "NYM", "TOR", "TORONTO BLUE JAYS", "NEW YORK METS"),
     ]
 
-    for player, wrong_team in examples:
-        resolved = apply_attribution({"player": player, "team": wrong_team, "opponent": "NYY", "market": "batter_hits"})
+    for player, wrong_team, opponent, expected_team, expected_opponent in examples:
+        resolved = apply_attribution({"player": player, "team": wrong_team, "opponent": opponent, "market": "batter_hits"})
 
-        assert resolved["attributionStatus"] == "conflict"
-        assert resolved["attributionConfidence"] == "low"
-        assert resolved["teamVerified"] is False
-        assert resolved["contextBlockedByAttribution"] is True
-        assert "possible_team_mismatch" in resolved["attributionWarnings"]
+        assert resolved["attributionStatus"] == "corrected"
+        assert resolved["attributionConfidence"] == "high"
+        assert resolved["team"] == expected_team
+        assert resolved["opponent"] == expected_opponent
+        assert resolved["resolvedTeam"] == expected_team
+        assert resolved["resolvedOpponent"] == expected_opponent
+        assert resolved["attributionCorrectionApplied"] is True
+        assert resolved["teamVerified"] is True
+        assert resolved["opponentVerified"] is True
+        assert resolved["contextBlockedByAttribution"] is False
+        assert "source_team_mismatch_corrected" in resolved["attributionWarnings"]
+
+
+def test_roster_evidence_outside_event_remains_conflict_gated() -> None:
+    resolved = apply_attribution({"player": "Jazz Chisholm", "team": "DET", "opponent": "BAL", "market": "batter_hits"})
+
+    assert resolved["attributionStatus"] == "conflict"
+    assert resolved["attributionConfidence"] == "low"
+    assert resolved["teamVerified"] is False
+    assert resolved["contextBlockedByAttribution"] is True
+    assert "possible_team_mismatch" in resolved["attributionWarnings"]
 
 
 def test_missing_source_team_keeps_row_visible_but_unverified() -> None:
@@ -56,7 +73,7 @@ def test_game_market_context_blocks_conflicting_attribution() -> None:
                 "date": "2026-07-01",
                 "player": "Jazz Chisholm",
                 "team": "DET",
-                "opponent": "NYY",
+                "opponent": "BAL",
                 "market": "batter_hits",
             }
         ]
@@ -65,3 +82,25 @@ def test_game_market_context_blocks_conflicting_attribution() -> None:
     assert rows[0]["game_market_available"] is False
     assert rows[0]["game_market_enrichment_status"] == "context_limited_by_attribution"
 
+
+def test_pitcher_suffix_cleanup_does_not_falsely_verify_without_event_evidence() -> None:
+    resolved = apply_attribution({"player": "Freddy Peralta Strikeouts Thrown", "team": "", "opponent": "", "market": "pitcher_strikeouts"})
+
+    assert resolved["player"] == "Freddy Peralta"
+    assert resolved["attributionStatus"] == "source_missing"
+    assert resolved["teamVerified"] is False
+    assert resolved["attributionCorrectionApplied"] is False
+
+
+def test_ambiguous_player_match_does_not_correct() -> None:
+    resolved = apply_attribution({"player": "Luis Garcia", "team": "HOU", "opponent": "WSN", "market": "pitcher_strikeouts"})
+
+    assert resolved["attributionStatus"] == "ambiguous"
+    assert resolved["attributionConfidence"] == "low"
+    assert resolved["attributionCorrectionApplied"] is False
+    assert resolved["contextBlockedByAttribution"] is True
+
+
+def test_player_name_normalization_is_accent_insensitive_and_suffix_preserving() -> None:
+    assert normalize_player_name("Vladímir Guerrero Jr.") == "vladimir guerrero jr"
+    assert normalize_player_name("Jazz Chisholm Jr.") == "jazz chisholm jr"

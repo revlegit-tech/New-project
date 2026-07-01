@@ -15,6 +15,9 @@ export interface PropIdentityTrust {
   playerTeamVerified?: boolean;
   opponentVerified?: boolean;
   attributionStatus?: string;
+  attributionCorrectionApplied?: boolean;
+  attributionCorrectionReason?: string;
+  playerTeamEvidenceStatus?: string;
 }
 
 export interface ModelEdgeTrust {

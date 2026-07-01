@@ -138,6 +138,39 @@ TEAM_ALIASES: dict[str, str] = {
     "NATIONALS": "WSN",
 }
 
+TEAM_DISPLAY_NAMES: dict[str, str] = {
+    "ARI": "ARIZONA DIAMONDBACKS",
+    "ATL": "ATLANTA BRAVES",
+    "BAL": "BALTIMORE ORIOLES",
+    "BOS": "BOSTON RED SOX",
+    "CHC": "CHICAGO CUBS",
+    "CHW": "CHICAGO WHITE SOX",
+    "CIN": "CINCINNATI REDS",
+    "CLE": "CLEVELAND GUARDIANS",
+    "COL": "COLORADO ROCKIES",
+    "DET": "DETROIT TIGERS",
+    "HOU": "HOUSTON ASTROS",
+    "KCR": "KANSAS CITY ROYALS",
+    "LAA": "LOS ANGELES ANGELS",
+    "LAD": "LOS ANGELES DODGERS",
+    "MIA": "MIAMI MARLINS",
+    "MIL": "MILWAUKEE BREWERS",
+    "MIN": "MINNESOTA TWINS",
+    "NYM": "NEW YORK METS",
+    "NYY": "NEW YORK YANKEES",
+    "ATH": "ATHLETICS",
+    "PHI": "PHILADELPHIA PHILLIES",
+    "PIT": "PITTSBURGH PIRATES",
+    "SDP": "SAN DIEGO PADRES",
+    "SEA": "SEATTLE MARINERS",
+    "SFG": "SAN FRANCISCO GIANTS",
+    "STL": "ST. LOUIS CARDINALS",
+    "TBR": "TAMPA BAY RAYS",
+    "TEX": "TEXAS RANGERS",
+    "TOR": "TORONTO BLUE JAYS",
+    "WSN": "WASHINGTON NATIONALS",
+}
+
 
 def normalize_team_alias(value: Any) -> str:
     """Return a canonical MLB abbreviation without fuzzy matching."""
@@ -164,6 +197,11 @@ def normalize_team_alias(value: Any) -> str:
             return TEAM_ALIASES[key]
     fallback = team_alias_key(candidates[0] if candidates else "")
     return fallback[:4] if fallback else ""
+
+
+def team_display_name(value: Any) -> str:
+    abbr = normalize_team_alias(value)
+    return TEAM_DISPLAY_NAMES.get(abbr, str(value or "").strip())
 
 
 def team_alias_key(value: Any) -> str:

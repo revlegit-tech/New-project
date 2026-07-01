@@ -4,6 +4,7 @@ import re
 from collections import Counter
 from typing import Any
 
+from mlb_app.services.player_team_resolver import resolve_player_team
 from mlb_app.services.team_match_utils import normalize_team_alias
 
 ATTRIBUTION_CONTEXT_WARNING = "Context limited by unverified player/team attribution."
@@ -21,15 +22,6 @@ _INVALID_PLAYER_LABEL_PATTERNS = (
     re.compile(r"^\s*(?:over|under)\s+\d+(?:\.\d+)?\s*$", re.IGNORECASE),
     re.compile(r"^\s*(?:ladder|milestone|alternate|alt)\b", re.IGNORECASE),
 )
-
-_KNOWN_PLAYER_TEAMS = {
-    "jazz chisholm": "NYY",
-    "jazz chisholm jr": "NYY",
-    "jasson dominguez": "NYY",
-    "vladimir guerrero jr": "TOR",
-    "vladimir guerrero": "TOR",
-}
-
 
 def clean_player_label(value: Any, *, market: Any = "", raw_label: Any = "") -> dict[str, Any]:
     raw = _clean(value)
@@ -69,6 +61,16 @@ def resolve_attribution(row: dict[str, Any]) -> dict[str, Any]:
     raw_opponent = _clean(_first(row, "sourceOpponent", "opponent", "opponent_abbr", "opponentCode"))
     resolved_team = normalize_team_alias(raw_team)
     resolved_opponent = normalize_team_alias(raw_opponent)
+    original_team = _clean(_first(row, "originalTeam", "team", "sourceTeam", "team_abbr", "teamCode"))
+    original_opponent = _clean(_first(row, "originalOpponent", "opponent", "sourceOpponent", "opponent_abbr", "opponentCode"))
+    team_resolution = resolve_player_team(
+        player_name=cleaned_player,
+        source_team=raw_team,
+        source_opponent=raw_opponent,
+        home_team=_first(row, "homeTeam", "home_team", "home"),
+        away_team=_first(row, "awayTeam", "away_team", "away"),
+        player_id=_first(row, "playerId", "mlbPlayerId", "player_id"),
+    )
 
     warnings = list(label_result["playerLabelWarnings"])
     sources: list[str] = []
@@ -85,21 +87,54 @@ def resolve_attribution(row: dict[str, Any]) -> dict[str, Any]:
     status = "unverified"
     confidence = "unknown"
     conflict_reason = ""
+    corrected_team = ""
+    corrected_opponent = ""
+    correction_applied = False
+    correction_reason = ""
+    evidence_status = team_resolution.status
+    evidence_sources = list(team_resolution.sources)
+    evidence_warnings = list(team_resolution.warnings)
+    resolved_team_abbr = resolved_team
+    resolved_opponent_abbr = resolved_opponent
 
-    known_team = _KNOWN_PLAYER_TEAMS.get(_name_key(cleaned_player))
     if label_result["invalidPlayerLabel"]:
         status = "invalid_player_label"
         confidence = "unknown"
         player_verified = False
         warnings.append("invalid_player_label")
-    elif known_team and resolved_team and known_team != resolved_team:
+        evidence_status = "missing"
+    elif team_resolution.status == "ambiguous":
+        status = "ambiguous"
+        confidence = "low"
+        team_verified = False
+        opponent_verified = False
+        warnings.extend(["ambiguous_player_name", "context_limited_by_attribution"])
+    elif team_resolution.status == "conflict":
         status = "conflict"
         confidence = "low"
         team_verified = False
         opponent_verified = False
-        conflict_reason = f"local_player_team_conflict:{cleaned_player}:{resolved_team}!={known_team}"
+        conflict_reason = team_resolution.reason or f"local_player_team_conflict:{cleaned_player}:{resolved_team}!={team_resolution.team_abbr}"
         warnings.append("possible_team_mismatch")
-        sources.append("local_player_team_mapping")
+        sources.extend(evidence_sources)
+    elif team_resolution.verified:
+        corrected_team = team_resolution.team
+        corrected_opponent = team_resolution.opponent
+        resolved_team = corrected_team
+        resolved_opponent = corrected_opponent
+        resolved_team_abbr = team_resolution.team_abbr
+        resolved_opponent_abbr = team_resolution.opponent_abbr
+        team_verified = True
+        opponent_verified = bool(team_resolution.opponent_abbr)
+        status = "verified" if team_resolution.status == "verified" else "corrected"
+        confidence = "verified" if status == "verified" else "high"
+        sources.extend(evidence_sources)
+        if team_resolution.status != "verified":
+            correction_applied = bool(raw_team and resolved_team_abbr and raw_team and normalize_team_alias(raw_team) != resolved_team_abbr)
+            correction_reason = team_resolution.reason or "team_verified_by_roster"
+            warnings.append("corrected_team_from_roster")
+            if correction_applied:
+                warnings.append("source_team_mismatch_corrected")
     elif not raw_team or not raw_opponent:
         status = "source_missing"
         confidence = "low" if not (raw_team or raw_opponent) else "medium"
@@ -122,8 +157,8 @@ def resolve_attribution(row: dict[str, Any]) -> dict[str, Any]:
         "attributionStatus": status,
         "attributionWarnings": _unique(warnings),
         "attributionSources": _unique(sources),
-        "teamVerified": bool(team_verified and status == "verified"),
-        "opponentVerified": bool(opponent_verified and status == "verified"),
+        "teamVerified": bool(team_verified and status in {"verified", "corrected"}),
+        "opponentVerified": bool(opponent_verified and status in {"verified", "corrected"}),
         "playerVerified": bool(player_verified and status not in {"invalid_player_label", "conflict"}),
         "cleanedPlayerName": cleaned_player,
         "rawPlayerName": raw_player,
@@ -131,8 +166,19 @@ def resolve_attribution(row: dict[str, Any]) -> dict[str, Any]:
         "sourceOpponent": raw_opponent,
         "resolvedTeam": resolved_team,
         "resolvedOpponent": resolved_opponent,
+        "resolvedTeamAbbr": resolved_team_abbr,
+        "resolvedOpponentAbbr": resolved_opponent_abbr,
         "resolvedGameId": _clean(_first(row, "resolvedGameId", "gameId", "gamePk", "eventId")),
         "attributionConflictReason": conflict_reason,
+        "attributionCorrectionApplied": correction_applied,
+        "attributionCorrectionReason": correction_reason,
+        "originalTeam": original_team,
+        "originalOpponent": original_opponent,
+        "correctedTeam": corrected_team if correction_applied else "",
+        "correctedOpponent": corrected_opponent if correction_applied else "",
+        "playerTeamEvidenceStatus": evidence_status,
+        "playerTeamEvidenceSources": _unique(evidence_sources),
+        "playerTeamEvidenceWarnings": _unique(evidence_warnings),
         "contextBlockedByAttribution": not context_allowed,
         "contextAllowedWithWarning": bool(context_warning),
     }
@@ -146,6 +192,12 @@ def apply_attribution(row: dict[str, Any]) -> dict[str, Any]:
         enriched["player"] = attribution["cleanedPlayerName"]
         enriched["playerDisplayName"] = attribution["cleanedPlayerName"]
         enriched["cleanedPlayer"] = attribution["cleanedPlayerName"]
+    if attribution["attributionCorrectionApplied"]:
+        enriched["team"] = attribution["correctedTeam"]
+        enriched["opponent"] = attribution["correctedOpponent"]
+    elif attribution["teamVerified"] and attribution["resolvedTeam"]:
+        enriched["team"] = attribution["resolvedTeam"]
+        enriched["opponent"] = attribution["resolvedOpponent"]
 
     warnings = _unique([*(enriched.get("trustWarnings") or []), *attribution["attributionWarnings"]])
     if warnings:
@@ -164,6 +216,9 @@ def apply_attribution(row: dict[str, Any]) -> dict[str, Any]:
             "playerTeamVerified": attribution["teamVerified"],
             "opponentVerified": attribution["opponentVerified"],
             "attributionStatus": attribution["attributionStatus"],
+            "attributionCorrectionApplied": attribution["attributionCorrectionApplied"],
+            "attributionCorrectionReason": attribution["attributionCorrectionReason"],
+            "playerTeamEvidenceStatus": attribution["playerTeamEvidenceStatus"],
         }
     )
     trust["propIdentity"] = prop_identity
@@ -178,6 +233,11 @@ def apply_attribution(row: dict[str, Any]) -> dict[str, Any]:
             "playerVerified",
             "contextBlockedByAttribution",
             "contextAllowedWithWarning",
+            "attributionCorrectionApplied",
+            "attributionCorrectionReason",
+            "playerTeamEvidenceStatus",
+            "playerTeamEvidenceSources",
+            "playerTeamEvidenceWarnings",
         )
     }
     enriched["trust"] = trust
@@ -193,7 +253,7 @@ def attribution_allows_context(row: dict[str, Any]) -> bool:
 def attribution_confidence_to_identity(confidence: Any, status: Any = "") -> str:
     confidence_text = _clean(confidence)
     status_text = _clean(status)
-    if confidence_text in {"verified", "high"} and status_text == "verified":
+    if confidence_text in {"verified", "high"} and status_text in {"verified", "corrected"}:
         return "strong"
     if confidence_text == "medium":
         return "medium"
@@ -213,6 +273,15 @@ def attribution_diagnostics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "attributionRowsLow": counts.get("low", 0),
         "attributionRowsUnknown": counts.get("unknown", 0),
         "attributionRowsConflict": status_counts.get("conflict", 0),
+        "attributionRowsCorrected": sum(1 for row in enriched if row.get("attributionCorrectionApplied")),
+        "attributionRowsCorrectedFromRoster": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and "local_roster_seed" in (row.get("playerTeamEvidenceSources") or [])),
+        "attributionRowsCorrectedFromGameLogs": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and "game_log" in (row.get("playerTeamEvidenceSources") or [])),
+        "attributionRowsVerifiedAfterCorrection": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and row.get("teamVerified") and row.get("opponentVerified")),
+        "attributionRowsStillConflict": status_counts.get("conflict", 0),
+        "attributionRowsAmbiguous": status_counts.get("ambiguous", 0),
+        "attributionRowsNoRosterEvidence": sum(1 for row in enriched if "no_roster_evidence" in (row.get("playerTeamEvidenceWarnings") or [])),
+        "contextRowsUnblockedByCorrection": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and not row.get("contextBlockedByAttribution")),
+        "predictionRowsUnblockedByCorrection": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and not row.get("contextBlockedByAttribution")),
         "attributionRowsInvalidPlayerLabel": status_counts.get("invalid_player_label", 0),
         "rowsBlockedFromContextByAttribution": sum(1 for row in enriched if row.get("contextBlockedByAttribution")),
         "rowsAllowedContextWithWarning": sum(1 for row in enriched if row.get("contextAllowedWithWarning")),
@@ -221,6 +290,11 @@ def attribution_diagnostics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "sampleInvalidPlayerLabels": _samples(enriched, lambda row: row.get("attributionStatus") == "invalid_player_label"),
         "sampleCleanedPlayerNames": _samples(enriched, lambda row: bool(row.get("rawPlayerName") and row.get("cleanedPlayerName") and row.get("rawPlayerName") != row.get("cleanedPlayerName"))),
         "sampleTeamCorrections": _samples(enriched, lambda row: bool(row.get("attributionConflictReason"))),
+        "sampleCorrectedRows": _samples(enriched, lambda row: bool(row.get("attributionCorrectionApplied"))),
+        "sampleAmbiguousRows": _samples(enriched, lambda row: row.get("attributionStatus") == "ambiguous"),
+        "sampleUncorrectedConflicts": _samples(enriched, lambda row: row.get("attributionStatus") == "conflict"),
+        "sampleRosterEvidenceMatches": _samples(enriched, lambda row: row.get("playerTeamEvidenceStatus") in {"verified", "roster_match"}),
+        "sampleRosterEvidenceMisses": _samples(enriched, lambda row: "no_roster_evidence" in (row.get("playerTeamEvidenceWarnings") or [])),
         "sampleRowsBlockedFromModelContext": _samples(enriched, lambda row: row.get("contextBlockedByAttribution")),
     }
 
@@ -240,6 +314,8 @@ def _samples(rows: list[dict[str, Any]], predicate: Any) -> list[dict[str, Any]]
                 "attributionConfidence": _clean(row.get("attributionConfidence")),
                 "attributionStatus": _clean(row.get("attributionStatus")),
                 "warnings": list(row.get("attributionWarnings") or [])[:3],
+                "attributionCorrectionApplied": bool(row.get("attributionCorrectionApplied")),
+                "playerTeamEvidenceStatus": _clean(row.get("playerTeamEvidenceStatus")),
             }
         )
         if len(sample) >= 5:
@@ -265,13 +341,6 @@ def _looks_like_person_name(value: str) -> bool:
     if len(tokens) < 2 or len(tokens) > 5:
         return False
     return all(re.search(r"[A-Za-z]", token) for token in tokens)
-
-
-def _name_key(value: Any) -> str:
-    text = _clean(value).lower()
-    text = re.sub(r"\b(jr|sr|ii|iii|iv)\.?\b", lambda match: match.group(1), text)
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    return " ".join(text.split())
 
 
 def _first(row: dict[str, Any], *keys: str) -> Any:
