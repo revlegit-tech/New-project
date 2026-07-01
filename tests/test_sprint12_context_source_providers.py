@@ -9,8 +9,10 @@ import joblib
 
 from mlb_app.config import Settings
 from mlb_app.services.context_sources.base import ContextProviderResult
+from mlb_app.services.context_sources.handedness_platoon_context_provider import HandednessPlatoonContextProvider
 from mlb_app.services.context_sources.mlb_stats_context_provider import MLBStatsContextProvider
 from mlb_app.services.context_sources.odds_movement_context_provider import OddsMovementContextProvider
+from mlb_app.services.context_sources.savant_statcast_context_provider import SavantStatcastContextProvider
 from mlb_app.services.context_sources.umpire_context_provider import UmpireContextProvider
 from mlb_app.services.context_sources.weather_context_provider import WeatherContextProvider
 from mlb_app.services.feature_source_audit_service import FeatureSourceAuditService
@@ -182,6 +184,93 @@ def test_missing_prior_odds_snapshot_warns_without_failure(tmp_path: Path) -> No
     assert "Prior odds snapshot not found; movement fields left null." in result.warnings
 
 
+def test_statcast_provider_derives_safe_contract_and_excludes_same_day(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "features" / "statcast_context_2026-06-30.csv",
+        [
+            {
+                "game_date": "2026-06-29",
+                "player": "Aaron Judge",
+                "team": "NYY",
+                "events": "single",
+                "launch_speed": "101",
+                "launch_speed_angle": "6",
+                "bb_type": "line_drive",
+                "estimated_woba_using_speedangle": "0.9",
+                "estimated_ba_using_speedangle": "0.8",
+                "estimated_slg_using_speedangle": "1.2",
+            },
+            {
+                "game_date": "2026-06-30",
+                "player": "Aaron Judge",
+                "team": "NYY",
+                "events": "home_run",
+                "launch_speed": "115",
+                "launch_speed_angle": "6",
+                "bb_type": "line_drive",
+                "estimated_woba_using_speedangle": "2.0",
+                "estimated_ba_using_speedangle": "1.0",
+                "estimated_slg_using_speedangle": "4.0",
+            },
+        ],
+    )
+
+    result = SavantStatcastContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.status == "partial"
+    assert result.pregameSafe is True
+    assert result.labelsExcluded is True
+    assert rows[0]["player"] == "Aaron Judge"
+    assert rows[0]["barrel_rate"] == "1.0"
+    assert rows[0]["xwoba"] == "0.9"
+    assert rows[0]["pregameSafe"] == "True"
+    assert rows[0]["labelsExcluded"] == "True"
+
+
+def test_statcast_missing_local_cache_warns_without_crashing(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+
+    result = SavantStatcastContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.status == "missing"
+    assert rows == []
+    assert "No local Statcast artifact found; external Savant calls skipped." in result.warnings
+
+
+def test_handedness_provider_returns_contract_without_inventing_missing_handedness(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "warehouse" / "season_logs" / "batter_game_logs_2026.csv",
+        [
+            {
+                "date": "2026-06-29",
+                "season": "2026",
+                "player": "Aaron Judge",
+                "team": "NYY",
+                "opponent": "BOS",
+                "plateAppearances": "4",
+                "atBats": "4",
+                "hits": "2",
+                "strikeOuts": "1",
+            }
+        ],
+    )
+
+    result = HandednessPlatoonContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.status == "partial"
+    assert rows[0]["player"] == "Aaron Judge"
+    assert rows[0]["batter_hand"] == ""
+    assert rows[0]["pitcher_hand"] == ""
+    assert "batter_hand unknown" in rows[0]["warnings"]
+    assert result.pregameSafe is True
+    assert result.labelsExcluded is True
+
+
 def test_weather_provider_returns_missing_safely_without_configured_source(tmp_path: Path) -> None:
     result = WeatherContextProvider(make_settings(tmp_path)).materialize(date_label="2026-06-30", season=2026)
 
@@ -208,7 +297,17 @@ def test_context_audit_summary_includes_all_providers(tmp_path: Path) -> None:
 
     audit = FeatureSourceAuditService(settings).materialize(date_label="2026-06-30", season=2026)
 
-    expected = {"player_recent_form", "pitcher_context", "odds_movement", "game_markets", "weather", "statcast", "bullpen_context", "umpire"}
+    expected = {
+        "player_recent_form",
+        "pitcher_context",
+        "odds_movement",
+        "game_markets",
+        "weather",
+        "statcast",
+        "handedness_platoon",
+        "bullpen_context",
+        "umpire",
+    }
     assert set(audit["providers"]) == expected
     assert audit["externalApiCallsMade"] == 0
     assert audit["pregameSafe"] is True

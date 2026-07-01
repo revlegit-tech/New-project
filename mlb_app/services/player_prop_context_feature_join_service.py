@@ -63,7 +63,36 @@ CONTEXT_ARTIFACTS = (
     ),
     ContextArtifactSpec("game_markets", "game_markets", "game_markets_{date}.csv"),
     ContextArtifactSpec("weather", "weather", "weather_context_{date}.csv"),
-    ContextArtifactSpec("statcast", "statcast", "statcast_context_{date}.csv"),
+    ContextArtifactSpec(
+        "statcast",
+        "statcast",
+        "statcast_context_{date}.csv",
+        (
+            "barrel_rate",
+            "hard_hit_rate",
+            "xwoba",
+            "xba",
+            "xslg",
+            "batter_babip",
+            "batter_k_rate",
+            "batter_walk_rate",
+            "batter_ld_rate",
+            "batter_gb_rate",
+            "batter_sprint_speed",
+        ),
+    ),
+    ContextArtifactSpec(
+        "handedness_platoon",
+        "handedness_platoon",
+        "handedness_platoon_{date}.csv",
+        (
+            "batter_avg_vs_hand",
+            "batter_k_rate_vs_hand",
+            "batter_recent_hits_vs_lhp",
+            "batter_recent_hits_vs_rhp",
+            "pitcher_avg_allowed_vs_hand",
+        ),
+    ),
     ContextArtifactSpec("bullpen_context", "bullpen", "bullpen_context_{date}.csv"),
     ContextArtifactSpec("umpire", "umpire", "umpire_context_{date}.csv"),
 )
@@ -97,8 +126,22 @@ class PlayerPropContextFeatureJoinService:
             "pitcherContextRowsJoined": 0,
             "pitcherContextRowsSkipped": 0,
             "pitcherContextAmbiguousRows": 0,
+            "statcastRowsLoaded": artifacts["statcast"]["rows"],
+            "statcastRowsJoined": 0,
+            "statcastRowsSkipped": 0,
+            "statcastAmbiguousRows": 0,
+            "handednessPlatoonRowsLoaded": artifacts["handedness_platoon"]["rows"],
+            "handednessPlatoonRowsJoined": 0,
+            "handednessPlatoonRowsSkipped": 0,
+            "handednessPlatoonAmbiguousRows": 0,
             "loadedByGroup": {group: int(payload.get("rows") or 0) for group, payload in artifacts.items()},
-            "joinedByGroup": {"odds_movement": 0, "player_recent_form": 0, "pitcher_context": 0},
+            "joinedByGroup": {
+                "odds_movement": 0,
+                "player_recent_form": 0,
+                "pitcher_context": 0,
+                "statcast": 0,
+                "handedness_platoon": 0,
+            },
             "skippedByReason": {},
         }
         for group, payload in artifacts.items():
@@ -169,16 +212,68 @@ class PlayerPropContextFeatureJoinService:
         elif artifacts["pitcher_context"].get("exists"):
             counts["pitcherContextRowsSkipped"] = len(output)
 
+        statcast_rows = artifacts["statcast"].get("data") or []
+        if statcast_rows:
+            self._join_identity_context(
+                output,
+                statcast_rows,
+                spec=_spec_for_group("statcast"),
+                date_label=date_label,
+                season=season,
+                input_source=input_source,
+                context_name_aliases=("player", "playerName", "name"),
+                row_name_aliases=("player", "playerName", "name"),
+                context_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
+                row_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
+                loaded_key="statcastRowsLoaded",
+                joined_key="statcastRowsJoined",
+                skipped_key="statcastRowsSkipped",
+                ambiguous_key="statcastAmbiguousRows",
+                counts=counts,
+                warnings=warnings,
+            )
+        elif artifacts["statcast"].get("exists"):
+            counts["statcastRowsSkipped"] = len(output)
+
+        platoon_rows = artifacts["handedness_platoon"].get("data") or []
+        if platoon_rows:
+            self._join_identity_context(
+                output,
+                platoon_rows,
+                spec=_spec_for_group("handedness_platoon"),
+                date_label=date_label,
+                season=season,
+                input_source=input_source,
+                context_name_aliases=("player", "playerName", "name"),
+                row_name_aliases=("player", "playerName", "name"),
+                context_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
+                row_team_aliases=("team", "teamAbbr", "team_abbr", "teamCode"),
+                loaded_key="handednessPlatoonRowsLoaded",
+                joined_key="handednessPlatoonRowsJoined",
+                skipped_key="handednessPlatoonRowsSkipped",
+                ambiguous_key="handednessPlatoonAmbiguousRows",
+                counts=counts,
+                warnings=warnings,
+            )
+        elif artifacts["handedness_platoon"].get("exists"):
+            counts["handednessPlatoonRowsSkipped"] = len(output)
+
         counts["skippedByReason"] = dict(sorted(Counter(counts["skippedByReason"]).items()))
         counts["joinedByGroup"]["odds_movement"] = counts["oddsMovementRowsJoined"]
         counts["joinedByGroup"]["player_recent_form"] = counts["playerRecentFormRowsJoined"]
         counts["joinedByGroup"]["pitcher_context"] = counts["pitcherContextRowsJoined"]
+        counts["joinedByGroup"]["statcast"] = counts["statcastRowsJoined"]
+        counts["joinedByGroup"]["handedness_platoon"] = counts["handednessPlatoonRowsJoined"]
         if int(artifacts["odds_movement"]["rows"] or 0) > 0 and counts["oddsMovementRowsJoined"] == 0:
             warnings.append("odds_movement context artifact available but no scoring rows joined safely.")
         if int(artifacts["player_recent_form"]["rows"] or 0) > 0 and counts["playerRecentFormRowsJoined"] == 0:
             warnings.append("player_recent_form context artifact available but no scoring rows joined safely.")
         if int(artifacts["pitcher_context"]["rows"] or 0) > 0 and counts["pitcherContextRowsJoined"] == 0:
             warnings.append("pitcher_context context artifact available but no scoring rows joined safely.")
+        if int(artifacts["statcast"]["rows"] or 0) > 0 and counts["statcastRowsJoined"] == 0:
+            warnings.append("statcast context artifact available but no scoring rows joined safely.")
+        if int(artifacts["handedness_platoon"]["rows"] or 0) > 0 and counts["handednessPlatoonRowsJoined"] == 0:
+            warnings.append("handedness_platoon context artifact available but no scoring rows joined safely.")
         return ContextJoinResult(rows=output, artifacts=_public_artifacts(artifacts), counts=counts, warnings=sorted(set(warnings)))
 
     def load_artifacts(self, *, date_label: str) -> dict[str, dict[str, Any]]:

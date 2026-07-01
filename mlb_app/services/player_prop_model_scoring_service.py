@@ -103,6 +103,22 @@ OUTPUT_FIELDS = [
     "pitcher_babip",
     "pitcher_days_rest",
     "pitcher_velo_delta",
+    "barrel_rate",
+    "hard_hit_rate",
+    "xwoba",
+    "xba",
+    "xslg",
+    "batter_babip",
+    "batter_k_rate",
+    "batter_walk_rate",
+    "batter_ld_rate",
+    "batter_gb_rate",
+    "batter_sprint_speed",
+    "batter_avg_vs_hand",
+    "batter_k_rate_vs_hand",
+    "batter_recent_hits_vs_lhp",
+    "batter_recent_hits_vs_rhp",
+    "pitcher_avg_allowed_vs_hand",
 ]
 
 FEATURE_GROUPS = {
@@ -347,6 +363,28 @@ class PlayerPropModelScoringService:
                 "pitcher_babip": _number_or_blank(first_value(row, ["pitcher_babip", "pitcherBabip"], "")),
                 "pitcher_days_rest": _number_or_blank(first_value(row, ["pitcher_days_rest", "pitcherDaysRest"], "")),
                 "pitcher_velo_delta": _number_or_blank(first_value(row, ["pitcher_velo_delta", "pitcherVeloDelta"], "")),
+                "barrel_rate": _number_or_blank(first_value(row, ["barrel_rate", "barrelRate"], "")),
+                "hard_hit_rate": _number_or_blank(first_value(row, ["hard_hit_rate", "hardHitRate"], "")),
+                "xwoba": _number_or_blank(first_value(row, ["xwoba", "xwOBA"], "")),
+                "xba": _number_or_blank(first_value(row, ["xba", "xBA"], "")),
+                "xslg": _number_or_blank(first_value(row, ["xslg", "xSLG"], "")),
+                "batter_babip": _number_or_blank(first_value(row, ["batter_babip", "batterBabip"], "")),
+                "batter_k_rate": _number_or_blank(first_value(row, ["batter_k_rate", "batterKRate"], "")),
+                "batter_walk_rate": _number_or_blank(first_value(row, ["batter_walk_rate", "batterWalkRate"], "")),
+                "batter_ld_rate": _number_or_blank(first_value(row, ["batter_ld_rate", "batterLdRate"], "")),
+                "batter_gb_rate": _number_or_blank(first_value(row, ["batter_gb_rate", "batterGbRate"], "")),
+                "batter_sprint_speed": _number_or_blank(first_value(row, ["batter_sprint_speed", "batterSprintSpeed"], "")),
+                "batter_avg_vs_hand": _number_or_blank(first_value(row, ["batter_avg_vs_hand", "batterAvgVsHand"], "")),
+                "batter_k_rate_vs_hand": _number_or_blank(first_value(row, ["batter_k_rate_vs_hand", "batterKRateVsHand"], "")),
+                "batter_recent_hits_vs_lhp": _number_or_blank(
+                    first_value(row, ["batter_recent_hits_vs_lhp", "batterRecentHitsVsLhp"], "")
+                ),
+                "batter_recent_hits_vs_rhp": _number_or_blank(
+                    first_value(row, ["batter_recent_hits_vs_rhp", "batterRecentHitsVsRhp"], "")
+                ),
+                "pitcher_avg_allowed_vs_hand": _number_or_blank(
+                    first_value(row, ["pitcher_avg_allowed_vs_hand", "pitcherAvgAllowedVsHand"], "")
+                ),
             }
             gate = self.production_gates.evaluate(output, season=season, date_label=selected_date)
             output.update(
@@ -418,6 +456,14 @@ class PlayerPropModelScoringService:
             "oddsMovementRowsJoined": context_join_result.counts.get("oddsMovementRowsJoined", 0),
             "oddsMovementRowsSkipped": context_join_result.counts.get("oddsMovementRowsSkipped", 0),
             "oddsMovementAmbiguousRows": context_join_result.counts.get("oddsMovementAmbiguousRows", 0),
+            "statcastRowsLoaded": context_join_result.counts.get("statcastRowsLoaded", 0),
+            "statcastRowsJoined": context_join_result.counts.get("statcastRowsJoined", 0),
+            "statcastRowsSkipped": context_join_result.counts.get("statcastRowsSkipped", 0),
+            "statcastAmbiguousRows": context_join_result.counts.get("statcastAmbiguousRows", 0),
+            "handednessPlatoonRowsLoaded": context_join_result.counts.get("handednessPlatoonRowsLoaded", 0),
+            "handednessPlatoonRowsJoined": context_join_result.counts.get("handednessPlatoonRowsJoined", 0),
+            "handednessPlatoonRowsSkipped": context_join_result.counts.get("handednessPlatoonRowsSkipped", 0),
+            "handednessPlatoonAmbiguousRows": context_join_result.counts.get("handednessPlatoonAmbiguousRows", 0),
             "featureGroupsReady": feature_groups_ready,
             "featureGroupsMissing": feature_groups_missing,
             "modelFeatureWarnings": [

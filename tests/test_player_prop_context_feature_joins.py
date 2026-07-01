@@ -56,6 +56,10 @@ def write_model(settings: Settings) -> None:
                     "rolling_avg_5",
                     "pitcher_k_rate",
                     "pitcher_days_rest",
+                    "barrel_rate",
+                    "hard_hit_rate",
+                    "batter_avg_vs_hand",
+                    "batter_k_rate_vs_hand",
                 ]
             }
         ),
@@ -134,6 +138,51 @@ def pitcher_context_row(**overrides: Any) -> dict[str, Any]:
         "pitcher_babip": "0.285",
         "pitcher_days_rest": "5",
         "pitcher_velo_delta": "",
+    }
+    row.update(overrides)
+    return row
+
+
+def statcast_context_row(**overrides: Any) -> dict[str, Any]:
+    row = {
+        "date": "2026-06-30",
+        "season": "2026",
+        "player": "Aaron Judge",
+        "team": "NYY",
+        "barrel_rate": "0.14",
+        "hard_hit_rate": "0.55",
+        "xwoba": "0.41",
+        "xba": "0.31",
+        "xslg": "0.62",
+        "batter_babip": "0.34",
+        "batter_k_rate": "0.22",
+        "batter_walk_rate": "0.11",
+        "batter_ld_rate": "0.25",
+        "batter_gb_rate": "0.39",
+        "batter_sprint_speed": "27.4",
+        "pregameSafe": "True",
+        "labelsExcluded": "True",
+    }
+    row.update(overrides)
+    return row
+
+
+def platoon_context_row(**overrides: Any) -> dict[str, Any]:
+    row = {
+        "date": "2026-06-30",
+        "season": "2026",
+        "player": "Aaron Judge",
+        "team": "NYY",
+        "opponent": "BOS",
+        "batter_hand": "R",
+        "pitcher_hand": "L",
+        "batter_avg_vs_hand": "0.3",
+        "batter_k_rate_vs_hand": "0.2",
+        "batter_recent_hits_vs_lhp": "4",
+        "batter_recent_hits_vs_rhp": "7",
+        "pitcher_avg_allowed_vs_hand": "0.25",
+        "pregameSafe": "True",
+        "labelsExcluded": "True",
     }
     row.update(overrides)
     return row
@@ -264,6 +313,79 @@ def test_pitcher_context_joins_on_safe_identity(tmp_path: Path) -> None:
     assert summary["contextJoinCounts"]["pitcherContextRowsLoaded"] == 1
     assert summary["contextJoinCounts"]["pitcherContextRowsJoined"] == 1
     assert summary["featureCompleteness"]["pitcher_context"]["populatedPercent"] > 0
+
+
+def test_statcast_rows_join_on_safe_identity(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row()])
+    write_csv(settings.data_dir / "context" / "statcast" / "statcast_context_2026-06-30.csv", [statcast_context_row()])
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    row = report["rows"][0]
+    summary = report["summary"]
+    assert row["barrel_rate"] == 0.14
+    assert row["hard_hit_rate"] == 0.55
+    assert summary["contextJoinCounts"]["statcastRowsLoaded"] == 1
+    assert summary["contextJoinCounts"]["statcastRowsJoined"] == 1
+    assert summary["featureCompleteness"]["statcast"]["populatedPercent"] > 0
+
+
+def test_statcast_ambiguous_rows_skip_safely(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row()])
+    write_csv(
+        settings.data_dir / "context" / "statcast" / "statcast_context_2026-06-30.csv",
+        [statcast_context_row(barrel_rate="0.14"), statcast_context_row(barrel_rate="0.2")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    assert report["rows"][0]["barrel_rate"] == ""
+    assert report["summary"]["contextJoinCounts"]["statcastAmbiguousRows"] == 2
+    assert report["summary"]["contextJoinCounts"]["statcastRowsSkipped"] == 1
+
+
+def test_handedness_platoon_rows_join_on_safe_identity(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row()])
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row()],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    row = report["rows"][0]
+    summary = report["summary"]
+    assert row["batter_avg_vs_hand"] == 0.3
+    assert row["pitcher_avg_allowed_vs_hand"] == 0.25
+    assert summary["contextJoinCounts"]["handednessPlatoonRowsLoaded"] == 1
+    assert summary["contextJoinCounts"]["handednessPlatoonRowsJoined"] == 1
+    assert summary["featureCompleteness"]["handedness_platoon"]["populatedPercent"] > 0
+
+
+def test_weak_identity_prevents_statcast_and_handedness_joins(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(settings.data_dir / "features" / "prop_features_2026-06-30.csv", [base_row(team="")])
+    write_csv(settings.data_dir / "context" / "statcast" / "statcast_context_2026-06-30.csv", [statcast_context_row()])
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row()],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="features", dry_run=True)
+
+    row = report["rows"][0]
+    assert row["identityConfidence"] == "weak"
+    assert row["barrel_rate"] == ""
+    assert row["batter_avg_vs_hand"] == ""
+    assert report["summary"]["contextJoinCounts"]["statcastRowsJoined"] == 0
+    assert report["summary"]["contextJoinCounts"]["handednessPlatoonRowsJoined"] == 0
 
 
 def test_ambiguous_player_recent_form_skips_safely(tmp_path: Path) -> None:
