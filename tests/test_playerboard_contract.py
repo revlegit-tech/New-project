@@ -350,6 +350,10 @@ def test_playerboard_endpoint_hydrates_single_row_quote_fields(tmp_path: Path) -
     assert row["readinessLabel"] == "Experimental"
     assert row["stakeUnits"] == 0
     assert row["betActionAllowed"] is False
+    assert row["attributionConfidence"] in {"medium", "verified", "high", "low", "unknown"}
+    assert row["attributionStatus"] in {"inferred", "verified", "source_missing", "conflict", "unverified", "invalid_player_label"}
+    assert row["rawPlayerName"] == "Juan Soto"
+    assert row["cleanedPlayerName"] == "Juan Soto"
 
 
 def test_playerboard_endpoint_does_not_fake_missing_odds(tmp_path: Path) -> None:

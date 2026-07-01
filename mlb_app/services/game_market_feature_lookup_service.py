@@ -8,6 +8,7 @@ from mlb_app.config import Settings, settings as default_settings
 from mlb_app.repositories.historical_game_odds_repository import HistoricalGameOddsRepository
 from mlb_app.repositories.warehouse_utils import clean, first
 from mlb_app.services.team_match_utils import normalize_team_alias
+from mlb_app.services.player_attribution import apply_attribution
 
 MATCHED = "matched"
 MISSING_DATE = "missing_date"
@@ -16,6 +17,7 @@ MISSING_OPPONENT = "missing_opponent"
 AMBIGUOUS_MATCH = "ambiguous_match"
 WAREHOUSE_UNAVAILABLE = "warehouse_unavailable"
 NOT_FOUND = "not_found"
+ATTRIBUTION_BLOCKED = "context_limited_by_attribution"
 
 GAME_MARKET_ENRICHED_FIELDS: tuple[str, ...] = (
     "game_market_available",
@@ -90,6 +92,12 @@ class GameMarketFeatureLookupService:
         dates: set[str] = set()
 
         for index, row in enumerate(output):
+            row = apply_attribution(row)
+            output[index] = row
+            if row.get("contextBlockedByAttribution"):
+                output[index].update(_no_match(ATTRIBUTION_BLOCKED))
+                stats["status_counts"][ATTRIBUTION_BLOCKED] += 1
+                continue
             date_label = _date_from_row(row)
             team = normalize_team_alias(first(row, "team", "team_abbr", "teamAbbr", "teamCode"))
             opponent = normalize_team_alias(first(row, "opponent", "opponent_abbr", "opponentAbbr", "opponentCode"))

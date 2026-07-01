@@ -13,6 +13,7 @@ export interface NormalizedPropIdentity {
   identityWarnings: string[];
   playerTeamVerified: boolean;
   opponentVerified: boolean;
+  attributionStatus: string;
 }
 
 export interface NormalizedModelEdge {
@@ -85,9 +86,10 @@ export function rowPropIdentity(row: OutlierBoardRow): NormalizedPropIdentity {
     side: text(identity.side ?? row.side ?? row.rawLabel ?? row.pickSide, "Over"),
     book: text(identity.book ?? row.book ?? row.sportsbook ?? row.bestBook, "Market"),
     identityConfidence: normalizedStatus(identity.identityConfidence ?? row.identityConfidence ?? "unknown") || "unknown",
-    identityWarnings: arrayText(identity.identityWarnings ?? row.identityWarnings),
+    identityWarnings: arrayText(identity.identityWarnings ?? row.identityWarnings ?? row.attributionWarnings),
     playerTeamVerified: Boolean(identity.playerTeamVerified ?? row.playerTeamVerified),
     opponentVerified: Boolean(identity.opponentVerified ?? row.opponentVerified),
+    attributionStatus: normalizedStatus(identity.attributionStatus ?? row.attributionStatus),
   };
 }
 
@@ -336,14 +338,26 @@ function gameMarketChip(row: OutlierBoardRow): TrustChip | null {
 
 function identityChip(row: OutlierBoardRow): TrustChip {
   const identity = rowPropIdentity(row);
+  if (identity.attributionStatus === "conflict") {
+    return { label: "Possible team mismatch", tone: "risk", title: identity.identityWarnings[0] || "Player/team attribution conflicts with local evidence." };
+  }
+  if (identity.attributionStatus === "invalid_player_label") {
+    return { label: "Invalid player label", tone: "risk", title: identity.identityWarnings[0] || "Market label could not be safely treated as a player." };
+  }
+  if (Boolean(row.contextBlockedByAttribution)) {
+    return { label: "Context limited", tone: "risk", title: identity.identityWarnings[0] || "Model/context join blocked by attribution confidence." };
+  }
+  if (identity.attributionStatus === "source_missing") {
+    return { label: "Source missing team", tone: "watch", title: identity.identityWarnings[0] || "Source team or opponent was missing." };
+  }
   if (identity.identityConfidence === "strong") {
-    return { label: "Identity strong", tone: "good", title: "Player, team, opponent, market, side, and line identity are verified." };
+    return { label: "Verified", tone: "good", title: "Player, team, opponent, market, side, and line identity are verified." };
   }
   if (identity.identityConfidence === "medium") {
-    return { label: "Identity inferred", tone: "watch", title: identity.identityWarnings[0] || "Identity is inferred from board context. Research only." };
+    return { label: "Inferred identity", tone: "watch", title: identity.identityWarnings[0] || "Identity is inferred from board context. Research only." };
   }
   if (identity.identityConfidence === "weak") {
-    return { label: "Identity weak", tone: "risk", title: identity.identityWarnings[0] || "Team or opponent identity is incomplete. Research only." };
+    return { label: "Team unverified", tone: "risk", title: identity.identityWarnings[0] || "Team or opponent identity is incomplete. Research only." };
   }
   return { label: "Identity unknown", tone: "risk", title: identity.identityWarnings[0] || "Insufficient identity information. Research only." };
 }

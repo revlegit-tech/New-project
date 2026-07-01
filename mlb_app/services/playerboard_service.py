@@ -16,6 +16,7 @@ from mlb_app.services.playerboard_builder import american_implied_probability, h
 from mlb_app.services.playerboard_read_service import PlayerboardReadService, PlayerboardSnapshot
 from mlb_app.services.product_state_service import ProductStateService
 from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryService
+from mlb_app.services.player_attribution import apply_attribution, attribution_diagnostics
 
 
 class PlayerboardService:
@@ -95,7 +96,7 @@ class PlayerboardService:
         return self._attach_market_registry(payload, query)
 
     def _payload_from_snapshot(self, snapshot: PlayerboardSnapshot, *, market: str, limit: int) -> dict[str, Any]:
-        rows = list(snapshot.rows)[:limit]
+        rows = [apply_attribution(row) for row in list(snapshot.rows)[:limit]]
         health = snapshot.health.to_dict()
         payload = {
             "status": "ok",
@@ -164,7 +165,7 @@ class PlayerboardService:
             ]
 
         enriched = dict(payload)
-        enriched_rows = [_prediction_default_row(_annotate_market_trust(row)) for row in enriched_rows]
+        enriched_rows = [apply_attribution(_prediction_default_row(_annotate_market_trust(row))) for row in enriched_rows]
         enriched["rows"] = enriched_rows
         if "top" in enriched:
             enriched["top"] = enriched_rows
@@ -173,6 +174,10 @@ class PlayerboardService:
             enriched_rows,
             enabled=bool(getattr(self.settings, "game_market_enrichment_enabled", True)),
         )
+        meta["attribution"] = attribution_diagnostics(enriched_rows)
+        summary = dict(enriched.get("summary") or {})
+        summary["attribution"] = meta["attribution"]
+        enriched["summary"] = summary
         requested_date = _clean(requested_date)
         date_label = _clean(enriched.get("date"))
         join_date = date_label or requested_date

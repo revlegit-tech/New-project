@@ -10,6 +10,7 @@ from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
 from mlb_app.services.player_prop_identity_confidence import parse_identity_warnings
+from mlb_app.services.player_attribution import apply_attribution
 from mlb_app.services.prop_side_normalization import normalize_prop_side
 
 
@@ -67,7 +68,18 @@ class PlayerPropPredictionRepository:
         enriched_rows: list[dict[str, Any]] = []
         matched = 0
         ambiguous = 0
+        blocked_by_attribution = 0
         for row in rows:
+            row = apply_attribution(row)
+            if row.get("contextBlockedByAttribution"):
+                enriched = dict(row)
+                warnings = list(enriched.get("predictionWarnings") or [])
+                if "context_limited_by_attribution" not in warnings:
+                    warnings.append("context_limited_by_attribution")
+                enriched["predictionWarnings"] = warnings
+                enriched_rows.append(enriched)
+                blocked_by_attribution += 1
+                continue
             match = index.match(row, date_label=date_label)
             if match.status == "matched" and match.row is not None:
                 enriched_rows.append(_apply_prediction(row, match.row, source=source))
@@ -80,6 +92,7 @@ class PlayerPropPredictionRepository:
         meta["predictionsMatched"] = matched
         meta["predictionsMissing"] = len(rows) - matched - ambiguous
         meta["predictionsAmbiguous"] = ambiguous
+        meta["predictionsBlockedByAttribution"] = blocked_by_attribution
         return PredictionJoinResult(rows=enriched_rows, meta=meta)
 
     @staticmethod

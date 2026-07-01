@@ -13,6 +13,11 @@ from mlb_app.services.board_cache import BoardCache, BoardCacheBuildResult
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.playerboard_builder import market_capability
+from mlb_app.services.player_attribution import (
+    apply_attribution,
+    attribution_confidence_to_identity,
+    attribution_diagnostics,
+)
 from mlb_app.services.player_prop_identity_confidence import (
     identity_confidence_for_row,
     parse_identity_warnings,
@@ -98,7 +103,7 @@ class EdgeBoardService:
                 return db_payload
 
         board = self.playerboard_service.board_payload(query)
-        raw_rows = _list_rows(board.get("top") or board.get("rows") or [])
+        raw_rows = [apply_attribution(row) for row in _list_rows(board.get("top") or board.get("rows") or [])]
         selected_book = _query_value(query, "selectedBook")
         if selected_book:
             raw_rows = [_apply_selected_book_to_row(row, selected_book) for row in raw_rows]
@@ -201,6 +206,7 @@ class EdgeBoardService:
             "predictionsFileRows": 0,
             "predictionsRejectedDateMismatch": 0,
             "predictionsByMarket": {},
+            "predictionsBlockedByAttribution": 0,
         }
 
     @staticmethod
@@ -464,6 +470,7 @@ class EdgeBoardService:
     def _game_market_enriched_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not rows:
             return rows
+        rows = [apply_attribution(row) for row in rows]
         if all("game_market_enrichment_status" in row for row in rows):
             return rows
         if self.game_market_feature_lookup_service is not None:
@@ -485,6 +492,7 @@ class EdgeBoardService:
         return self.model_card_service.card_for_market(key) if key else {}
 
     def _enrich_row(self, row: dict[str, Any], rank: int, board: dict[str, Any]) -> dict[str, Any]:
+        row = apply_attribution(row)
         market = _clean(row.get("market"))
         card = self._card_for(market)
         edge = _float(_first(row, "finalEdgePercent", "edgePercent", "edge", "modelEdgePercent"))
@@ -522,7 +530,8 @@ class EdgeBoardService:
         latest_graded = _clean(card.get("latestGradedDate") or board.get("latestFullyGradedDate"))
         warnings = list(card.get("trustWarnings") or [])
         identity = identity_confidence_for_row(row, input_source=_clean(row.get("inputSource") or row.get("input_source")))
-        identity_warnings = parse_identity_warnings(row.get("identityWarnings")) or identity["identityWarnings"]
+        attribution_identity = attribution_confidence_to_identity(row.get("attributionConfidence"), row.get("attributionStatus"))
+        identity_warnings = parse_identity_warnings(row.get("identityWarnings")) or list(row.get("attributionWarnings") or []) or identity["identityWarnings"]
         warnings = _unique([*warnings, *identity_warnings])
         book = _clean(_first(row, "book", "sportsbook", "bestBook", "bookmaker", "sourceBook"))
         freshness = _row_freshness(row, board)
@@ -545,7 +554,7 @@ class EdgeBoardService:
                 "id": _row_id(row, rank),
                 "propKey": prop_key_for_row(row),
                 "rank": rank,
-                "player": _clean(_first(row, "player", "playerName", "name")),
+                "player": _clean(_first(row, "cleanedPlayerName", "player", "playerName", "name")),
                 "team": _clean(row.get("team")),
                 "opponent": _clean(row.get("opponent")),
                 "market": market,
@@ -584,10 +593,10 @@ class EdgeBoardService:
                 "missingDataSummary": _missing_data_summary(missing_feature_groups),
                 "warningCount": len(warnings),
                 "trustWarnings": warnings[:6],
-                "identityConfidence": _clean(row.get("identityConfidence")) or identity["identityConfidence"],
+                "identityConfidence": _clean(row.get("identityConfidence")) or attribution_identity or identity["identityConfidence"],
                 "identityWarnings": identity_warnings,
-                "playerTeamVerified": _truthy(row.get("playerTeamVerified")) or bool(identity["playerTeamVerified"]),
-                "opponentVerified": _truthy(row.get("opponentVerified")) or bool(identity["opponentVerified"]),
+                "playerTeamVerified": _truthy(row.get("playerTeamVerified")) or row.get("teamVerified") is True or bool(identity["playerTeamVerified"]),
+                "opponentVerified": _truthy(row.get("opponentVerified")) or row.get("opponentVerified") is True or bool(identity["opponentVerified"]),
                 "reasons": _reasons(row, card, edge, probability, implied, latest_graded),
                 "suggestedStake": _suggested_stake(
                     decision_label,
@@ -678,6 +687,7 @@ class EdgeBoardService:
             "readinessCounts": readiness,
             "identityConfidenceCounts": identity_counts,
             "identityWarningCounts": identity_warning_counts,
+            "attribution": attribution_diagnostics(rows),
             "modeledMarkets": len(_unique(row.get("market") for row in rows if row.get("predictionMatched") is True)),
             "modeledRows": sum(1 for row in rows if row.get("predictionMatched") is True),
             "confidentRows": sum(1 for row in rows if row.get("canShowConfidentPick")),
@@ -908,13 +918,15 @@ def _truthy(value: Any) -> bool:
 
 
 def _with_identity_defaults(row: dict[str, Any]) -> dict[str, Any]:
+    row = apply_attribution(row)
     identity = identity_confidence_for_row(row, input_source=_clean(row.get("inputSource") or row.get("input_source")))
-    warnings = parse_identity_warnings(row.get("identityWarnings")) or identity["identityWarnings"]
+    attribution_identity = attribution_confidence_to_identity(row.get("attributionConfidence"), row.get("attributionStatus"))
+    warnings = parse_identity_warnings(row.get("identityWarnings")) or list(row.get("attributionWarnings") or []) or identity["identityWarnings"]
     enriched = dict(row)
-    enriched["identityConfidence"] = _clean(row.get("identityConfidence")) or identity["identityConfidence"]
+    enriched["identityConfidence"] = _clean(row.get("identityConfidence")) or attribution_identity or identity["identityConfidence"]
     enriched["identityWarnings"] = warnings
-    enriched["playerTeamVerified"] = _truthy(row.get("playerTeamVerified")) or bool(identity["playerTeamVerified"])
-    enriched["opponentVerified"] = _truthy(row.get("opponentVerified")) or bool(identity["opponentVerified"])
+    enriched["playerTeamVerified"] = _truthy(row.get("playerTeamVerified")) or row.get("teamVerified") is True or bool(identity["playerTeamVerified"])
+    enriched["opponentVerified"] = _truthy(row.get("opponentVerified")) or row.get("opponentVerified") is True or bool(identity["opponentVerified"])
     return enriched
 
 
@@ -1002,11 +1014,13 @@ def _row_trust(
     backtest_status: str,
     freshness: dict[str, Any],
 ) -> dict[str, Any]:
+    row = apply_attribution(row)
     confident = bool(card.get("canShowConfidentPick"))
     production_status = _clean(card.get("productionStatus") or "research_only")
     action_status = _actionability_status(decision_label, confident and production_eligible, edge)
     identity = identity_confidence_for_row(row)
-    identity_warnings = parse_identity_warnings(row.get("identityWarnings")) or identity["identityWarnings"]
+    attribution_identity = attribution_confidence_to_identity(row.get("attributionConfidence"), row.get("attributionStatus"))
+    identity_warnings = parse_identity_warnings(row.get("identityWarnings")) or list(row.get("attributionWarnings") or []) or identity["identityWarnings"]
     actionability_reason = _actionability_reason_for_row(
         production_eligible=production_eligible,
         capability_status=market_capability_status,
@@ -1018,17 +1032,18 @@ def _row_trust(
     )
     return {
         "propIdentity": {
-            "player": _clean(_first(row, "player", "playerName", "name")),
+            "player": _clean(_first(row, "cleanedPlayerName", "player", "playerName", "name")),
             "team": _clean(row.get("team")),
             "opponent": _clean(row.get("opponent")),
             "market": market,
             "line": _clean(row.get("line")),
             "side": _normalized_row_side(row),
             "book": book,
-            "identityConfidence": _clean(row.get("identityConfidence")) or identity["identityConfidence"],
+            "identityConfidence": _clean(row.get("identityConfidence")) or attribution_identity or identity["identityConfidence"],
             "identityWarnings": identity_warnings,
-            "playerTeamVerified": _truthy(row.get("playerTeamVerified")) or bool(identity["playerTeamVerified"]),
-            "opponentVerified": _truthy(row.get("opponentVerified")) or bool(identity["opponentVerified"]),
+            "playerTeamVerified": _truthy(row.get("playerTeamVerified")) or row.get("teamVerified") is True or bool(identity["playerTeamVerified"]),
+            "opponentVerified": _truthy(row.get("opponentVerified")) or row.get("opponentVerified") is True or bool(identity["opponentVerified"]),
+            "attributionStatus": _clean(row.get("attributionStatus")),
         },
         "modelEdge": {
             "edgePercent": _round_float(edge),
@@ -1588,7 +1603,10 @@ def _phase18_v7_game_context_index(query: dict[str, list[str]], board: dict[str,
 
 
 def _phase18_v7_merge_game_context(row: dict[str, Any], index: dict[tuple[str, str], dict[str, str]]) -> dict[str, Any]:
-    merged = dict(row)
+    merged = apply_attribution(dict(row))
+    if merged.get("contextBlockedByAttribution"):
+        merged.setdefault("game_context_source", "context_limited_by_attribution")
+        return merged
     team = _phase18_v7_team_key(_first(merged, "team", "team_abbr", "teamCode"))
     opponent = _phase18_v7_team_key(_first(merged, "opponent", "opponent_abbr", "opponentCode"))
     context = index.get((team, opponent))

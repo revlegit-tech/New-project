@@ -48,6 +48,28 @@ class EdgeBoardRow(StrictPayload):
     originalMarket: str | None = None
     marketFamily: str | None = None
     rawLabel: str | None = None
+    rawPlayerName: str | None = None
+    cleanedPlayerName: str | None = None
+    cleanedPlayer: str | None = None
+    playerDisplayName: str | None = None
+    sourceTeam: str | None = None
+    sourceOpponent: str | None = None
+    resolvedTeam: str | None = None
+    resolvedOpponent: str | None = None
+    resolvedGameId: str | None = None
+    attributionConfidence: str | None = None
+    attributionStatus: str | None = None
+    attributionWarnings: list[str] = Field(default_factory=list)
+    attributionSources: list[str] = Field(default_factory=list)
+    teamVerified: bool | None = None
+    opponentVerified: bool | None = None
+    playerVerified: bool | None = None
+    attributionConflictReason: str | None = None
+    contextBlockedByAttribution: bool | None = None
+    contextAllowedWithWarning: bool | None = None
+    identityConfidence: str | None = None
+    identityWarnings: list[str] = Field(default_factory=list)
+    playerTeamVerified: bool | None = None
     side: str | None = None
     line: Any = None
     book: str | None = None

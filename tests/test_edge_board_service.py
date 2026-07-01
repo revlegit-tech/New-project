@@ -337,6 +337,23 @@ def test_edge_board_unsafe_identity_key_does_not_join(tmp_path: Path) -> None:
     assert payload["meta"]["predictionsMissing"] == 1
 
 
+def test_edge_board_team_conflict_blocks_prediction_join(tmp_path: Path) -> None:
+    date_label = "2026-06-29"
+    row = _board_row(date_label=date_label) | {"player": "Jazz Chisholm", "team": "DET", "opponent": "NYY"}
+    settings = _settings(tmp_path)
+    _write_predictions(settings, date_label, [_prediction_for(row, date_label=date_label)])
+
+    payload = _prediction_service_payload(settings, [row], date_label=date_label)
+
+    blocked = payload["rows"][0]
+    assert blocked["predictionMatched"] is not True
+    assert blocked["attributionStatus"] == "conflict"
+    assert blocked["attributionConfidence"] == "low"
+    assert blocked["contextBlockedByAttribution"] is True
+    assert blocked["modelProbabilityPercent"] == ""
+    assert payload["meta"]["predictionsBlockedByAttribution"] == 1
+
+
 def test_edge_board_missing_prediction_file_does_not_break_board(tmp_path: Path) -> None:
     date_label = "2026-06-29"
     row = _board_row(date_label=date_label)
