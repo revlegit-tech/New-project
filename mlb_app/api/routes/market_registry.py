@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 
 from mlb_app.api.dependencies import get_blocking_work_limiter, get_container, get_mlb_market_registry_service, query_params
+from mlb_app.api.models import MarketRegistryResponse
 from mlb_app.container import AppContainer
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryService
@@ -12,7 +13,7 @@ from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryServic
 router = APIRouter(prefix="/api/mlb", tags=["market-registry"])
 
 
-@router.get("/market-registry", name="mlb_market_registry")
+@router.get("/market-registry", response_model=MarketRegistryResponse, name="mlb_market_registry")
 async def market_registry(
     request: Request,
     service: Annotated[MLBMarketRegistryService, Depends(get_mlb_market_registry_service)],

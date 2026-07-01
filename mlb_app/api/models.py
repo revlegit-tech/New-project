@@ -179,6 +179,99 @@ class ModelCardItem(StrictPayload):
     decisionPolicy: dict[str, Any] = Field(default_factory=dict)
 
 
+class ResearchLockPayload(StrictPayload):
+    action: str = "Research"
+    readinessLabel: str = "Experimental"
+    stakeUnits: int | float = 0
+    betActionAllowed: bool = False
+
+
+class MarketRegistryItem(StrictPayload):
+    marketKey: str = ""
+    displayName: str = ""
+    category: str = ""
+    propType: str = ""
+    sideType: str = ""
+    hasOdds: bool = False
+    hasModel: bool = False
+    hasAltLines: bool = False
+    rowCount: int = 0
+    quoteCount: int = 0
+    availableBooks: list[str] = Field(default_factory=list)
+    supportedInBoard: bool = False
+    supportedInReport: bool = False
+    supportedInModel: bool = False
+    modelStatus: str = ""
+    warning: str = ""
+    warnings: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    missingModelMarket: bool = False
+    modelUnavailable: bool = False
+    hidden: bool = False
+    hiddenReason: str = ""
+    badges: list[str] = Field(default_factory=list)
+    sortableFields: list[str] = Field(default_factory=list)
+    marketSupportsModelSort: bool = False
+    marketSupportsOddsSort: bool = False
+    marketSupportsEdgeSort: bool = False
+    marketSupportsLineSort: bool = False
+
+
+class MarketRegistryGroup(StrictPayload):
+    key: str = ""
+    label: str = ""
+    markets: list[MarketRegistryItem] = Field(default_factory=list)
+    rowCount: int = 0
+    quoteCount: int = 0
+
+
+class MarketCoverageDiagnostics(StrictPayload):
+    rawPropsPulled: int = 0
+    marketsFound: int = 0
+    marketsDiscoveredFromPropLine: list[str] = Field(default_factory=list)
+    marketsDiscoveredFromActionNetwork: list[str] = Field(default_factory=list)
+    marketsDiscoveredFromPlayerboard: list[str] = Field(default_factory=list)
+    marketsWithRows: list[str] = Field(default_factory=list)
+    marketsShownInDropdown: list[str] = Field(default_factory=list)
+    marketsHiddenFromDropdown: list[str] = Field(default_factory=list)
+    marketsWithOddsButNoModel: list[str] = Field(default_factory=list)
+    marketsWithModelButNoOdds: list[str] = Field(default_factory=list)
+    altMarketsFound: list[str] = Field(default_factory=list)
+    gameMarketsFound: list[str] = Field(default_factory=list)
+    teamMarketsFound: list[str] = Field(default_factory=list)
+    firstFiveMarketsFound: list[str] = Field(default_factory=list)
+    moneylineRowsLoaded: int = 0
+    runLineRowsLoaded: int = 0
+    totalsRowsLoaded: int = 0
+    teamTotalsRowsLoaded: int = 0
+    f5RowsLoaded: int = 0
+    propsDroppedByUnsupportedMarket: int = 0
+    propsDroppedByUnsupportedSide: int = 0
+    unknownMarketsFound: list[str] = Field(default_factory=list)
+    sampleUnknownMarkets: list[str] = Field(default_factory=list)
+    sampleHiddenMarkets: list[dict[str, Any]] = Field(default_factory=list)
+    rowsByMarket: dict[str, int] = Field(default_factory=dict)
+    quoteCountByMarket: dict[str, int] = Field(default_factory=dict)
+    booksByMarket: dict[str, list[str]] = Field(default_factory=dict)
+    modelSupportStatus: dict[str, str | None] = Field(default_factory=dict)
+    oddsOnlyMarketCount: int = 0
+    missingModelMarketCount: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MarketRegistryResponse(StrictResponse):
+    status: str = "ok"
+    date: str = ""
+    season: int | None = None
+    markets: list[MarketRegistryItem] = Field(default_factory=list)
+    groups: list[MarketRegistryGroup] = Field(default_factory=list)
+    marketCoverage: MarketCoverageDiagnostics = Field(default_factory=MarketCoverageDiagnostics)
+    coverage: MarketCoverageDiagnostics | None = None
+    sortableFields: list[str] = Field(default_factory=list)
+    defaultSort: str = ""
+    researchLock: ResearchLockPayload = Field(default_factory=ResearchLockPayload)
+
+
 class PickItem(StrictPayload):
     id: str = ""
     status: str = ""
@@ -843,6 +936,8 @@ class EdgeBoardResponse(StrictResponse):
     dataConfidence: str | None = None
     meta: dict[str, Any] = Field(default_factory=dict)
     freshness: dict[str, Any] = Field(default_factory=dict)
+    marketRegistry: MarketRegistryResponse | None = None
+    marketCoverage: MarketCoverageDiagnostics | None = None
 
 
 class ResearchReportCard(StrictPayload):
@@ -940,6 +1035,8 @@ class PlayerboardResponse(StrictResponse):
     summary: dict[str, Any] = Field(default_factory=dict)
     meta: dict[str, Any] = Field(default_factory=dict)
     freshness: dict[str, Any] = Field(default_factory=dict)
+    marketRegistry: MarketRegistryResponse | None = None
+    marketCoverage: MarketCoverageDiagnostics | None = None
 
 
 class PlayerboardHealthResponse(StrictResponse):
@@ -984,6 +1081,8 @@ class PlayerboardHealthResponse(StrictResponse):
     dataConfidence: str | None = None
     latestFullyGradedDate: str | None = None
     trust: dict[str, Any] = Field(default_factory=dict)
+    marketRegistry: MarketRegistryResponse | None = None
+    marketCoverage: MarketCoverageDiagnostics | None = None
     meta: dict[str, Any] = Field(default_factory=dict)
     freshness: dict[str, Any] = Field(default_factory=dict)
     gameMarketEnrichment: dict[str, Any] = Field(default_factory=dict)

@@ -4,8 +4,10 @@ import csv
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from mlb_app.api.app import create_app
+from mlb_app.api.models import MarketRegistryResponse, PlayerboardResponse
 from mlb_app.config import Settings
 from mlb_app.container import AppContainer
 from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryService
@@ -117,3 +119,108 @@ def test_market_registry_endpoint_exposes_groups_and_research_lock(tmp_path: Pat
         "stakeUnits": 0,
         "betActionAllowed": False,
     }
+
+
+def test_market_registry_response_model_accepts_registry_fields_and_rejects_unexpected() -> None:
+    payload = {
+        "status": "ok",
+        "date": "2026-06-23",
+        "season": 2026,
+        "markets": [
+            {
+                "marketKey": "batter_hits",
+                "displayName": "Hits",
+                "category": "batter",
+                "propType": "player",
+                "sideType": "over_under",
+                "hasOdds": True,
+                "hasModel": True,
+                "hasAltLines": False,
+                "rowCount": 1,
+                "quoteCount": 1,
+                "availableBooks": ["BookA"],
+                "supportedInBoard": True,
+                "supportedInReport": True,
+                "supportedInModel": True,
+                "modelStatus": "modeled",
+                "warning": "",
+                "warnings": [],
+                "sources": ["propline"],
+                "missingModelMarket": False,
+                "modelUnavailable": False,
+                "hidden": False,
+                "hiddenReason": "",
+                "badges": ["Modeled"],
+                "sortableFields": ["rowCount"],
+                "marketSupportsModelSort": True,
+                "marketSupportsOddsSort": True,
+                "marketSupportsEdgeSort": True,
+                "marketSupportsLineSort": True,
+            }
+        ],
+        "groups": [{"key": "batter", "label": "Batter Props", "markets": [], "rowCount": 1, "quoteCount": 1}],
+        "marketCoverage": {"marketsFound": 1, "marketsShownInDropdown": ["batter_hits"]},
+        "coverage": {"marketsFound": 1, "marketsShownInDropdown": ["batter_hits"]},
+        "sortableFields": ["edgePercent"],
+        "defaultSort": "edgePercent",
+        "researchLock": {"action": "Research", "readinessLabel": "Experimental", "stakeUnits": 0, "betActionAllowed": False},
+    }
+
+    model = MarketRegistryResponse.model_validate(payload)
+
+    assert model.marketCoverage.marketsShownInDropdown == ["batter_hits"]
+    try:
+        MarketRegistryResponse.model_validate(payload | {"unexpectedField": True})
+    except ValidationError as error:
+        assert error.errors()[0]["type"] == "extra_forbidden"
+    else:  # pragma: no cover
+        raise AssertionError("MarketRegistryResponse accepted an unexpected field")
+
+
+def test_playerboard_response_model_accepts_registry_fields_and_keeps_strict_response() -> None:
+    payload = {
+        "status": "ok",
+        "schemaVersion": "playerboard.v1",
+        "season": 2026,
+        "date": "2026-06-23",
+        "rows": [],
+        "marketRegistry": {"date": "2026-06-23", "markets": [], "groups": []},
+        "marketCoverage": {"marketsFound": 0, "marketsShownInDropdown": []},
+    }
+
+    model = PlayerboardResponse.model_validate(payload)
+
+    assert model.marketRegistry is not None
+    assert model.marketCoverage is not None
+    try:
+        PlayerboardResponse.model_validate(payload | {"notInContract": True})
+    except ValidationError as error:
+        assert error.errors()[0]["type"] == "extra_forbidden"
+    else:  # pragma: no cover
+        raise AssertionError("PlayerboardResponse accepted an unexpected field")
+
+
+def test_board_routes_validate_market_registry_and_coverage_fields(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    _write_csv(
+        settings.data_dir / "playerboard" / "playerboard_2026.csv",
+        [{"date": "2026-06-23", "market": "batter_hits", "book": "BookA", "player": "A", "team": "NYY", "opponent": "BAL"}],
+    )
+    client = TestClient(create_app(container=AppContainer(settings=settings)), client=("127.0.0.1", 50000))
+
+    playerboard_response = client.get("/api/playerboard?date=2026-06-23&season=2026&limit=5")
+    edge_response = client.get("/api/edge-board?date=2026-06-23&season=2026&limit=5")
+
+    assert playerboard_response.status_code == 200
+    playerboard_payload = playerboard_response.json()
+    assert "marketRegistry" in playerboard_payload
+    assert "marketCoverage" in playerboard_payload
+    assert playerboard_payload["marketRegistry"]["markets"]
+    assert playerboard_payload["marketCoverage"]["marketsShownInDropdown"]
+
+    assert edge_response.status_code == 200
+    edge_payload = edge_response.json()
+    assert "marketRegistry" in edge_payload
+    assert "marketCoverage" in edge_payload
+    assert edge_payload["marketRegistry"]["groups"]
+    assert edge_payload["marketCoverage"]["marketsShownInDropdown"]
