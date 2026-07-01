@@ -389,6 +389,8 @@ def test_handedness_platoon_rows_join_on_safe_identity(tmp_path: Path) -> None:
     assert summary["contextJoinCounts"]["handednessPlatoonRowsLoaded"] == 1
     assert summary["contextJoinCounts"]["handednessPlatoonRowsJoined"] == 1
     assert summary["featureCompleteness"]["handedness_platoon"]["populatedPercent"] > 0
+    assert "batter_hand" in summary["featureCompleteness"]["handedness_platoon"]["availableFields"]
+    assert "pitcher_hand" in summary["featureCompleteness"]["handedness_platoon"]["availableFields"]
     assert summary["contextIdentityDiagnostics"]["handedness_platoon"]["rowsJoined"] == 1
     assert summary["boardContextAlignmentDiagnostics"]["rowsWithSubjectTeam"] == 1
     assert summary["boardContextAlignmentDiagnostics"]["subjectRoleCounts"]["batter"] == 1

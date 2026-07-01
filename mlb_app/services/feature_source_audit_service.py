@@ -57,6 +57,14 @@ class FeatureSourceAuditService:
                 field_status = _field_status(results[name], expected_fields)
                 providers[name]["readyFields"] = field_status["readyFields"]
                 providers[name]["missingFields"] = field_status["missingFields"]
+                if name == "handedness_platoon":
+                    diagnostics = providers[name].get("diagnostics") or {}
+                    providers[name]["rowsWithBatterHand"] = diagnostics.get("contextRowsWithBatterHand", 0)
+                    providers[name]["rowsWithPitcherHand"] = diagnostics.get("contextRowsWithPitcherHand", 0)
+                    providers[name]["rowsWithSplitStats"] = diagnostics.get("contextRowsWithSplitStats", 0)
+                    providers[name]["externalApiCallsMade"] = diagnostics.get("externalApiCallsMade", providers[name].get("externalApiCallsMade", 0))
+                    providers[name]["pregameSafe"] = diagnostics.get("pregameSafe", providers[name].get("pregameSafe", True))
+                    providers[name]["labelsExcluded"] = diagnostics.get("labelsExcluded", providers[name].get("labelsExcluded", True))
         ready = sorted(name for name, result in results.items() if result.status in {"ok", "partial"} and result.rows > 0)
         missing = sorted(name for name in results if name not in ready)
         warnings = [warning for result in results.values() for warning in result.warnings]

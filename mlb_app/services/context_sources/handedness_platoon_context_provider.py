@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,10 +19,12 @@ from mlb_app.services.context_sources.base import (
 )
 from mlb_app.services.player_prop_context_identity_service import (
     align_board_context_identity,
+    clean_subject_name,
     normalize_opponent,
     normalize_player_name,
     normalize_team,
 )
+from mlb_app.services.player_handedness_lookup_service import PlayerHandednessLookupService
 
 
 HAND_PLATOON_FIELDS = [
@@ -35,6 +37,9 @@ HAND_PLATOON_FIELDS = [
     "normalizedTeam",
     "normalizedOpponent",
     "subjectRole",
+    "opposingPitcher",
+    "normalizedOpposingPitcher",
+    "opposingPitcherTeam",
     "batter_hand",
     "pitcher_hand",
     "batter_avg_vs_hand",
@@ -74,18 +79,27 @@ class HandednessPlatoonContextProvider:
 
         batter_rows = _pregame_rows(read_csv_rows(batter_path), date_label) if batter_path.is_file() else []
         pitcher_rows = _pregame_rows(read_csv_rows(pitcher_path), date_label) if pitcher_path.is_file() else []
+        cache_batter_path = self.settings.data_dir / "cache" / "incremental_stats" / f"batter_game_logs_{season}.csv"
+        cache_pitcher_path = self.settings.data_dir / "cache" / "incremental_stats" / f"pitcher_game_logs_{season}.csv"
+        cache_batter_rows = _pregame_rows(read_csv_rows(cache_batter_path), date_label) if cache_batter_path.is_file() else []
+        cache_pitcher_rows = _pregame_rows(read_csv_rows(cache_pitcher_path), date_label) if cache_pitcher_path.is_file() else []
         if not batter_path.is_file():
             warnings.append("Local batter game log not found; handedness and split fields left null.")
         if not pitcher_path.is_file():
             warnings.append("Local pitcher game log not found; pitcher_hand and pitcher splits left null.")
-        if batter_rows and not _has_any_column(batter_rows, ["bats", "stand", "batter_hand"]):
-            warnings.append("Known batter handedness mappings unavailable; batter_hand left null.")
-        if pitcher_rows and not _has_any_column(pitcher_rows, ["throws", "p_throws", "pitcher_hand"]):
-            warnings.append("Known pitcher handedness mappings unavailable; pitcher_hand left null.")
+        all_batter_rows = batter_rows + cache_batter_rows
+        all_pitcher_rows = pitcher_rows + cache_pitcher_rows
+        if all_batter_rows and not _has_any_column(all_batter_rows, ["bats", "stand", "batter_hand"]):
+            warnings.append("Known batter handedness mappings unavailable in game-log CSVs; checking local Statcast cache.")
+        if all_pitcher_rows and not _has_any_column(all_pitcher_rows, ["throws", "p_throws", "pitcher_hand"]):
+            warnings.append("Known pitcher handedness mappings unavailable in game-log CSVs; checking local Statcast cache.")
 
-        batter_rows_by_player = _batter_rows_by_player_team(batter_rows)
-        pitcher_hand_by_name = _latest_pitcher_hand_by_name(pitcher_rows)
-        pitcher_avg_allowed = _pitcher_avg_allowed_by_name(pitcher_rows)
+        lookup = PlayerHandednessLookupService(self.settings, season=season, date_label=date_label)
+        pitcher_resolver = _OpposingPitcherResolver(self.settings, date_label=date_label, season=season, seed_rows=seed_rows)
+        recent_splits = _recent_vs_hand_by_player_team(self.settings, date_label=date_label, season=season)
+        statcast_splits, statcast_source = _statcast_split_indexes(self.settings, date_label=date_label, season=season)
+        batter_rows_by_player = _batter_rows_by_player_team(all_batter_rows)
+        pitcher_avg_allowed = _pitcher_avg_allowed_by_name(all_pitcher_rows)
         generated_at = datetime.now(timezone.utc).isoformat()
         output = [
             _platoon_summary(
@@ -93,7 +107,10 @@ class HandednessPlatoonContextProvider:
                 season,
                 seed,
                 batter_rows_by_player.get((seed["normalizedPlayer"], seed["normalizedTeam"])) or [],
-                pitcher_hand_by_name,
+                lookup,
+                pitcher_resolver,
+                recent_splits,
+                statcast_splits,
                 pitcher_avg_allowed,
                 batter_path if batter_path.is_file() else Path(""),
                 generated_at,
@@ -103,7 +120,7 @@ class HandednessPlatoonContextProvider:
         if not output:
             warnings.append("No current board batter context rows generated.")
         for row in output:
-            row_warnings = []
+            row_warnings = [warning for warning in str(row.get("warnings") or "").split("; ") if warning]
             if not row.get("batter_hand") and "missing batter history" in str(row.get("enrichmentStatus", "")):
                 row_warnings.append("batter history unavailable")
             if not row.get("batter_hand"):
@@ -115,6 +132,14 @@ class HandednessPlatoonContextProvider:
             row["warnings"] = "; ".join(row_warnings)
         write_csv_rows(output_path, output, HAND_PLATOON_FIELDS)
         diagnostics = self._diagnostics(date_label, season, seed_diagnostics, output, seed_rows)
+        diagnostics["splitStatsSource"] = statcast_source or (str(batter_path) if batter_path.is_file() else "")
+        diagnostics["recentSplitSource"] = str(self.settings.data_dir / "cache" / "incremental_stats" / f"batter_recent_vs_hand_{season}.csv")
+        diagnostics["pitcherSplitSource"] = statcast_source or (str(pitcher_path) if pitcher_path.is_file() else "")
+        diagnostics["recentSplitWindow"] = "latest pregame row from 30-day batter_recent_vs_hand cache"
+        diagnostics["splitStatsWindow"] = "season-to-date rows before target date"
+        diagnostics["splitStatsRowsUsed"] = int(statcast_splits.get("rowsUsed") or 0)
+        diagnostics["recentSplitRowsUsed"] = int(recent_splits.get("rowsUsed") or 0)
+        diagnostics["pitcherSplitRowsUsed"] = int(statcast_splits.get("pitcherRowsUsed") or 0)
         return self._result(status_for_rows(len(output), warnings), date_label, season, len(output), output_path, warnings, diagnostics)
 
     def _batter_log_path(self, season: int) -> Path:
@@ -233,6 +258,9 @@ class HandednessPlatoonContextProvider:
         not_on_board = [row for row in output if _context_key(row, date_label, season) not in seed_keys]
         without_context = [seed for seed in seed_rows if _context_key(seed, date_label, season) not in output_keys]
         with_split_stats = [row for row in output if _has_any_split_stat(row)]
+        resolved_pitchers = [row for row in output if clean(row.get("opposingPitcher"))]
+        ambiguous_pitchers = [row for row in output if "ambiguous_opposing_pitcher" in str(row.get("warnings") or "")]
+        missing_pitchers = [row for row in output if not clean(row.get("opposingPitcher")) and row not in ambiguous_pitchers]
         diagnostics = {
             **seed_diagnostics,
             "contextRowsGenerated": len(output),
@@ -243,6 +271,18 @@ class HandednessPlatoonContextProvider:
             "contextRowsWithBatterHand": sum(1 for row in output if clean(row.get("batter_hand"))),
             "contextRowsWithPitcherHand": sum(1 for row in output if clean(row.get("pitcher_hand"))),
             "contextRowsWithSplitStats": len(with_split_stats),
+            "contextRowsWithRecentHitsVsLhp": sum(1 for row in output if clean(row.get("batter_recent_hits_vs_lhp"))),
+            "contextRowsWithRecentHitsVsRhp": sum(1 for row in output if clean(row.get("batter_recent_hits_vs_rhp"))),
+            "contextRowsWithPitcherAvgAllowedVsHand": sum(1 for row in output if clean(row.get("pitcher_avg_allowed_vs_hand"))),
+            "batterHandSourceCounts": dict(
+                Counter(clean(row.get("source")) for row in output if clean(row.get("batter_hand")) and clean(row.get("source")))
+            ),
+            "pitcherHandSourceCounts": dict(
+                Counter(clean(row.get("source")) for row in output if clean(row.get("pitcher_hand")) and clean(row.get("source")))
+            ),
+            "opposingPitcherRowsResolved": len(resolved_pitchers),
+            "opposingPitcherRowsMissing": len(missing_pitchers),
+            "opposingPitcherRowsAmbiguous": len(ambiguous_pitchers),
             "externalApiCallsMade": 0,
             "pregameSafe": True,
             "labelsExcluded": True,
@@ -250,6 +290,19 @@ class HandednessPlatoonContextProvider:
             "sampleBoardBatterWithoutContext": [_sample(seed) for seed in without_context[:10]],
             "sampleContextNotOnBoard": [_sample(row) for row in not_on_board[:10]],
             "sampleRowsMissingHandedness": [_sample(row) for row in output if not clean(row.get("batter_hand"))][:10],
+            "sampleRowsMissingBatterHand": [_sample(row) for row in output if not clean(row.get("batter_hand"))][:10],
+            "sampleRowsMissingPitcherHand": [_sample(row) for row in output if not clean(row.get("pitcher_hand"))][:10],
+            "sampleRowsMissingRecentSplits": [
+                _sample(row)
+                for row in output
+                if not clean(row.get("batter_recent_hits_vs_lhp")) and not clean(row.get("batter_recent_hits_vs_rhp"))
+            ][:10],
+            "sampleRowsMissingPitcherSplits": [_sample(row) for row in output if not clean(row.get("pitcher_avg_allowed_vs_hand"))][:10],
+            "sampleResolvedOpposingPitchers": [_sample(row) for row in resolved_pitchers[:10]],
+            "sampleMissingOpposingPitchers": [_sample(row) for row in missing_pitchers[:10]],
+            "sampleAmbiguousOpposingPitchers": [_sample(row) for row in ambiguous_pitchers[:10]],
+            "ambiguousBatterHandRows": [_sample(row) for row in output if "ambiguous_batter" in str(row.get("warnings") or "")][:10],
+            "ambiguousPitcherHandRows": [_sample(row) for row in output if "ambiguous_pitcher" in str(row.get("warnings") or "")][:10],
         }
         diagnostics["boardBatterRowsWithoutContext"] = diagnostics["boardBatterSubjectsWithoutContextRows"]
         diagnostics["contextRowsNotOnBoard"] = diagnostics["contextRowsNotOnBoardSlate"]
@@ -306,12 +359,232 @@ def _batter_rows_by_player_team(rows: list[dict[str, str]]) -> dict[tuple[str, s
     return {group_key: sorted(value, key=lambda row: clean(first_value(row, ["date", "game_date", "gameDate"]))) for group_key, value in grouped.items()}
 
 
+def clean_subject_name_for_pitcher_row(value: Any) -> str:
+    cleaned, _ = clean_subject_name(value, "pitcher_strikeouts")
+    return cleaned
+
+
+class _OpposingPitcherResolver:
+    def __init__(self, settings: Settings, *, date_label: str, season: int, seed_rows: list[dict[str, Any]]) -> None:
+        self.settings = settings
+        self.date_label = date_label
+        self.season = season
+        self.board_pitchers = self._board_pitchers(seed_rows)
+        self.schedule_pitchers = self._schedule_pitchers()
+
+    def resolve(self, seed: dict[str, Any]) -> dict[str, Any]:
+        team = normalize_team(seed.get("team") or seed.get("normalizedTeam"))
+        opponent = normalize_team(seed.get("opponent") or seed.get("normalizedOpponent"))
+        explicit = clean(seed.get("pitcher"))
+        if explicit:
+            return {
+                "opposingPitcher": explicit,
+                "opposingPitcherTeam": opponent,
+                "source": "board_pitcher_field",
+                "warnings": [],
+            }
+        candidates = []
+        if team and opponent:
+            candidates.extend(self.schedule_pitchers.get((opponent, team), []))
+            candidates.extend(self.board_pitchers.get((opponent, team), []))
+        names = {normalize_player_name(candidate.get("name")) for candidate in candidates if normalize_player_name(candidate.get("name"))}
+        if len(names) == 1:
+            candidate = candidates[0]
+            return {
+                "opposingPitcher": clean(candidate.get("name")),
+                "opposingPitcherTeam": clean(candidate.get("team")) or opponent,
+                "source": clean(candidate.get("source")),
+                "warnings": [],
+            }
+        if len(names) > 1:
+            return {"opposingPitcher": "", "opposingPitcherTeam": opponent, "source": "", "warnings": ["ambiguous_opposing_pitcher"]}
+        return {"opposingPitcher": "", "opposingPitcherTeam": opponent, "source": "", "warnings": ["opposing_pitcher_not_found"]}
+
+    def _board_pitchers(self, seed_rows: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, str]]]:
+        grouped: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
+        sources = [
+            (
+                self.settings.data_dir / "playerboard" / f"playerboard_{self.season}.csv",
+                ("date", "game_date", "gameDate", "event_date"),
+                "playerboard_pitcher_rows",
+            ),
+            (
+                self.settings.data_dir / "odds" / f"propline_props_{self.date_label}.csv",
+                ("eventDateLocal", "date"),
+                "propline_pitcher_rows",
+            ),
+        ]
+        for path, date_aliases, source in sources:
+            for raw in _read_date_rows(path, self.date_label, date_aliases=date_aliases):
+                row = align_board_context_identity(raw)
+                if clean(row.get("subjectRole")).lower() != "pitcher":
+                    continue
+                name = clean(raw.get("subjectName")) or clean(raw.get("player")) or clean(row.get("subjectName"))
+                name = clean_subject_name_for_pitcher_row(name)
+                team = normalize_team(row.get("subjectTeam") or row.get("team"))
+                opponent = normalize_team(row.get("subjectOpponent") or row.get("opponent"))
+                if name and team and opponent:
+                    grouped[(team, opponent)].append({"name": name, "team": team, "source": source})
+        return grouped
+
+    def _schedule_pitchers(self) -> dict[tuple[str, str], list[dict[str, str]]]:
+        path = self.settings.data_dir / "cache" / "incremental_stats" / f"games_{self.season}.csv"
+        grouped: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
+        for row in read_csv_rows(path):
+            if clean(row.get("date"))[:10] != self.date_label:
+                continue
+            away = normalize_team(row.get("away"))
+            home = normalize_team(row.get("home"))
+            away_pitcher = clean(row.get("awayProbablePitcher"))
+            home_pitcher = clean(row.get("homeProbablePitcher"))
+            if away and home and away_pitcher:
+                grouped[(away, home)].append({"name": away_pitcher, "team": away, "source": str(path)})
+            if away and home and home_pitcher:
+                grouped[(home, away)].append({"name": home_pitcher, "team": home, "source": str(path)})
+        return grouped
+
+
+def _recent_vs_hand_by_player_team(settings: Settings, *, date_label: str, season: int) -> dict[str, Any]:
+    path = settings.data_dir / "cache" / "incremental_stats" / f"batter_recent_vs_hand_{season}.csv"
+    rows = _pregame_rows(read_csv_rows(path), date_label) if path.is_file() else []
+    latest: dict[tuple[str, str], dict[str, str]] = {}
+    latest_by_id: dict[str, dict[str, str]] = {}
+    for row in sorted(rows, key=lambda item: clean(item.get("date"))):
+        player = normalize_player_name(row.get("player"))
+        team = normalize_team(row.get("team"))
+        player_id = clean(row.get("playerId"))
+        if player and team:
+            latest[(player, team)] = row
+        if player_id:
+            latest_by_id[player_id] = row
+    return {"byNameTeam": latest, "byId": latest_by_id, "rowsUsed": len(rows), "path": str(path)}
+
+
+def _lookup_recent_split(recent_splits: dict[str, Any], *, player_name: str, team: str, player_id: str) -> dict[str, str]:
+    if player_id:
+        row = (recent_splits.get("byId") or {}).get(player_id)
+        if row:
+            return row
+    return (recent_splits.get("byNameTeam") or {}).get((normalize_player_name(player_name), normalize_team(team)), {}) or {}
+
+
+def _statcast_split_indexes(settings: Settings, *, date_label: str, season: int) -> tuple[dict[str, Any], str]:
+    paths = [
+        settings.data_dir / "warehouse" / "statcast" / f"statcast_{season}.csv",
+        settings.data_dir / "cache" / "statcast" / f"statcast_{season}.csv",
+        *sorted((settings.data_dir / "cache" / "savant").glob(f"statcast_{season}_*.csv")),
+        *sorted((settings.data_dir / "cache" / "savant" / "raw").glob(f"statcast_{season}_*.csv")),
+    ]
+    player_index = _player_index_by_id(settings, season)
+    batter_grouped: dict[tuple[str, str, str, str], list[dict[str, str]]] = defaultdict(list)
+    pitcher_grouped: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
+    source = ""
+    rows_used = 0
+    pitcher_rows_used = 0
+    for path in paths:
+        if not path.is_file():
+            continue
+        rows = _pregame_rows(read_csv_rows(path), date_label)
+        if not rows:
+            continue
+        source = str(path)
+        for row in rows:
+            event = clean(row.get("events"))
+            if not event:
+                continue
+            pitcher_hand = _normalized_hand(first_value(row, ["p_throws", "throws", "pitcher_hand"]))
+            batter_hand = _normalized_hand(first_value(row, ["stand", "batter_hand"]))
+            batter_id = clean(first_value(row, ["batter", "batter_id", "player_mlbam_id"]))
+            meta = player_index.get(batter_id, {})
+            batter_name = normalize_player_name(first_value(row, ["batter_name", "player", "name"]) or meta.get("player", ""))
+            batter_team = normalize_team(_statcast_batter_team(row) or meta.get("team", ""))
+            pitcher_name = normalize_player_name(_normal_name(clean(first_value(row, ["player_name", "pitcher_name", "pitcherPlayerName"]))))
+            if batter_name and pitcher_hand:
+                batter_grouped[(batter_id, batter_name, batter_team, pitcher_hand)].append(row)
+                rows_used += 1
+            if pitcher_name and batter_hand:
+                pitcher_grouped[(pitcher_name, batter_hand)].append(row)
+                pitcher_rows_used += 1
+        break
+    batter_splits = {key: {**_pa_rates(rows), "source": source} for key, rows in batter_grouped.items()}
+    pitcher_splits = {key: {"avgAllowed": _pa_rates(rows).get("avg", ""), "source": source} for key, rows in pitcher_grouped.items()}
+    return {"batterSplits": batter_splits, "pitcherSplits": pitcher_splits, "rowsUsed": rows_used, "pitcherRowsUsed": pitcher_rows_used}, source
+
+
+def _statcast_batter_key(
+    statcast_splits: dict[str, Any],
+    *,
+    player_name: str,
+    team: str,
+    player_id: str,
+    pitcher_hand: str,
+) -> tuple[str, str, str, str] | None:
+    if not pitcher_hand:
+        return None
+    splits = statcast_splits.get("batterSplits") or {}
+    normalized_name = normalize_player_name(player_name)
+    normalized_team = normalize_team(team)
+    candidates = [
+        key
+        for key in splits
+        if key[3] == pitcher_hand
+        and ((player_id and key[0] == player_id) or (key[1] == normalized_name and (not normalized_team or key[2] == normalized_team)))
+    ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _pa_rates(rows: list[dict[str, str]]) -> dict[str, float | str]:
+    pa_rows = [row for row in rows if clean(row.get("events"))]
+    at_bats = [row for row in pa_rows if clean(row.get("events")).lower() not in {"walk", "hit_by_pitch", "sac_bunt", "sac_fly", "catcher_interf"}]
+    hits = [row for row in at_bats if clean(row.get("events")).lower() in {"single", "double", "triple", "home_run"}]
+    strikeouts = [row for row in pa_rows if clean(row.get("events")).lower() == "strikeout"]
+    return {"avg": _rate(len(hits), len(at_bats)), "kRate": _rate(len(strikeouts), len(pa_rows))}
+
+
+def _rate(numerator: float, denominator: float) -> float | str:
+    if denominator <= 0:
+        return ""
+    return round(float(numerator) / float(denominator), 6)
+
+
+def _player_index_by_id(settings: Settings, season: int) -> dict[str, dict[str, str]]:
+    path = settings.data_dir / "cache" / "incremental_stats" / f"player_index_{season}.csv"
+    return {clean(row.get("playerId")): row for row in read_csv_rows(path) if clean(row.get("playerId"))}
+
+
+def _statcast_batter_team(row: dict[str, Any]) -> str:
+    half = clean(first_value(row, ["inning_topbot"])).lower()
+    if half.startswith("top"):
+        return clean(first_value(row, ["away_team", "awayTeam"]))
+    if half.startswith("bot"):
+        return clean(first_value(row, ["home_team", "homeTeam"]))
+    return clean(first_value(row, ["team", "bat_team", "batting_team"]))
+
+
+def _normal_name(value: str) -> str:
+    if "," in value:
+        last, first = [part.strip() for part in value.split(",", 1)]
+        return f"{first} {last}".strip()
+    return value
+
+
+def _first_source(values: list[Any]) -> str:
+    for value in values:
+        text = clean(value)
+        if text:
+            return text
+    return ""
+
+
 def _platoon_summary(
     date_label: str,
     season: int,
     seed: dict[str, Any],
     rows: list[dict[str, str]],
-    pitcher_hand_by_name: dict[str, str],
+    lookup: PlayerHandednessLookupService,
+    pitcher_resolver: "_OpposingPitcherResolver",
+    recent_splits: dict[str, Any],
+    statcast_splits: dict[str, Any],
     pitcher_avg_allowed: dict[tuple[str, str], float | str],
     source: Path,
     generated_at: str,
@@ -320,13 +593,23 @@ def _platoon_summary(
     player = clean(seed.get("player"))
     team = clean(seed.get("team"))
     opponent = clean(seed.get("opponent"))
-    pitcher_name = clean(seed.get("pitcher"))
+    batter_id = clean(first_value(latest, ["playerId", "player_mlbam_id"])) if latest else clean(seed.get("playerId"))
+    pitcher_resolution = pitcher_resolver.resolve(seed)
+    pitcher_name = pitcher_resolution.get("opposingPitcher") or clean(seed.get("pitcher"))
     normalized_pitcher = normalize_player_name(pitcher_name)
-    pitcher_hand = pitcher_hand_by_name.get(normalized_pitcher, "") if normalized_pitcher else ""
+    batter_lookup = lookup.lookup(role="batter", player_id=batter_id, player_name=player, team=team)
+    batter_hand = batter_lookup.batter_hand
+    pitcher_lookup = lookup.lookup(
+        role="pitcher",
+        player_name=pitcher_name,
+        team=pitcher_resolution.get("opposingPitcherTeam") or opponent,
+    )
+    pitcher_hand = pitcher_lookup.pitcher_hand
     split_rows = [row for row in rows if _normalized_hand(first_value(row, ["pitcher_hand", "p_throws", "throws"])) == pitcher_hand]
-    lhp_rows = [row for row in rows[-10:] if _normalized_hand(first_value(row, ["pitcher_hand", "p_throws", "throws"])) == "L"]
-    rhp_rows = [row for row in rows[-10:] if _normalized_hand(first_value(row, ["pitcher_hand", "p_throws", "throws"])) == "R"]
-    batter_hand = _normalized_hand(first_value(latest, ["bats", "stand", "batter_hand"])) if latest else ""
+    recent = _lookup_recent_split(recent_splits, player_name=player, team=team, player_id=batter_id)
+    statcast_batter_key = _statcast_batter_key(statcast_splits, player_name=player, team=team, player_id=batter_id, pitcher_hand=pitcher_hand)
+    statcast_batter_split = (statcast_splits.get("batterSplits") or {}).get(statcast_batter_key, {}) if statcast_batter_key else {}
+    statcast_pitcher_split = (statcast_splits.get("pitcherSplits") or {}).get((normalized_pitcher, batter_hand), {})
     enrichment_status = []
     if not rows:
         enrichment_status.append("missing batter history")
@@ -334,6 +617,8 @@ def _platoon_summary(
         enrichment_status.append("missing batter_hand")
     if not pitcher_hand:
         enrichment_status.append("missing pitcher_hand")
+    if not pitcher_resolution.get("opposingPitcher"):
+        enrichment_status.append("missing opposing_pitcher")
     return {
         "date": date_label,
         "season": season,
@@ -344,19 +629,29 @@ def _platoon_summary(
         "normalizedTeam": clean(seed.get("normalizedTeam")) or normalize_team(team),
         "normalizedOpponent": clean(seed.get("normalizedOpponent")) or normalize_opponent(opponent),
         "subjectRole": "batter",
+        "opposingPitcher": pitcher_resolution.get("opposingPitcher", ""),
+        "normalizedOpposingPitcher": normalized_pitcher,
+        "opposingPitcherTeam": pitcher_resolution.get("opposingPitcherTeam", ""),
         "batter_hand": batter_hand,
         "pitcher_hand": pitcher_hand,
-        "batter_avg_vs_hand": _avg(split_rows),
-        "batter_k_rate_vs_hand": _k_rate(split_rows),
-        "batter_recent_hits_vs_lhp": sum(to_float(first_value(row, ["hits", "h"])) for row in lhp_rows) if lhp_rows else "",
-        "batter_recent_hits_vs_rhp": sum(to_float(first_value(row, ["hits", "h"])) for row in rhp_rows) if rhp_rows else "",
-        "pitcher_avg_allowed_vs_hand": pitcher_avg_allowed.get((normalized_pitcher, batter_hand), ""),
-        "source": str(source),
-        "sourceUpdatedAt": _source_updated_at(source),
+        "batter_avg_vs_hand": statcast_batter_split.get("avg", "") or _avg(split_rows),
+        "batter_k_rate_vs_hand": statcast_batter_split.get("kRate", "") or _k_rate(split_rows),
+        "batter_recent_hits_vs_lhp": recent.get("batter_recent_hits_vs_lhp", ""),
+        "batter_recent_hits_vs_rhp": recent.get("batter_recent_hits_vs_rhp", ""),
+        "pitcher_avg_allowed_vs_hand": statcast_pitcher_split.get("avgAllowed", "")
+        or pitcher_avg_allowed.get((normalized_pitcher, batter_hand), ""),
+        "source": _first_source([batter_lookup.source, pitcher_lookup.source, statcast_batter_split.get("source"), str(source)]),
+        "sourceUpdatedAt": _first_source([batter_lookup.sourceUpdatedAt, pitcher_lookup.sourceUpdatedAt, _source_updated_at(source)]),
         "generatedAt": generated_at,
         "pregameSafe": True,
         "labelsExcluded": True,
-        "warnings": "",
+        "warnings": "; ".join(
+            [
+                *batter_lookup.warnings,
+                *pitcher_lookup.warnings,
+                *list(pitcher_resolution.get("warnings") or []),
+            ]
+        ),
         "seedSource": seed.get("seedSource", ""),
         "seedMarketCount": seed.get("seedMarketCount", ""),
         "seedRowCount": seed.get("seedRowCount", ""),

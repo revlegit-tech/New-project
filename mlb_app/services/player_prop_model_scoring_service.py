@@ -806,17 +806,19 @@ def _field_populated_count(rows: list[dict[str, Any]], field: str) -> int:
     count = 0
     for row in rows:
         value = first_value(row, aliases, "")
-        if _is_populated_feature_value(value):
+        if _is_populated_feature_value(value, field=field):
             count += 1
     return count
 
 
-def _is_populated_feature_value(value: Any) -> bool:
+def _is_populated_feature_value(value: Any, *, field: str = "") -> bool:
     if value is None:
         return False
     text = str(value).strip()
     if not text or text.lower() in {"nan", "none", "null"}:
         return False
+    if field in {"batter_hand", "pitcher_hand"}:
+        return text.upper() in {"L", "R", "S"}
     parsed = to_float(value, math.nan)
     return not math.isnan(parsed)
 
