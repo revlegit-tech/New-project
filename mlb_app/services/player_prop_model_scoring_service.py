@@ -40,6 +40,17 @@ OUTPUT_FIELDS = [
     "player",
     "team",
     "opponent",
+    "attributionStatus",
+    "attributionConfidence",
+    "attributionCorrectionApplied",
+    "playerTeamEvidenceStatus",
+    "attributionWarnings",
+    "originalTeam",
+    "originalOpponent",
+    "resolvedTeam",
+    "resolvedOpponent",
+    "correctedTeam",
+    "correctedOpponent",
     "pitcher",
     "subjectDisplayName",
     "subjectName",
@@ -314,6 +325,25 @@ class PlayerPropModelScoringService:
                 "player": str(first_value(row, ["player"], "")).strip(),
                 "team": str(first_value(row, ["team"], "")).strip(),
                 "opponent": str(first_value(row, ["opponent"], "")).strip(),
+                "attributionStatus": str(first_value(row, ["attributionStatus", "attribution_status"], "")).strip(),
+                "attributionConfidence": str(first_value(row, ["attributionConfidence", "attribution_confidence"], "")).strip(),
+                "attributionCorrectionApplied": _bool_or_blank(
+                    first_value(row, ["attributionCorrectionApplied", "attribution_correction_applied"], "")
+                ),
+                "playerTeamEvidenceStatus": str(
+                    first_value(row, ["playerTeamEvidenceStatus", "player_team_evidence_status"], "")
+                ).strip(),
+                "attributionWarnings": _warning_value(
+                    first_value(row, ["attributionWarnings", "attribution_warnings"], "")
+                ),
+                "originalTeam": str(first_value(row, ["originalTeam", "original_team"], "")).strip(),
+                "originalOpponent": str(first_value(row, ["originalOpponent", "original_opponent"], "")).strip(),
+                "resolvedTeam": str(first_value(row, ["resolvedTeam", "resolved_team", "correctedTeam", "corrected_team"], "")).strip(),
+                "resolvedOpponent": str(
+                    first_value(row, ["resolvedOpponent", "resolved_opponent", "correctedOpponent", "corrected_opponent"], "")
+                ).strip(),
+                "correctedTeam": str(first_value(row, ["correctedTeam", "corrected_team"], "")).strip(),
+                "correctedOpponent": str(first_value(row, ["correctedOpponent", "corrected_opponent"], "")).strip(),
                 "pitcher": str(first_value(row, ["pitcher"], "")).strip(),
                 "subjectDisplayName": str(first_value(row, ["subjectDisplayName"], "")).strip(),
                 "subjectName": str(first_value(row, ["subjectName"], "")).strip(),
@@ -936,6 +966,30 @@ def _derive_side(row: dict[str, Any]) -> str:
 def _number_or_blank(value: Any) -> float | str:
     parsed = to_float(value, math.nan)
     return "" if math.isnan(parsed) else _format_number(parsed, 4)
+
+
+def _bool_or_blank(value: Any) -> bool | str:
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    if text in {"1", "true", "yes", "y"}:
+        return True
+    if text in {"0", "false", "no", "n"}:
+        return False
+    return bool(value)
+
+
+def _warning_value(value: Any) -> list[str] | str:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, (tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return [part.strip() for part in text.split("|") if part.strip()] if "|" in text else text
 
 
 def _format_number(value: float, places: int) -> float:
