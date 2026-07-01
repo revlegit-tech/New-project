@@ -15,7 +15,6 @@ from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.playerboard_builder import market_capability
 from mlb_app.services.player_attribution import (
     apply_attribution,
-    attribution_confidence_to_identity,
     attribution_diagnostics,
 )
 from mlb_app.services.player_prop_identity_confidence import (
@@ -250,7 +249,7 @@ class EdgeBoardService:
         identity_warnings = parse_identity_warnings(enriched.get("identityWarnings"))
         warnings = _unique([*warnings, *identity_warnings])
         if warnings:
-            existing = [_clean(item) for item in enriched.get("trustWarnings") or [] if _clean(item)]
+            existing = _presentation_trust_warnings(enriched)
             merged = _unique([*existing, *warnings])
             enriched["trustWarnings"] = merged[:6]
             enriched["warningCount"] = len(merged)
@@ -530,8 +529,7 @@ class EdgeBoardService:
         latest_graded = _clean(card.get("latestGradedDate") or board.get("latestFullyGradedDate"))
         warnings = list(card.get("trustWarnings") or [])
         identity = identity_confidence_for_row(row, input_source=_clean(row.get("inputSource") or row.get("input_source")))
-        attribution_identity = attribution_confidence_to_identity(row.get("attributionConfidence"), row.get("attributionStatus"))
-        identity_warnings = parse_identity_warnings(row.get("identityWarnings")) or list(row.get("attributionWarnings") or []) or identity["identityWarnings"]
+        identity_warnings = parse_identity_warnings(row.get("identityWarnings")) or identity["identityWarnings"]
         warnings = _unique([*warnings, *identity_warnings])
         book = _clean(_first(row, "book", "sportsbook", "bestBook", "bookmaker", "sourceBook"))
         freshness = _row_freshness(row, board)
@@ -593,7 +591,7 @@ class EdgeBoardService:
                 "missingDataSummary": _missing_data_summary(missing_feature_groups),
                 "warningCount": len(warnings),
                 "trustWarnings": warnings[:6],
-                "identityConfidence": _clean(row.get("identityConfidence")) or attribution_identity or identity["identityConfidence"],
+                "identityConfidence": _clean(row.get("identityConfidence")) or identity["identityConfidence"],
                 "identityWarnings": identity_warnings,
                 "playerTeamVerified": _truthy(row.get("playerTeamVerified")) or row.get("teamVerified") is True or bool(identity["playerTeamVerified"]),
                 "opponentVerified": _truthy(row.get("opponentVerified")) or row.get("opponentVerified") is True or bool(identity["opponentVerified"]),
@@ -920,14 +918,42 @@ def _truthy(value: Any) -> bool:
 def _with_identity_defaults(row: dict[str, Any]) -> dict[str, Any]:
     row = apply_attribution(row)
     identity = identity_confidence_for_row(row, input_source=_clean(row.get("inputSource") or row.get("input_source")))
-    attribution_identity = attribution_confidence_to_identity(row.get("attributionConfidence"), row.get("attributionStatus"))
-    warnings = parse_identity_warnings(row.get("identityWarnings")) or list(row.get("attributionWarnings") or []) or identity["identityWarnings"]
+    warnings = parse_identity_warnings(row.get("identityWarnings")) or identity["identityWarnings"]
     enriched = dict(row)
-    enriched["identityConfidence"] = _clean(row.get("identityConfidence")) or attribution_identity or identity["identityConfidence"]
+    enriched["identityConfidence"] = _clean(row.get("identityConfidence")) or identity["identityConfidence"]
     enriched["identityWarnings"] = warnings
     enriched["playerTeamVerified"] = _truthy(row.get("playerTeamVerified")) or row.get("teamVerified") is True or bool(identity["playerTeamVerified"])
     enriched["opponentVerified"] = _truthy(row.get("opponentVerified")) or row.get("opponentVerified") is True or bool(identity["opponentVerified"])
+    presentation_warnings = _presentation_trust_warnings(enriched)
+    if presentation_warnings:
+        enriched["trustWarnings"] = presentation_warnings
+        enriched["warningCount"] = len(presentation_warnings)
+    else:
+        enriched.pop("trustWarnings", None)
+        enriched.pop("warningCount", None)
+    trust = dict(enriched.get("trust") or {})
+    prop_identity = dict(trust.get("propIdentity") or {})
+    prop_identity.update(
+        {
+            "identityConfidence": enriched["identityConfidence"],
+            "identityWarnings": warnings,
+            "playerTeamVerified": enriched["playerTeamVerified"],
+            "opponentVerified": enriched["opponentVerified"],
+            "attributionStatus": _clean(row.get("attributionStatus")),
+        }
+    )
+    trust["propIdentity"] = prop_identity
+    enriched["trust"] = trust
     return enriched
+
+
+def _presentation_trust_warnings(row: dict[str, Any]) -> list[str]:
+    attribution_warnings = {_clean(item) for item in row.get("attributionWarnings") or [] if _clean(item)}
+    return _unique(
+        warning
+        for warning in row.get("trustWarnings") or []
+        if _clean(warning) and _clean(warning) not in attribution_warnings
+    )
 
 
 def _first(row: dict[str, Any], *keys: str) -> Any:
@@ -1019,8 +1045,7 @@ def _row_trust(
     production_status = _clean(card.get("productionStatus") or "research_only")
     action_status = _actionability_status(decision_label, confident and production_eligible, edge)
     identity = identity_confidence_for_row(row)
-    attribution_identity = attribution_confidence_to_identity(row.get("attributionConfidence"), row.get("attributionStatus"))
-    identity_warnings = parse_identity_warnings(row.get("identityWarnings")) or list(row.get("attributionWarnings") or []) or identity["identityWarnings"]
+    identity_warnings = parse_identity_warnings(row.get("identityWarnings")) or identity["identityWarnings"]
     actionability_reason = _actionability_reason_for_row(
         production_eligible=production_eligible,
         capability_status=market_capability_status,
@@ -1039,7 +1064,7 @@ def _row_trust(
             "line": _clean(row.get("line")),
             "side": _normalized_row_side(row),
             "book": book,
-            "identityConfidence": _clean(row.get("identityConfidence")) or attribution_identity or identity["identityConfidence"],
+            "identityConfidence": _clean(row.get("identityConfidence")) or identity["identityConfidence"],
             "identityWarnings": identity_warnings,
             "playerTeamVerified": _truthy(row.get("playerTeamVerified")) or row.get("teamVerified") is True or bool(identity["playerTeamVerified"]),
             "opponentVerified": _truthy(row.get("opponentVerified")) or row.get("opponentVerified") is True or bool(identity["opponentVerified"]),

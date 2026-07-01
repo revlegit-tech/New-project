@@ -354,7 +354,7 @@ function identityChip(row: OutlierBoardRow): TrustChip {
     return { label: "Verified", tone: "good", title: "Player, team, opponent, market, side, and line identity are verified." };
   }
   if (identity.identityConfidence === "medium") {
-    return { label: "Inferred identity", tone: "watch", title: identity.identityWarnings[0] || "Identity is inferred from board context. Research only." };
+    return { label: "Identity inferred", tone: "watch", title: identity.identityWarnings[0] || "Identity is inferred from board context. Research only." };
   }
   if (identity.identityConfidence === "weak") {
     return { label: "Team unverified", tone: "risk", title: identity.identityWarnings[0] || "Team or opponent identity is incomplete. Research only." };
