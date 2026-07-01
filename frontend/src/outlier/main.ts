@@ -1,7 +1,7 @@
 import "../shared/styles/tokens.css";
 import "../shared/styles/layout.css";
 import { jsonFetch } from "../shared/api/client";
-import { fallbackMarketGroups, MARKETS, MarketRegistryPayload, RegistryMarket, RegistryMarketGroup } from "../shared/markets/markets";
+import { fallbackMarketGroups, marketLabel, MARKETS, MarketRegistryPayload, RegistryMarket, RegistryMarketGroup } from "../shared/markets/markets";
 import { number, text, todayIso } from "../shared/formatting";
 import { h, clear } from "../shared/components/dom";
 import { applyDensity, densityRowHeight, normalizeDensity } from "./app/density";
@@ -29,6 +29,7 @@ import { loadResearchReport, renderResearchReport, renderResearchReportError, re
 const appState = createInitialOutlierState();
 const disabledSports = ["NBA", "NHL", "Soccer", "WNBA", "NCAAFB"];
 const SAVE_PICK_LABEL = "Add research pick";
+const SPORTSBOOK_HELP = "Best available uses the best quoted book. Choosing a sportsbook shows that book's quote and falls back to No quote when unavailable.";
 let detailRail: DetailRailController;
 let lastBoardSource = "EdgeBoard";
 let latestStatusExtras: { actionnetwork?: any; runtime?: any; workflow?: any; ml?: any } = {};
@@ -96,7 +97,7 @@ function renderMain() {
 function renderFilters() {
   const market = h("select", { id: "marketFilter", className: "ob-select", attrs: { "aria-label": "Market filter" } });
   renderMarketOptions(market, null);
-  const sportsbook = h("select", { id: "sportsbookFilter", className: "ob-select", attrs: { "aria-label": "Sportsbook selector" } }, [option("", "Best Available")]);
+  const sportsbook = h("select", { id: "sportsbookFilter", className: "ob-select", attrs: { "aria-label": "Sportsbook selector", title: SPORTSBOOK_HELP } }, [option("", "Best Available")]);
   const book = h("select", { id: "bookFilter", className: "ob-select", attrs: { "aria-label": "Book coverage filter" } }, [option("", "Any book")]);
   const marketGroup = h("select", { id: "marketGroupFilter", className: "ob-select", attrs: { "aria-label": "Market group filter" } }, [
     option("", "Any group"),
@@ -115,34 +116,43 @@ function renderFilters() {
   const calibration = h("select", { id: "calibrationStatusFilter", className: "ob-select", attrs: { "aria-label": "Calibration status filter" } }, [option("", "Any calibration")]);
   const backtest = h("select", { id: "backtestStatusFilter", className: "ob-select", attrs: { "aria-label": "Backtest status filter" } }, [option("", "Any backtest")]);
   const freshness = h("select", { id: "freshnessStatusFilter", className: "ob-select", attrs: { "aria-label": "Freshness status filter" } }, [option("", "Any freshness")]);
-  return h("div", { className: "ob-filter-grid" }, [
-    sportsbook,
-    market,
-    marketGroup,
-    book,
-    h("input", { id: "playerFilter", className: "ob-input", value: "", attrs: { type: "search", placeholder: "Search player, team, opponent", "aria-label": "Search board" } }),
-    h("select", { id: "sideFilter", className: "ob-select", attrs: { "aria-label": "Side filter" } }, [option("", "Over / Under"), option("over", "Over"), option("under", "Under")]),
-    h("input", { id: "minQuoteCountFilter", className: "ob-input", value: "", attrs: { type: "number", min: "0", step: "1", placeholder: "Min quotes", "aria-label": "Minimum quote count" } }),
-    h("input", { id: "dateFilter", className: "ob-input", value: appState.date, attrs: { type: "date", "aria-label": "Slate date" } }),
-    action,
-    capability,
-    production,
-    modelState,
-    calibration,
-    backtest,
-    freshness,
-    h("label", { className: "ob-check" }, [h("input", { id: "missingDataOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Missing data only" })]),
-    h("label", { className: "ob-check" }, [h("input", { id: "trustedMarketsOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Trusted markets only" })]),
-    h("label", { className: "ob-check" }, [h("input", { id: "modeledOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Modeled only" })]),
-    h("label", { className: "ob-check" }, [h("input", { id: "oddsOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Odds only" })]),
-    h("label", { className: "ob-check" }, [h("input", { id: "hideOddsOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Hide odds-only" })]),
-    h("label", { className: "ob-check" }, [h("input", { id: "showAltMarketsFilter", attrs: { type: "checkbox", checked: "checked" } }), h("span", { text: "Alt markets" })]),
-    h("label", { className: "ob-check" }, [h("input", { id: "showGameMarketsFilter", attrs: { type: "checkbox" } }), h("span", { text: "Game markets" })]),
-    h("label", { className: "ob-check" }, [h("input", { id: "hasSelectedBookQuoteFilter", attrs: { type: "checkbox" } }), h("span", { text: "Selected quote" })]),
-    h("label", { className: "ob-check" }, [h("input", { id: "hasModelProbabilityFilter", attrs: { type: "checkbox" } }), h("span", { text: "Has model" })]),
-    h("label", { className: "ob-check" }, [h("input", { id: "hasEdgeFilter", attrs: { type: "checkbox" } }), h("span", { text: "Has edge" })]),
-    renderDensityToggle(),
-    h("button", { className: "ob-button is-ghost", type: "button", text: "Reset filters", dataset: { action: "reset-filters" } }),
+  return h("section", { className: "ob-filter-panel", attrs: { "aria-label": "Board controls" } }, [
+    h("div", { className: "ob-filter-head" }, [
+      h("div", {}, [
+        h("strong", { text: "Board controls" }),
+        h("span", { text: "Filter by sportsbook, market, quote coverage, model status, and attribution trust." }),
+      ]),
+      h("span", { id: "sportsbookModeBadge", className: "ob-pill ob-pill-mini", attrs: { title: SPORTSBOOK_HELP }, text: appState.sportsbook || "Best Available" }),
+    ]),
+    h("div", { className: "ob-filter-grid" }, [
+      filterField("Sportsbook", sportsbook, SPORTSBOOK_HELP),
+      filterField("Market", market),
+      filterField("Market group", marketGroup),
+      filterField("Book coverage", book),
+      filterField("Search", h("input", { id: "playerFilter", className: "ob-input", value: "", attrs: { type: "search", placeholder: "Search player, team, opponent", "aria-label": "Search board" } })),
+      filterField("Side", h("select", { id: "sideFilter", className: "ob-select", attrs: { "aria-label": "Side filter" } }, [option("", "Over / Under"), option("over", "Over"), option("under", "Under")])),
+      filterField("Min quote count", h("input", { id: "minQuoteCountFilter", className: "ob-input", value: "", attrs: { type: "number", min: "0", step: "1", placeholder: "Min quotes", "aria-label": "Minimum quote count" } })),
+      filterField("Date", h("input", { id: "dateFilter", className: "ob-input", value: appState.date, attrs: { type: "date", "aria-label": "Slate date" } })),
+      filterField("Action", action),
+      filterField("Capability", capability),
+      filterField("Model state", modelState),
+      filterField("Calibration", calibration),
+      filterField("Backtest", backtest),
+      filterField("Freshness", freshness),
+      filterField("Eligibility", production),
+      h("label", { className: "ob-check" }, [h("input", { id: "missingDataOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Missing data only" })]),
+      h("label", { className: "ob-check" }, [h("input", { id: "trustedMarketsOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Trusted markets only" })]),
+      h("label", { className: "ob-check" }, [h("input", { id: "modeledOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Modeled only" })]),
+      h("label", { className: "ob-check" }, [h("input", { id: "oddsOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Odds only" })]),
+      h("label", { className: "ob-check" }, [h("input", { id: "hideOddsOnlyFilter", attrs: { type: "checkbox" } }), h("span", { text: "Hide odds-only" })]),
+      h("label", { className: "ob-check" }, [h("input", { id: "showAltMarketsFilter", attrs: { type: "checkbox", checked: "checked" } }), h("span", { text: "Alt markets" })]),
+      h("label", { className: "ob-check" }, [h("input", { id: "showGameMarketsFilter", attrs: { type: "checkbox" } }), h("span", { text: "Game markets" })]),
+      h("label", { className: "ob-check" }, [h("input", { id: "hasSelectedBookQuoteFilter", attrs: { type: "checkbox" } }), h("span", { text: "Selected quote" })]),
+      h("label", { className: "ob-check" }, [h("input", { id: "hasModelProbabilityFilter", attrs: { type: "checkbox" } }), h("span", { text: "Has model" })]),
+      h("label", { className: "ob-check" }, [h("input", { id: "hasEdgeFilter", attrs: { type: "checkbox" } }), h("span", { text: "Has edge" })]),
+      renderDensityToggle(),
+      h("button", { className: "ob-button is-ghost", type: "button", text: "Reset filters", dataset: { action: "reset-filters" } }),
+    ]),
   ]);
 }
 
@@ -551,6 +561,7 @@ function fillBookSelect(id: string, books: string[], allLabel: string, current: 
   select.value = books.includes(current) ? current : "";
   if (id === "sportsbookFilter") appState.sportsbook = select.value;
   if (id === "bookFilter") appState.bookFilter = select.value;
+  updateSportsbookModeBadge();
 }
 
 function boardMetaCopy(windowCopy: string): string {
@@ -925,8 +936,52 @@ function currentEmptyState() {
   if (appState.backtestStatus === "missing") return { title: "No backtest-missing rows", copy: "Backtest missing rows are not present for the current filter set." };
   return { title: "No props match these filters", copy: "Adjust market, side, date, trust status, or search." };
 }
-function setMeta(copy: string) { const meta = document.getElementById("boardMeta"); if (meta) meta.textContent = copy; }
+function setMeta(copy: string) {
+  const meta = document.getElementById("boardMeta");
+  if (!meta) return;
+  clear(meta, [
+    h("span", { text: copy }),
+    h("span", { className: "ob-build-stamp", attrs: { title: buildStampTitle() }, text: buildStampText() }),
+  ]);
+}
 function exposureCopy() { const units = number(appState.exposure?.totalStakeUnits, 0).toFixed(2); return `0u research pick saved. ${units}u active exposure. Research-only picks stay at 0u.`; }
 function updateExposure() { const target = document.getElementById("exposureSummary"); if (target) target.textContent = exposureCopy(); }
 function updatePositiveCount() { const total = appState.filteredRows.filter((row: OutlierBoardRow) => edgeValue(row) > 0).length; const target = document.getElementById("positiveEdgeCount"); if (target) target.textContent = String(total); }
 function showToast(title: string, copy: string) { const toast = h("div", { className: "ob-toast", attrs: { role: "status" } }, [h("strong", { text: title }), h("span", { text: copy })]); document.body.append(toast); setTimeout(() => toast.remove(), 3200); }
+
+function filterField(label: string, control: HTMLElement, help = ""): HTMLLabelElement {
+  return h("label", { className: "ob-filter-field" }, [
+    h("span", { className: "ob-filter-label", text: label }),
+    control,
+    help ? h("em", { text: help }) : null,
+  ]);
+}
+
+function updateSportsbookModeBadge() {
+  const badge = document.getElementById("sportsbookModeBadge");
+  if (!badge) return;
+  badge.textContent = appState.sportsbook || "Best Available";
+  badge.setAttribute("title", SPORTSBOOK_HELP);
+}
+
+function buildStampText(): string {
+  const asset = outlierAssetName();
+  return `UI bundle loaded${asset ? `: ${asset}` : ""}`;
+}
+
+function buildStampTitle(): string {
+  const source = outlierAssetSource();
+  return source ? `Loaded asset ${source}` : "UI bundle loaded from the current document.";
+}
+
+function outlierAssetSource(): string {
+  const current = document.currentScript instanceof HTMLScriptElement ? document.currentScript.src : "";
+  const scripts = Array.from(document.scripts).map((script) => script.src).filter(Boolean);
+  return current || scripts.reverse().find((src) => src.includes("/assets/outlier-")) || "";
+}
+
+function outlierAssetName(): string {
+  const source = outlierAssetSource();
+  const match = source.match(/\/assets\/([^/?#]+)/);
+  return match ? match[1] : "";
+}

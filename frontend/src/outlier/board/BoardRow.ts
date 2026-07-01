@@ -1,7 +1,7 @@
 import { h } from "../../shared/components/dom";
 import { formatOdds, percent, signedPercent, text } from "../../shared/formatting";
 import { marketLabel } from "../../shared/markets/markets";
-import { badgeToneClass, rowActionability, rowFreshness, rowModelEdge, rowPropIdentity, rowReadiness, rowTrustChips } from "../trust";
+import { badgeToneClass, rowActionability, rowAttributionChip, rowFreshness, rowModelEdge, rowPropIdentity, rowReadiness, rowTrustChips } from "../trust";
 import {
   matchup,
   OutlierBoardRow,
@@ -59,7 +59,9 @@ export function renderBoardRow(row: OutlierBoardRow, options: BoardRowRenderOpti
   const readiness = rowReadiness(row);
   const freshness = rowFreshness(row, options.freshnessFallback);
   const actionability = rowActionability(row);
-  const chips = rowTrustChips(row).slice(0, 6);
+  const attributionChip = rowAttributionChip(row);
+  const trustChips = rowTrustChips(row).filter((chip) => !attributionChip || chip.label !== attributionChip.label);
+  const chips = attributionChip ? [attributionChip, ...trustChips].slice(0, 4) : trustChips.slice(0, 4);
   const market = rowMarketKey(row) || identity.market;
   const sideLine = [identity.side, text(rowLine(row), "")].filter(Boolean).join(" ");
   const isExperimental = readiness.label.toLowerCase().includes("experimental") || readiness.status.includes("experimental");

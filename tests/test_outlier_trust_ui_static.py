@@ -52,3 +52,48 @@ def test_outlier_rows_and_detail_rail_render_trust_chips() -> None:
     assert "Identity\", trustStatusLabel(identity.identityConfidence)" in rail
     assert "Identity is inferred from board context. Bet" not in trust
     assert "label: \"Bet\"" not in trust
+
+
+def test_outlier_board_controls_are_visibly_labeled() -> None:
+    source = Path("frontend/src/outlier/main.ts").read_text(encoding="utf-8")
+    styles = Path("frontend/src/shared/styles/layout.css").read_text(encoding="utf-8")
+
+    assert "Board controls" in source
+    assert "Filter by sportsbook, market, quote coverage, model status, and attribution trust." in source
+    assert "filterField(\"Sportsbook\"" in source
+    assert "filterField(\"Market\"" in source
+    assert "filterField(\"Market group\"" in source
+    assert "filterField(\"Book coverage\"" in source
+    assert "filterField(\"Search\"" in source
+    assert "filterField(\"Side\"" in source
+    assert "filterField(\"Min quote count\"" in source
+    assert "filterField(\"Date\"" in source
+    assert "filterField(\"Action\"" in source
+    assert "filterField(\"Capability\"" in source
+    assert "filterField(\"Model state\"" in source
+    assert "filterField(\"Calibration\"" in source
+    assert "filterField(\"Backtest\"" in source
+    assert "filterField(\"Freshness\"" in source
+    assert "Best Available" in source
+    assert "No quote" in source
+    assert "UI bundle loaded" in source
+    assert ".ob-filter-label" in styles
+
+
+def test_outlier_attribution_chips_are_prioritized_and_safe() -> None:
+    row = Path("frontend/src/outlier/board/BoardRow.ts").read_text(encoding="utf-8")
+    trust = Path("frontend/src/outlier/trust/rowTrust.ts").read_text(encoding="utf-8")
+    frontend_sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in Path("frontend/src/outlier").rglob("*.ts")
+    )
+
+    assert "rowAttributionChip" in row
+    assert "rowAttributionChip" in trust
+    assert "Corrected" in trust
+    assert "Ambiguous player" in trust
+    assert "Identity inferred" in trust
+    assert "Possible team mismatch" in trust
+    assert "Invalid player label" in trust
+    assert "Context limited" in trust
+    assert "Bet now" not in frontend_sources

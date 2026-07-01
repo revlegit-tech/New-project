@@ -198,6 +198,29 @@ export function rowTrustChips(row: OutlierBoardRow): TrustChip[] {
   ].filter(Boolean) as TrustChip[];
 }
 
+export function rowAttributionChip(row: OutlierBoardRow): TrustChip | null {
+  const identity = rowPropIdentity(row);
+  if (identity.attributionStatus === "conflict") {
+    return { label: "Possible team mismatch", tone: "risk", title: identity.identityWarnings[0] || "Player/team attribution conflicts with local evidence." };
+  }
+  if (identity.attributionStatus === "ambiguous") {
+    return { label: "Ambiguous player", tone: "risk", title: identity.identityWarnings[0] || "Player identity could not be uniquely resolved." };
+  }
+  if (identity.attributionStatus === "invalid_player_label") {
+    return { label: "Invalid player label", tone: "risk", title: identity.identityWarnings[0] || "Market label could not be safely treated as a player." };
+  }
+  if (identity.attributionCorrectionApplied || identity.attributionStatus === "corrected") {
+    return { label: "Corrected", tone: "good", title: identity.attributionCorrectionReason || "Source mismatch corrected by roster evidence." };
+  }
+  if (Boolean(row.contextBlockedByAttribution)) {
+    return { label: "Context limited", tone: "risk", title: identity.identityWarnings[0] || "Model/context join blocked by attribution confidence." };
+  }
+  if (identity.attributionStatus === "source_missing") {
+    return { label: "Source missing team", tone: "watch", title: identity.identityWarnings[0] || "Source team or opponent was missing." };
+  }
+  return null;
+}
+
 export function rowTrustSummary(row: OutlierBoardRow): RowTrustSummary {
   const trust = objectValue(row.trust);
   const readiness = objectValue(trust.readiness);

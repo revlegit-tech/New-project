@@ -7,6 +7,7 @@ export interface FreshnessSeverity {
 export {
   badgeToneClass,
   rowActionability,
+  rowAttributionChip,
   rowFreshness,
   rowModelEdge,
   rowPropIdentity,
