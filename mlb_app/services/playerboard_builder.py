@@ -1180,12 +1180,19 @@ def canonical_prop_line(row: dict[str, Any]) -> str:
 
 def book_price_row(row: dict[str, Any]) -> dict[str, Any]:
     odds = clean(row.get("americanOdds"))
+    implied = american_implied_percent(odds) if odds else None
     return {
         "book": clean(row.get("book")) or "Book",
         "bookKey": clean(row.get("bookKey")),
         "americanOdds": odds,
-        "impliedProbabilityPercent": round(american_implied_percent(odds), 2) if odds else "",
+        "decimalOdds": row.get("decimalOdds") or "",
+        "impliedProbability": round(implied / 100.0, 6) if implied is not None else None,
+        "impliedProbabilityPercent": round(implied, 2) if implied is not None else None,
+        "noVigImpliedProbability": row.get("noVigImpliedProbability"),
         "lastUpdate": clean(row.get("lastUpdate")),
+        "quoteFreshness": clean(row.get("quoteFreshness")),
+        "side": display_side_for_prop(row),
+        "line": canonical_prop_line(row) or clean(row.get("line")),
         "rawSource": clean(row.get("rawSource")),
     }
 
@@ -1228,14 +1235,49 @@ def aggregate_book_prices(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         unique_items = list(by_book.values())
         unique_items.sort(key=lambda item: odds_sort_value(item.get("americanOdds")), reverse=True)
         best = dict(unique_items[0])
-        books = [book_price_row(item) for item in unique_items]
-        best["americanOdds"] = clean(unique_items[0].get("americanOdds"))
-        best["book"] = clean(unique_items[0].get("book")) or "Best available"
-        best["bookKey"] = clean(unique_items[0].get("bookKey"))
+        nested_quotes = unique_items[0].get("allBookQuotes") or unique_items[0].get("books") if len(unique_items) == 1 else []
+        if isinstance(nested_quotes, list) and nested_quotes and all(isinstance(quote, dict) for quote in nested_quotes):
+            books = [dict(quote) for quote in nested_quotes]
+            books.sort(key=lambda quote: odds_sort_value(quote.get("americanOdds")), reverse=True)
+        else:
+            books = [book_price_row(item) for item in unique_items]
+        best_quote = books[0] if books else {}
+        best_odds = clean(best_quote.get("americanOdds"))
+        available_books = [clean(quote.get("book")) for quote in books if clean(quote.get("book"))]
+        best["americanOdds"] = best_odds
+        best["book"] = clean(best_quote.get("book")) or "Best available"
+        best["bookKey"] = clean(best_quote.get("bookKey"))
         best["bookCount"] = len(books)
         best["books"] = books
+        best["allBookQuotes"] = books
+        best["availableBooks"] = available_books
+        best["quoteCount"] = len(books)
+        best["bestBook"] = clean(best_quote.get("book"))
+        best["bestAmericanOdds"] = best_odds
+        best["bestImpliedProbability"] = best_quote.get("impliedProbability")
+        best["bestBookLastUpdate"] = clean(best_quote.get("lastUpdate"))
+        best["selectedBook"] = clean(best_quote.get("book"))
+        best["selectedBookAmericanOdds"] = best_odds
+        best["selectedBookImpliedProbability"] = best_quote.get("impliedProbability")
+        best["selectedBookLastUpdate"] = clean(best_quote.get("lastUpdate"))
+        best["selectedBookQuoteStatus"] = "best_available"
+        best["selectedBookMode"] = "best_available"
         best["rawLabel"] = display_side_for_prop(best)
         best["line"] = canonical_prop_line(best) or clean(best.get("line"))
+        best["normalizedPropKey"] = "|".join(
+            clean(part)
+            for part in (
+                clean(best.get("date"))[:10],
+                normalize_market(best.get("market")),
+                clean(best.get("player")).casefold(),
+                canonical_team_abbr(best.get("team")),
+                canonical_team_abbr(best.get("opponent")),
+                clean(best.get("pitcher")).casefold(),
+                clean(best.get("line")),
+                side_for_prop(best),
+            )
+            if clean(part)
+        )
         collapsed.append(best)
 
     return collapsed
@@ -1452,7 +1494,7 @@ def game_context_from_prop(prop: dict[str, Any]) -> tuple[str, str, str]:
 
 def odds_only_player_card(prop: dict[str, Any]) -> dict[str, Any]:
     team, opponent, game = game_context_from_prop(prop)
-    implied = american_implied_percent(prop.get("americanOdds"))
+    implied = american_implied_percent(prop.get("americanOdds")) if clean(prop.get("americanOdds")) else None
     missing = [
         "PropLine did not provide player team/opponent, so this row is shown as odds-only.",
         "Fill/verify team context before relying on model probability.",
@@ -1471,9 +1513,9 @@ def odds_only_player_card(prop: dict[str, Any]) -> dict[str, Any]:
         "pitcher": clean(prop.get("pitcher")),
         "line": clean(prop.get("line")) or "0.5",
         "americanOdds": clean(prop.get("americanOdds")),
-        "finalProbabilityPercent": round(implied, 2),
-        "sportsbookImpliedPercent": round(implied, 2),
-        "finalEdgePercent": 0.0,
+        "finalProbabilityPercent": round(implied, 2) if implied is not None else None,
+        "sportsbookImpliedPercent": round(implied, 2) if implied is not None else None,
+        "finalEdgePercent": None,
         "confidence": "Odds only",
         "recommendation": "Needs team context",
         "weatherAdjustmentPercent": "",
@@ -1487,6 +1529,19 @@ def odds_only_player_card(prop: dict[str, Any]) -> dict[str, Any]:
         "bookKey": clean(prop.get("bookKey")),
         "bookCount": prop.get("bookCount") or len(prop.get("books") or []),
         "books": prop.get("books") or [],
+        "availableBooks": prop.get("availableBooks") or [],
+        "quoteCount": prop.get("quoteCount") or len(prop.get("books") or []),
+        "allBookQuotes": prop.get("allBookQuotes") or prop.get("books") or [],
+        "selectedBook": prop.get("selectedBook") or prop.get("bestBook") or clean(prop.get("book")),
+        "selectedBookAmericanOdds": prop.get("selectedBookAmericanOdds") or clean(prop.get("americanOdds")),
+        "selectedBookImpliedProbability": prop.get("selectedBookImpliedProbability"),
+        "selectedBookLastUpdate": prop.get("selectedBookLastUpdate") or clean(prop.get("lastUpdate")),
+        "selectedBookQuoteStatus": prop.get("selectedBookQuoteStatus") or "best_available",
+        "selectedBookMode": prop.get("selectedBookMode") or "best_available",
+        "bestBook": prop.get("bestBook") or clean(prop.get("book")),
+        "bestAmericanOdds": prop.get("bestAmericanOdds") or clean(prop.get("americanOdds")),
+        "bestImpliedProbability": prop.get("bestImpliedProbability"),
+        "bestBookLastUpdate": prop.get("bestBookLastUpdate") or clean(prop.get("lastUpdate")),
     }
 
 
@@ -1815,7 +1870,7 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
             "opponent": clean(prop.get("opponent")),
             "pitcher": clean(prop.get("pitcher")),
             "line": clean(prop.get("line")) or "0.5",
-            "american_odds": clean(prop.get("americanOdds")) or "-110",
+            "american_odds": clean(prop.get("americanOdds")),
             "originalMarket": clean(prop.get("originalMarket")),
             "rawLabel": clean(prop.get("rawLabel")),
             "marketFamily": clean(prop.get("marketFamily")) or market_family(prop.get("market")),
@@ -1851,6 +1906,20 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
                 "bookKey": clean(prop.get("bookKey")),
                 "bookCount": prop.get("bookCount") or len(prop.get("books") or []),
                 "books": prop.get("books") or [],
+                "availableBooks": prop.get("availableBooks") or [],
+                "quoteCount": prop.get("quoteCount") or len(prop.get("books") or []),
+                "allBookQuotes": prop.get("allBookQuotes") or prop.get("books") or [],
+                "selectedBook": prop.get("selectedBook") or prop.get("bestBook") or clean(prop.get("book")),
+                "selectedBookAmericanOdds": prop.get("selectedBookAmericanOdds") or clean(prop.get("americanOdds")),
+                "selectedBookImpliedProbability": prop.get("selectedBookImpliedProbability"),
+                "selectedBookLastUpdate": prop.get("selectedBookLastUpdate") or clean(prop.get("lastUpdate")),
+                "selectedBookQuoteStatus": prop.get("selectedBookQuoteStatus") or "best_available",
+                "selectedBookMode": prop.get("selectedBookMode") or "best_available",
+                "bestBook": prop.get("bestBook") or clean(prop.get("book")),
+                "bestAmericanOdds": prop.get("bestAmericanOdds") or clean(prop.get("americanOdds")),
+                "bestImpliedProbability": prop.get("bestImpliedProbability"),
+                "bestBookLastUpdate": prop.get("bestBookLastUpdate") or clean(prop.get("lastUpdate")),
+                "normalizedPropKey": prop.get("normalizedPropKey"),
             }
             add_timing("cardPostProcessMs", post_started)
             return attach_hit_profile(out, row), None

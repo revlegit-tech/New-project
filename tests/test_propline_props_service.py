@@ -32,3 +32,35 @@ def test_normalize_prop_splits_player_team():
     assert row["player"] == "Aaron Judge"
     assert row["team"] == "NYY"
     assert row["game"] == "NYY @ BOS"
+
+
+def test_sync_propline_props_respects_adaptive_pull_budget(monkeypatch):
+    from mlb_app.integrations.propline import client as propline_client
+
+    events = [
+        {"id": "event-1", "away_team": "NYY", "home_team": "BOS", "commence_time": "2026-06-24T23:00:00Z"},
+        {"id": "event-2", "away_team": "LAD", "home_team": "SD", "commence_time": "2026-06-24T23:00:00Z"},
+        {"id": "event-3", "away_team": "CHC", "home_team": "STL", "commence_time": "2026-06-24T23:00:00Z"},
+    ]
+    calls: list[str] = []
+
+    def fake_props(event_id, markets=None, sport="baseball_mlb"):
+        calls.append(event_id)
+        return {"bookmakers": []}
+
+    monkeypatch.setenv("MLB_PROPLINE_MAX_DAILY_PULL_REQUESTS", "1")
+    monkeypatch.setenv("MLB_PROPLINE_DAILY_RESERVE", "150")
+    monkeypatch.setattr(propline_client, "get_events", lambda sport="baseball_mlb": events)
+    monkeypatch.setattr(propline_client, "get_event_player_props", fake_props)
+    monkeypatch.setattr(
+        propline_client,
+        "value_client_status",
+        lambda: {"tokenGuard": {"estimatedUsed": 849, "dailyLimit": 1000, "reservedTokens": 150, "remainingUsable": 1}},
+    )
+
+    payload = svc.sync_propline_props(svc.PropLineSyncRequest(date="2026-06-24", save=False, snapshot=False))
+
+    assert calls == ["event-1"]
+    assert payload["attemptedEventCount"] == 1
+    assert payload["diagnostics"]["eventsSkipped"] == 2
+    assert payload["diagnostics"]["proplineMaxDailyPullRequests"] == 1

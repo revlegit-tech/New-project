@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -56,6 +57,9 @@ PROP_COLUMNS = [
     "lastUpdate",
 ]
 
+DEFAULT_DAILY_RESERVE = 150
+DEFAULT_MAX_DAILY_PULL_REQUESTS = 750
+
 
 class PropLineSyncError(RuntimeError):
     pass
@@ -76,6 +80,20 @@ def _clean(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)) or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _validate_date(date_label: str) -> str:
     value = _clean(date_label)
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
@@ -83,11 +101,11 @@ def _validate_date(date_label: str) -> str:
     return value
 
 
-def _local_timezone() -> ZoneInfo:
+def _local_timezone() -> ZoneInfo | timezone:
     try:
         return ZoneInfo(PROPLINE_LOCAL_TZ)
     except Exception:
-        return ZoneInfo("America/New_York")
+        return timezone.utc
 
 
 def _event_datetime(event: dict[str, Any]) -> datetime | None:
@@ -174,27 +192,54 @@ def save_props_csv(
 
 def sync_propline_props(request: PropLineSyncRequest) -> dict[str, Any]:
     date_label = _validate_date(request.date)
-    markets = tuple(market.strip() for market in request.markets if str(market).strip()) or tuple(PROPLINE_MARKETS)
+    requested_markets = tuple(market.strip() for market in request.markets if str(market).strip()) or tuple(PROPLINE_MARKETS)
 
     try:
         from mlb_app.integrations.propline.client import get_events, get_event_player_props, value_client_status
     except Exception as error:  # pragma: no cover - import environment dependent
         raise PropLineSyncError(f"Could not import PropLine client helpers: {error}") from error
 
+    full_slate_pull_enabled = _env_flag("MLB_PROPLINE_FULL_SLATE_PULL", True)
+    include_all_books_enabled = _env_flag("MLB_PROPLINE_INCLUDE_ALL_BOOKS", True)
+    include_alt_lines_enabled = _env_flag("MLB_PROPLINE_INCLUDE_ALT_LINES", False)
+    max_daily_pull_requests = _env_int("MLB_PROPLINE_MAX_DAILY_PULL_REQUESTS", DEFAULT_MAX_DAILY_PULL_REQUESTS)
+    reserved_requests = _env_int("MLB_PROPLINE_DAILY_RESERVE", DEFAULT_DAILY_RESERVE)
+    markets = requested_markets if include_alt_lines_enabled else tuple(
+        market for market in requested_markets if not re.search(r"(?:_alt|_\d+plus_)", market)
+    )
+
     all_events = get_events(request.sport)
     events = [event for event in all_events if not event_date(event) or event_date(event) == date_label]
+    if not full_slate_pull_enabled:
+        events = events[:1]
     if request.max_events and request.max_events > 0:
         events = events[: request.max_events]
+
+    token_guard_before: dict[str, Any] = {}
+    try:
+        token_guard_before = value_client_status().get("tokenGuard", {})
+    except Exception:
+        token_guard_before = {}
+    usable_remaining_before = int(token_guard_before.get("remainingUsable") or 0)
+    event_budget = max(0, min(max_daily_pull_requests, usable_remaining_before))
 
     props: list[dict[str, Any]] = []
     event_errors: list[dict[str, Any]] = []
     empty_events: list[dict[str, Any]] = []
     event_summaries: list[dict[str, Any]] = []
     attempted_events = 0
+    skipped_budget_events: list[dict[str, Any]] = []
 
     for event in events:
         event_id = _clean(event.get("id"))
         if not event_id:
+            continue
+        if attempted_events >= event_budget:
+            skipped_budget_events.append({
+                "eventId": event_id,
+                "game": f"{event.get('away_team', '')} @ {event.get('home_team', '')}".strip(),
+                "reason": "propline_request_budget_exhausted",
+            })
             continue
         attempted_events += 1
         try:
@@ -209,6 +254,8 @@ def sync_propline_props(request: PropLineSyncRequest) -> dict[str, Any]:
             continue
 
         bookmakers = odds.get("bookmakers", []) if isinstance(odds, dict) else []
+        if not include_all_books_enabled and bookmakers:
+            bookmakers = bookmakers[:1]
         event_prop_count = 0
         market_counts: dict[str, int] = {}
         for bookmaker in bookmakers or []:
@@ -253,12 +300,28 @@ def sync_propline_props(request: PropLineSyncRequest) -> dict[str, Any]:
         warnings.append("PropLine returned no events; source unavailable, API issue, or no slate for the selected sport.")
     if event_errors:
         warnings.append(f"{len(event_errors)} PropLine event calls failed; returned props from successful events only.")
+    if skipped_budget_events:
+        warnings.append(f"{len(skipped_budget_events)} PropLine events skipped before violating daily reserve/request budget.")
 
     token_guard = {}
     try:
         token_guard = value_client_status().get("tokenGuard", {})
     except Exception:
         token_guard = {}
+
+    markets_returned = sorted({_clean(prop.get("market")) for prop in props if _clean(prop.get("market"))})
+    books_returned = sorted({_clean(prop.get("book") or prop.get("bookKey")) for prop in props if _clean(prop.get("book") or prop.get("bookKey"))})
+    raw_book_quote_keys = {
+        (
+            _clean(prop.get("eventId")),
+            _clean(prop.get("market")),
+            _clean(prop.get("player")).casefold(),
+            _clean(prop.get("side")).casefold(),
+            _clean(prop.get("line")),
+            _clean(prop.get("bookKey") or prop.get("book")).casefold(),
+        )
+        for prop in props
+    }
 
     return {
         "status": "ok",
@@ -271,11 +334,41 @@ def sync_propline_props(request: PropLineSyncRequest) -> dict[str, Any]:
         "attemptedEventCount": attempted_events,
         "maxEvents": request.max_events,
         "propCount": len(props),
+        "diagnostics": {
+            "proplineRequestsUsed": int(token_guard.get("estimatedUsed") or 0),
+            "proplineDailyLimit": int(token_guard.get("dailyLimit") or 0),
+            "proplineReservedRequests": reserved_requests,
+            "proplineUsableRemaining": int(token_guard.get("remainingUsable") or 0),
+            "proplineMaxDailyPullRequests": max_daily_pull_requests,
+            "fullSlatePullEnabled": full_slate_pull_enabled,
+            "includeAllBooksEnabled": include_all_books_enabled,
+            "includeAltLinesEnabled": include_alt_lines_enabled,
+            "eventsDiscovered": len(events),
+            "totalEventCount": len(all_events),
+            "eventsAttempted": attempted_events,
+            "eventsSkipped": len(skipped_budget_events),
+            "marketsRequested": list(markets),
+            "marketsReturned": markets_returned,
+            "booksReturned": books_returned,
+            "rawPropsReturned": len(props),
+            "rawBookQuotesReturned": len(raw_book_quote_keys),
+            "propsDroppedBeforePlayerboard": 0,
+            "propsDroppedByMarket": {},
+            "propsDroppedByMissingOdds": sum(1 for prop in props if not _clean(prop.get("americanOdds"))),
+            "propsDroppedByMissingPlayer": sum(1 for prop in props if not _clean(prop.get("player"))),
+            "propsDroppedByUnsupportedSide": 0,
+            "propsDroppedByDuplicateCollapse": max(0, len(props) - len(raw_book_quote_keys)),
+            "propsLoadedIntoPlayerboard": 0,
+            "boardRowsGenerated": 0,
+            "bookQuotesGenerated": len(raw_book_quote_keys),
+            "marketRegistryRowsGenerated": 0,
+        },
         "savedPath": saved.get("savedPath", ""),
         "snapshotPath": saved.get("snapshotPath", ""),
         "warnings": warnings,
         "eventErrors": event_errors[:20],
         "emptyEvents": empty_events[:20],
+        "skippedEvents": skipped_budget_events[:20],
         "eventsPreview": event_summaries[:20],
         "tokenGuard": token_guard,
     }

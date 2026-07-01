@@ -364,8 +364,28 @@ def _diagnostics(entries: list[dict[str, Any]], source_counts: dict[str, Any]) -
     odds_no_model = [entry for entry in entries if entry.get("hasOdds") and not entry.get("hasModel")]
     model_no_odds = [entry for entry in entries if entry.get("hasModel") and not entry.get("hasOdds")]
     unknown = [entry for entry in entries if entry.get("category") == "unknown"]
+    raw_props = int((source_counts.get("propline") or {}).get("rows") or 0)
+    raw_book_quotes = sum(quote_by_market.values())
+    playerboard_rows = int((source_counts.get("playerboard") or {}).get("rows") or 0)
     return {
-        "rawPropsPulled": int((source_counts.get("propline") or {}).get("rows") or 0),
+        "rawPropsPulled": raw_props,
+        "rawBookQuotesPulled": raw_book_quotes,
+        "uniquePropIdentities": sum(1 for entry in entries if int(entry.get("rowCount") or 0) > 0),
+        "uniqueBookQuotes": raw_book_quotes,
+        "playerboardCardsBuilt": playerboard_rows,
+        "boardRowsVisible": playerboard_rows,
+        "cardsCollapsedByBook": max(0, raw_book_quotes - playerboard_rows),
+        "cardsCollapsedBySide": 0,
+        "cardsCollapsedByLine": 0,
+        "cardsCollapsedByMarket": 0,
+        "cardsCollapsedByPlayer": 0,
+        "duplicateQuoteRows": 0,
+        "duplicatePropIdentityRows": max(0, raw_props - raw_book_quotes),
+        "unsupportedMarketRows": 0,
+        "unsupportedBookRows": 0,
+        "missingPlayerRows": 0,
+        "missingTeamRows": 0,
+        "missingOddsRows": 0,
         "marketsFound": len(entries),
         "marketsDiscoveredFromPropLine": (source_counts.get("propline") or {}).get("markets", []),
         "marketsDiscoveredFromActionNetwork": (source_counts.get("actionnetwork") or {}).get("markets", []),

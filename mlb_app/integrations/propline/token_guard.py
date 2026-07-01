@@ -9,8 +9,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[3]
 STATE_PATH = ROOT / "data" / "cache" / "propline" / "token_guard_state.json"
 
-DEFAULT_DAILY_LIMIT = int(os.environ.get("PROPLINE_DAILY_LIMIT", "1000"))
-DEFAULT_RESERVED_TOKENS = int(os.environ.get("PROPLINE_RESERVED_TOKENS", "150"))
+DEFAULT_DAILY_LIMIT = int(os.environ.get("MLB_PROPLINE_DAILY_LIMIT") or os.environ.get("PROPLINE_DAILY_LIMIT", "1000"))
+DEFAULT_RESERVED_TOKENS = int(os.environ.get("MLB_PROPLINE_DAILY_RESERVE") or os.environ.get("PROPLINE_RESERVED_TOKENS", "150"))
+DEFAULT_MAX_DAILY_PULL_REQUESTS = int(os.environ.get("MLB_PROPLINE_MAX_DAILY_PULL_REQUESTS", "750"))
 
 
 def utc_day() -> str:
@@ -101,11 +102,16 @@ def record_call(
 
 def guard_summary() -> dict[str, Any]:
     state = load_state()
+    daily_limit = int(state.get("dailyLimit", DEFAULT_DAILY_LIMIT))
+    estimated_used = int(state.get("estimatedUsed", 0))
+    usable_remaining = remaining_tokens(daily_limit=daily_limit, reserved_tokens=DEFAULT_RESERVED_TOKENS)
     return {
         "day": state.get("day"),
-        "estimatedUsed": int(state.get("estimatedUsed", 0)),
-        "dailyLimit": int(state.get("dailyLimit", DEFAULT_DAILY_LIMIT)),
+        "estimatedUsed": estimated_used,
+        "dailyLimit": daily_limit,
         "reservedTokens": DEFAULT_RESERVED_TOKENS,
-        "remainingUsable": remaining_tokens(),
+        "remainingUsable": usable_remaining,
+        "maxDailyPullRequests": DEFAULT_MAX_DAILY_PULL_REQUESTS,
+        "pullRequestsAvailable": max(0, min(DEFAULT_MAX_DAILY_PULL_REQUESTS, usable_remaining)),
         "statePath": str(STATE_PATH),
     }

@@ -69,11 +69,13 @@ class PlayerboardService:
         build_if_missing = str((query.get("buildIfMissing") or ["0"])[0]).lower() in {"1", "true", "yes"}
         replace_date = str((query.get("replaceDate") or ["0"])[0]).lower() in {"1", "true", "yes"}
         source_mode = str((query.get("sourceMode") or ["auto"])[0] or "auto")
+        selected_book = str((query.get("selectedBook") or [""])[0] or "")
 
         if not save and not refresh and not replace_date:
             snapshot = self.read_service.get_snapshot(season=season, date_label=date_label, market=market)
             payload = self._payload_from_snapshot(snapshot, market=market, limit=limit)
             payload = self._apply_game_market_enrichment(payload, requested_date=date_label)
+            payload = _apply_selected_book(payload, selected_book)
             payload = self._attach_market_registry(payload, query)
             if payload.get("cacheHit") or not build_if_missing:
                 return payload
@@ -88,6 +90,7 @@ class PlayerboardService:
             source_mode=source_mode,
         )
         payload = self._apply_game_market_enrichment(self._attach_trust(payload, query), requested_date=date_label)
+        payload = _apply_selected_book(payload, selected_book)
         return self._attach_market_registry(payload, query)
 
     def _payload_from_snapshot(self, snapshot: PlayerboardSnapshot, *, market: str, limit: int) -> dict[str, Any]:
@@ -287,6 +290,100 @@ def _clean(value: Any) -> str:
 
 def _list_rows(value: Any) -> list[dict[str, Any]]:
     return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+
+
+def _normalize_book(value: Any) -> str:
+    return _clean(value).casefold().replace(" ", "").replace("-", "").replace("_", "")
+
+
+def _quote_implied_probability(quote: dict[str, Any]) -> Any:
+    value = quote.get("impliedProbability")
+    if value not in {None, ""}:
+        return value
+    percent = quote.get("impliedProbabilityPercent")
+    try:
+        return round(float(percent) / 100.0, 6) if percent not in {None, ""} else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _select_quote(row: dict[str, Any], selected_book: str) -> dict[str, Any]:
+    quotes = _list_rows(row.get("allBookQuotes") or row.get("books") or [])
+    selected_key = _normalize_book(selected_book)
+    if selected_key:
+        for quote in quotes:
+            if selected_key in {_normalize_book(quote.get("book")), _normalize_book(quote.get("bookKey"))}:
+                return quote
+        return {}
+    if quotes:
+        return quotes[0]
+    return {
+        "book": row.get("book") or row.get("bestBook"),
+        "bookKey": row.get("bookKey"),
+        "americanOdds": row.get("americanOdds") or row.get("bestAmericanOdds"),
+        "impliedProbability": row.get("bestImpliedProbability"),
+        "lastUpdate": row.get("bestBookLastUpdate") or row.get("lastUpdate"),
+    }
+
+
+def _apply_selected_book_to_row(row: dict[str, Any], selected_book: str) -> dict[str, Any]:
+    out = dict(row)
+    quotes = _list_rows(out.get("allBookQuotes") or out.get("books") or [])
+    if quotes:
+        out["allBookQuotes"] = quotes
+        out["books"] = quotes
+        out["availableBooks"] = [quote.get("book") for quote in quotes if _clean(quote.get("book"))]
+        out["quoteCount"] = len(quotes)
+
+    best_quote = quotes[0] if quotes else {}
+    if best_quote:
+        out.setdefault("bestBook", best_quote.get("book"))
+        out.setdefault("bestAmericanOdds", best_quote.get("americanOdds"))
+        out.setdefault("bestImpliedProbability", _quote_implied_probability(best_quote))
+        out.setdefault("bestBookLastUpdate", best_quote.get("lastUpdate"))
+
+    selected_quote = _select_quote(out, selected_book)
+    if selected_quote:
+        out["selectedBook"] = selected_quote.get("book") or selected_book or out.get("bestBook") or out.get("book")
+        out["selectedBookAmericanOdds"] = selected_quote.get("americanOdds")
+        out["selectedBookImpliedProbability"] = _quote_implied_probability(selected_quote)
+        out["selectedBookLastUpdate"] = selected_quote.get("lastUpdate")
+        out["selectedBookQuoteStatus"] = "quoted"
+        out["selectedBookMode"] = "selected_book" if selected_book else "best_available"
+        if not selected_book:
+            out["selectedBookQuoteStatus"] = "best_available"
+    elif selected_book:
+        out["selectedBook"] = selected_book
+        out["selectedBookAmericanOdds"] = None
+        out["selectedBookImpliedProbability"] = None
+        out["selectedBookLastUpdate"] = None
+        out["selectedBookQuoteStatus"] = "no_quote_at_selected_book"
+        out["selectedBookMode"] = "selected_book"
+        warnings = list(out.get("trustWarnings") or [])
+        message = f"No quote at selected book: {selected_book}"
+        if message not in warnings:
+            warnings.append(message)
+        out["trustWarnings"] = warnings
+    else:
+        out.setdefault("selectedBookMode", "best_available")
+        out.setdefault("selectedBookQuoteStatus", "no_quotes_available")
+    return out
+
+
+def _apply_selected_book(payload: dict[str, Any], selected_book: str) -> dict[str, Any]:
+    rows = _list_rows(payload.get("rows") or payload.get("top") or [])
+    if not rows:
+        return payload
+    enriched_rows = [_apply_selected_book_to_row(row, selected_book) for row in rows]
+    enriched = dict(payload)
+    enriched["rows"] = enriched_rows
+    if "top" in enriched:
+        enriched["top"] = enriched_rows
+    filters = dict(enriched.get("filters") or {})
+    filters["selectedBook"] = selected_book
+    filters["selectedBookMode"] = "selected_book" if selected_book else "best_available"
+    enriched["filters"] = filters
+    return enriched
 
 
 def _game_market_enrichment_summary(rows: list[dict[str, Any]], *, enabled: bool) -> dict[str, Any]:

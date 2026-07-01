@@ -54,6 +54,28 @@ class EdgeBoardRow(StrictPayload):
     bookKey: str | None = None
     bookCount: Any = None
     books: list[Any] = Field(default_factory=list)
+    propId: str | None = None
+    normalizedPropKey: str | None = None
+    gameId: str | None = None
+    normalizedPlayer: str | None = None
+    decimalOdds: Any = None
+    impliedProbability: Any = None
+    noVigImpliedProbability: Any = None
+    lastUpdate: str | None = None
+    quoteFreshness: str | None = None
+    selectedBook: str | None = None
+    selectedBookAmericanOdds: Any = None
+    selectedBookImpliedProbability: Any = None
+    selectedBookLastUpdate: str | None = None
+    selectedBookQuoteStatus: str | None = None
+    selectedBookMode: str | None = None
+    bestBook: str | None = None
+    bestAmericanOdds: Any = None
+    bestImpliedProbability: Any = None
+    bestBookLastUpdate: str | None = None
+    quoteCount: Any = None
+    availableBooks: list[Any] = Field(default_factory=list)
+    allBookQuotes: list[Any] = Field(default_factory=list)
     americanOdds: Any = None
     rawModelProbability: Any = None
     calibratedProbability: Any = None
@@ -227,6 +249,23 @@ class MarketRegistryGroup(StrictPayload):
 
 class MarketCoverageDiagnostics(StrictPayload):
     rawPropsPulled: int = 0
+    rawBookQuotesPulled: int = 0
+    uniquePropIdentities: int = 0
+    uniqueBookQuotes: int = 0
+    playerboardCardsBuilt: int = 0
+    boardRowsVisible: int = 0
+    cardsCollapsedByBook: int = 0
+    cardsCollapsedBySide: int = 0
+    cardsCollapsedByLine: int = 0
+    cardsCollapsedByMarket: int = 0
+    cardsCollapsedByPlayer: int = 0
+    duplicateQuoteRows: int = 0
+    duplicatePropIdentityRows: int = 0
+    unsupportedMarketRows: int = 0
+    unsupportedBookRows: int = 0
+    missingPlayerRows: int = 0
+    missingTeamRows: int = 0
+    missingOddsRows: int = 0
     marketsFound: int = 0
     marketsDiscoveredFromPropLine: list[str] = Field(default_factory=list)
     marketsDiscoveredFromActionNetwork: list[str] = Field(default_factory=list)
@@ -1173,11 +1212,13 @@ class ProplineSyncResponse(StrictResponse):
     attemptedEventCount: int | None = None
     maxEvents: int | None = None
     propCount: int | None = None
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
     savedPath: str | None = None
     snapshotPath: str | None = None
     warnings: list[str] = Field(default_factory=list)
     eventErrors: list[dict[str, Any]] = Field(default_factory=list)
     emptyEvents: list[dict[str, Any]] = Field(default_factory=list)
+    skippedEvents: list[dict[str, Any]] = Field(default_factory=list)
     eventsPreview: list[dict[str, Any]] = Field(default_factory=list)
     tokenGuard: dict[str, Any] = Field(default_factory=dict)
 

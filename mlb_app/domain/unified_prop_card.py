@@ -758,7 +758,8 @@ def unified_prop_card(row: dict[str, Any]) -> dict[str, Any]:
         + odds_movement_adjustment
         + savant_adjustment
     )
-    implied = to_float(base.get("sportsbookImpliedProbability"))
+    implied_raw = base.get("sportsbookImpliedProbability")
+    implied = to_float(implied_raw) if implied_raw is not None else None
 
     # Alt/ladder/special markets should be preserved and displayed, but not
     # allowed to create fake huge edges when PropLine only gives us a generic
@@ -768,9 +769,10 @@ def unified_prop_card(row: dict[str, Any]) -> dict[str, Any]:
         # Alt/ladder markets are valid and should be displayed, but the current
         # model is still based on the standard stat family. Keep alt-market
         # probabilities conservative until we build true ladder-specific models.
-        final_probability = clamp(implied + (final_probability - implied) * 0.15)
+        if implied is not None:
+            final_probability = clamp(implied + (final_probability - implied) * 0.15)
 
-    final_edge = final_probability - implied
+    final_edge = final_probability - implied if implied is not None else None
 
     used = list(base.get("dataUsed", []) or [])
     missing = list(base.get("missingData", []) or [])
@@ -811,9 +813,9 @@ def unified_prop_card(row: dict[str, Any]) -> dict[str, Any]:
     else:
         missing.append("Open-Meteo game weather features")
 
-    if abs(final_edge) >= 0.06 and len(used) >= 6:
+    if final_edge is not None and abs(final_edge) >= 0.06 and len(used) >= 6:
         confidence = "Medium-High"
-    elif abs(final_edge) >= 0.04 and len(used) >= 4:
+    elif final_edge is not None and abs(final_edge) >= 0.04 and len(used) >= 4:
         confidence = "Medium"
     elif len(used) >= 4:
         confidence = "Low-Medium"
@@ -826,6 +828,8 @@ def unified_prop_card(row: dict[str, Any]) -> dict[str, Any]:
     elif is_alt_market(market):
         confidence = "Low"
         recommendation = "Alt ladder market"
+    elif final_edge is None:
+        recommendation = "Odds unavailable"
     elif final_edge >= 0.04:
         recommendation = "Positive edge"
     elif final_edge <= -0.04:
@@ -862,9 +866,9 @@ def unified_prop_card(row: dict[str, Any]) -> dict[str, Any]:
         "finalProbability": final_probability,
         "finalProbabilityPercent": pct(final_probability),
         "sportsbookImpliedProbability": implied,
-        "sportsbookImpliedPercent": pct(implied),
+        "sportsbookImpliedPercent": pct(implied) if implied is not None else None,
         "finalEdge": final_edge,
-        "finalEdgePercent": pct(final_edge),
+        "finalEdgePercent": pct(final_edge) if final_edge is not None else None,
         "confidence": confidence,
         "recommendation": recommendation,
         "dataUsed": used,

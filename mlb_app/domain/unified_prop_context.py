@@ -86,12 +86,14 @@ def clamp(value: float, low: float = 0.01, high: float = 0.99) -> float:
     return max(low, min(high, value))
 
 
-def implied_probability_from_american(odds: float) -> float:
+def implied_probability_from_american(odds: float | None) -> float | None:
+    if odds is None:
+        return None
     if odds < 0:
         return abs(odds) / (abs(odds) + 100.0)
     if odds > 0:
         return 100.0 / (odds + 100.0)
-    return 0.5
+    return None
 
 
 def american_from_probability(probability: float) -> int:
@@ -456,7 +458,7 @@ def odds_snapshot_context(date_label: str, player: str, market: str) -> dict[str
     }
 
 
-def baseline_probability(market: str, line: float, odds: float) -> float:
+def baseline_probability(market: str, line: float, odds: float | None) -> float:
     implied = implied_probability_from_american(odds)
 
     # Start from market, not pure sportsbook. This prevents model from only copying odds.
@@ -481,6 +483,9 @@ def baseline_probability(market: str, line: float, odds: float) -> float:
 
     base = defaults.get(market, 0.50)
 
+    if implied is None:
+        return clamp(base)
+
     # Blend with sportsbook implied because price contains useful market info.
     return clamp(base * 0.60 + implied * 0.40)
 
@@ -497,7 +502,8 @@ def all_data_predict(row: dict[str, Any]) -> dict[str, Any]:
     pitcher = clean(row.get("pitcher"))
     date_label = clean(row.get("date"))
     line = to_float(row.get("line"), 0.5)
-    odds = to_float(row.get("american_odds") or row.get("americanOdds"), -110)
+    odds_text = clean(row.get("american_odds") or row.get("americanOdds"))
+    odds = to_float(odds_text, 0.0) if odds_text else None
 
     probability = baseline_probability(model_market, line, odds)
     implied = implied_probability_from_american(odds)
@@ -516,7 +522,7 @@ def all_data_predict(row: dict[str, Any]) -> dict[str, Any]:
             "reason": reason,
         })
 
-    if odds:
+    if odds is not None:
         data_used.append("Sportsbook implied probability from PropLine/user odds")
     else:
         missing.append("Sportsbook odds")
@@ -627,17 +633,19 @@ def all_data_predict(row: dict[str, Any]) -> dict[str, Any]:
     else:
         missing.append("Self-stored odds movement snapshots")
 
-    edge = probability - implied
+    edge = probability - implied if implied is not None else None
 
     used_count = len(data_used)
-    if used_count >= 6 and abs(edge) >= 0.04:
+    if edge is not None and used_count >= 6 and abs(edge) >= 0.04:
         confidence = "Medium"
     elif used_count >= 4:
         confidence = "Low-Medium"
     else:
         confidence = "Low"
 
-    if edge >= 0.04 and confidence != "Low":
+    if edge is None:
+        recommendation = "Odds unavailable"
+    elif edge >= 0.04 and confidence != "Low":
         recommendation = "Lean over / positive edge"
     elif edge <= -0.04:
         recommendation = "Avoid / negative edge"
@@ -659,9 +667,9 @@ def all_data_predict(row: dict[str, Any]) -> dict[str, Any]:
         "probability": probability,
         "probabilityPercent": pct(probability),
         "sportsbookImpliedProbability": implied,
-        "sportsbookImpliedPercent": pct(implied),
+        "sportsbookImpliedPercent": pct(implied) if implied is not None else None,
         "edge": edge,
-        "edgePercent": pct(edge),
+        "edgePercent": pct(edge) if edge is not None else None,
         "fairOdds": american_from_probability(probability),
         "confidence": confidence,
         "recommendation": recommendation,
