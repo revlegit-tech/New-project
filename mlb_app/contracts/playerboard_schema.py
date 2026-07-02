@@ -38,6 +38,34 @@ PLAYERBOARD_FIELDS: list[str] = [
     "marketFamily",
     "hitRates",
     "recentGames",
+    "attributionConfidence",
+    "attributionStatus",
+    "attributionCorrectionApplied",
+    "attributionCorrectionReason",
+    "attributionWarnings",
+    "attributionSources",
+    "teamVerified",
+    "opponentVerified",
+    "playerVerified",
+    "cleanedPlayerName",
+    "rawPlayerName",
+    "sourceTeam",
+    "sourceOpponent",
+    "resolvedTeam",
+    "resolvedOpponent",
+    "resolvedTeamAbbr",
+    "resolvedOpponentAbbr",
+    "resolvedGameId",
+    "attributionConflictReason",
+    "originalTeam",
+    "originalOpponent",
+    "correctedTeam",
+    "correctedOpponent",
+    "playerTeamEvidenceStatus",
+    "playerTeamEvidenceSources",
+    "playerTeamEvidenceWarnings",
+    "contextBlockedByAttribution",
+    "contextAllowedWithWarning",
 ]
 
 # Required fields are intentionally limited to values the app needs to identify,
@@ -73,8 +101,25 @@ COMPUTED_PLAYERBOARD_FIELDS: tuple[str, ...] = (
 
 DEPRECATED_PLAYERBOARD_FIELDS: tuple[str, ...] = ()
 
-_JSON_LIST_FIELDS = {"books", "missingData", "hitRates", "recentGames"}
-_BOOL_FIELDS = {"isAltMarket"}
+_JSON_LIST_FIELDS = {
+    "books",
+    "missingData",
+    "hitRates",
+    "recentGames",
+    "attributionWarnings",
+    "attributionSources",
+    "playerTeamEvidenceSources",
+    "playerTeamEvidenceWarnings",
+}
+_BOOL_FIELDS = {
+    "isAltMarket",
+    "attributionCorrectionApplied",
+    "teamVerified",
+    "opponentVerified",
+    "playerVerified",
+    "contextBlockedByAttribution",
+    "contextAllowedWithWarning",
+}
 _INT_FIELDS = {"season", "americanOdds", "bookCount"}
 _FLOAT_FIELDS = {
     "line",

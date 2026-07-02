@@ -24,9 +24,15 @@ def test_invalid_ladder_labels_are_not_treated_as_players() -> None:
 
 def test_roster_backed_game_side_correction_unblocks_context() -> None:
     examples = [
+        ("Bobby Witt", "TBR", "KCR", "KANSAS CITY ROYALS", "TAMPA BAY RAYS"),
+        ("Bobby Witt Jr.", "TBR", "KCR", "KANSAS CITY ROYALS", "TAMPA BAY RAYS"),
+        ("Trea Turner", "PIT", "PHI", "PHILADELPHIA PHILLIES", "PITTSBURGH PIRATES"),
+        ("Jose Altuve", "MIN", "HOU", "HOUSTON ASTROS", "MINNESOTA TWINS"),
+        ("Christian Yelich", "CIN", "MIL", "MILWAUKEE BREWERS", "CINCINNATI REDS"),
         ("Jazz Chisholm", "DET", "NYY", "NEW YORK YANKEES", "DETROIT TIGERS"),
         ("Jasson Dominguez", "DET", "NYY", "NEW YORK YANKEES", "DETROIT TIGERS"),
         ("Vladimir Guerrero Jr.", "NYM", "TOR", "TORONTO BLUE JAYS", "NEW YORK METS"),
+        ("Will Warren", "DET", "NYY", "NEW YORK YANKEES", "DETROIT TIGERS"),
     ]
 
     for player, wrong_team, opponent, expected_team, expected_opponent in examples:
@@ -39,6 +45,7 @@ def test_roster_backed_game_side_correction_unblocks_context() -> None:
         assert resolved["resolvedTeam"] == expected_team
         assert resolved["resolvedOpponent"] == expected_opponent
         assert resolved["attributionCorrectionApplied"] is True
+        assert resolved["playerTeamEvidenceStatus"] == "roster_match"
         assert resolved["teamVerified"] is True
         assert resolved["opponentVerified"] is True
         assert resolved["contextBlockedByAttribution"] is False

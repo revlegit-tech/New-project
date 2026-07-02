@@ -24,11 +24,16 @@ class PlayerTeamResolution:
 
 
 _ROSTER_TEAM_BY_NAME: dict[str, str] = {
+    "bobby witt": "KCR",
+    "bobby witt jr": "KCR",
+    "christian yelich": "MIL",
     "freddy peralta": "MIL",
     "jasson dominguez": "NYY",
     "jazz chisholm": "NYY",
     "jazz chisholm jr": "NYY",
+    "jose altuve": "HOU",
     "paul skenes": "PIT",
+    "trea turner": "PHI",
     "troy melton": "DET",
     "vladimir guerrero": "TOR",
     "vladimir guerrero jr": "TOR",
@@ -36,6 +41,7 @@ _ROSTER_TEAM_BY_NAME: dict[str, str] = {
 }
 
 _ALIASES: dict[str, str] = {
+    "bobby witt jr.": "bobby witt jr",
     "jazz chisholm jr.": "jazz chisholm jr",
     "vladimir guerrero jr.": "vladimir guerrero jr",
     "vladdy guerrero": "vladimir guerrero jr",

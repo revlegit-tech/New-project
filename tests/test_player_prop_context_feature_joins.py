@@ -422,6 +422,39 @@ def test_corrected_jazz_context_join_uses_resolved_yankees_key(tmp_path: Path) -
     assert "new_york_yankees|detroit_tigers" in row["predictionKey"]
 
 
+def test_playerboard_source_seed_uses_corrected_bobby_witt_context_key(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_model(settings)
+    write_csv(
+        settings.data_dir / "playerboard" / "playerboard_2026.csv",
+        [
+            base_row(
+                player="Bobby Witt",
+                team="TBR",
+                opponent="KCR",
+                americanOdds="-110",
+                rawLabel="Bobby Witt Over 0.5 Hits",
+            )
+        ],
+    )
+    write_csv(
+        settings.data_dir / "context" / "handedness_platoon" / "handedness_platoon_2026-06-30.csv",
+        [platoon_context_row(player="Bobby Witt", team="KCR", opponent="TBR")],
+    )
+
+    report = PlayerPropModelScoringService(settings=settings).score(date_label="2026-06-30", season=2026, source="playerboard", dry_run=True)
+
+    row = report["rows"][0]
+    diagnostics = report["summary"]["contextIdentityDiagnostics"]
+    assert row["attributionStatus"] == "corrected"
+    assert row["team"] == "KANSAS CITY ROYALS"
+    assert row["opponent"] == "TAMPA BAY RAYS"
+    assert row["batter_avg_vs_hand"] == 0.3
+    assert "2026-06-30|2026|bobby witt|KCR|TBR" in diagnostics["sampleCorrectedContextJoinKeys"]
+    assert diagnostics["sampleContextRowsBeforeAfterCorrection"][0]["beforeKey"] == "2026-06-30|2026|bobby witt|TBR|KCR"
+    assert diagnostics["sampleContextRowsBeforeAfterCorrection"][0]["afterKey"] == "2026-06-30|2026|bobby witt|KCR|TBR"
+
+
 def test_corrected_vladimir_context_join_uses_resolved_blue_jays_key(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     write_model(settings)

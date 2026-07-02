@@ -21,6 +21,7 @@ from mlb_app.contracts.playerboard_schema import (
 )
 
 from mlb_app.domain.team_game_markets import TEAM_GAME_MARKETS, TEAM_GAME_MARKET_LABELS, load_oddspapi_game_market_props
+from mlb_app.services.player_attribution import apply_attribution, attribution_diagnostics
 
 ROOT = default_settings.root_dir
 PLAYERBOARD_DIR = default_settings.data_dir / "playerboard"
@@ -520,7 +521,16 @@ def ensure_csv_schema(path: Path, fieldnames: list[str]) -> dict[str, Any]:
 
 
 def _csv_contract_value(field: str, value: Any) -> Any:
-    if field in {"books", "missingData", "hitRates", "recentGames"}:
+    if field in {
+        "books",
+        "missingData",
+        "hitRates",
+        "recentGames",
+        "attributionWarnings",
+        "attributionSources",
+        "playerTeamEvidenceSources",
+        "playerTeamEvidenceWarnings",
+    }:
         if isinstance(value, str):
             return value
         return json.dumps(value or [], ensure_ascii=False)
@@ -603,6 +613,7 @@ def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str
     rows = []
 
     for card in cards:
+        card = apply_attribution(card)
         rows.append({
             "snapshotAt": snapshot_at,
             "season": season,
@@ -635,6 +646,34 @@ def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str
             "marketFamily": clean(card.get("marketFamily")),
             "hitRates": json.dumps(card.get("hitRates") or {}, ensure_ascii=False),
             "recentGames": json.dumps(card.get("recentGames") or [], ensure_ascii=False),
+            "attributionConfidence": clean(card.get("attributionConfidence")),
+            "attributionStatus": clean(card.get("attributionStatus")),
+            "attributionCorrectionApplied": clean(card.get("attributionCorrectionApplied")),
+            "attributionCorrectionReason": clean(card.get("attributionCorrectionReason")),
+            "attributionWarnings": json.dumps(card.get("attributionWarnings") or [], ensure_ascii=False),
+            "attributionSources": json.dumps(card.get("attributionSources") or [], ensure_ascii=False),
+            "teamVerified": clean(card.get("teamVerified")),
+            "opponentVerified": clean(card.get("opponentVerified")),
+            "playerVerified": clean(card.get("playerVerified")),
+            "cleanedPlayerName": clean(card.get("cleanedPlayerName")),
+            "rawPlayerName": clean(card.get("rawPlayerName")),
+            "sourceTeam": clean(card.get("sourceTeam")),
+            "sourceOpponent": clean(card.get("sourceOpponent")),
+            "resolvedTeam": clean(card.get("resolvedTeam")),
+            "resolvedOpponent": clean(card.get("resolvedOpponent")),
+            "resolvedTeamAbbr": clean(card.get("resolvedTeamAbbr")),
+            "resolvedOpponentAbbr": clean(card.get("resolvedOpponentAbbr")),
+            "resolvedGameId": clean(card.get("resolvedGameId")),
+            "attributionConflictReason": clean(card.get("attributionConflictReason")),
+            "originalTeam": clean(card.get("originalTeam")),
+            "originalOpponent": clean(card.get("originalOpponent")),
+            "correctedTeam": clean(card.get("correctedTeam")),
+            "correctedOpponent": clean(card.get("correctedOpponent")),
+            "playerTeamEvidenceStatus": clean(card.get("playerTeamEvidenceStatus")),
+            "playerTeamEvidenceSources": json.dumps(card.get("playerTeamEvidenceSources") or [], ensure_ascii=False),
+            "playerTeamEvidenceWarnings": json.dumps(card.get("playerTeamEvidenceWarnings") or [], ensure_ascii=False),
+            "contextBlockedByAttribution": clean(card.get("contextBlockedByAttribution")),
+            "contextAllowedWithWarning": clean(card.get("contextAllowedWithWarning")),
         })
 
     snapshot_repository = None
@@ -2121,7 +2160,9 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
     # Final aggregation after context inference/model card creation.
     # This collapses remaining book/alias duplicates into one clean prop card.
     aggregate_started = time.perf_counter()
+    cards = [apply_attribution(card) for card in cards]
     cards = sorted(aggregate_book_prices(cards), key=rank_value, reverse=True)
+    cards = [apply_attribution(card) for card in cards]
     aggregate_ms = (time.perf_counter() - aggregate_started) * 1000.0
 
     top_cards = cards[:limit]
@@ -2168,6 +2209,7 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
         "contextCacheMisses": counters["contextCacheMisses"],
         "marketCapabilities": dict(MARKET_CAPABILITY_MAP),
         "saved": saved,
+        "attribution": attribution_diagnostics(top_cards),
         "sourceMode": source_mode,
         "canonicalSourceFiles": [str(path) for path in canonical_prop_files(date_label)],
         "top": top_cards,
