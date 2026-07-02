@@ -74,6 +74,27 @@ OUTPUT_FIELDS = [
     "calibrationMethod",
     "calibrationStatus",
     "calibrationArtifactGeneratedAt",
+    "calibrationBucket",
+    "calibrationSampleSize",
+    "calibrationWarning",
+    "modelVersion",
+    "modelFamily",
+    "modelProbabilitySource",
+    "probabilityGuardrailStatus",
+    "probabilityGuardrailReasons",
+    "trustTier",
+    "trustScore",
+    "trustReasons",
+    "contextReadinessStatus",
+    "readyFeatureGroups",
+    "partialFeatureGroups",
+    "fallbackFeatureGroups",
+    "missingFeatureGroups",
+    "staleFeatureGroups",
+    "unsupportedMarketReason",
+    "attributionBlockReason",
+    "dataFreshnessStatus",
+    "researchOnlyReason",
     "modelProbabilityPercent",
     "impliedProbabilityPercent",
     "edgePercent",
@@ -248,6 +269,7 @@ class PlayerPropModelScoringService:
 
         predictions: list[dict[str, Any]] = []
         skipped_by_reason: Counter[str] = Counter()
+        skipped_samples: list[dict[str, Any]] = []
         scored_by_market: Counter[str] = Counter()
         missing_model_markets: set[str] = set()
         errors: list[str] = []
@@ -258,18 +280,21 @@ class PlayerPropModelScoringService:
             market = model_market_key(first_value(row, ["market"], ""))
             if not market:
                 skipped_by_reason["missing_market"] += 1
+                _append_sample(skipped_samples, row, reason="missing_market")
                 continue
 
             model_path = self.settings.model_dir / f"prop_model_{market}.joblib"
             if not model_path.is_file():
                 skipped_by_reason["missing_model"] += 1
                 missing_model_markets.add(market)
+                _append_sample(skipped_samples, row, reason="missing_model", market=market)
                 continue
             score_feature_columns.update(_model_feature_columns(model_path))
 
             odds = _american_odds(row)
             if odds is None:
                 skipped_by_reason["bad_or_blank_odds"] += 1
+                _append_sample(skipped_samples, row, reason="bad_or_blank_odds", market=market)
                 continue
 
             try:
@@ -284,6 +309,7 @@ class PlayerPropModelScoringService:
             except Exception as error:
                 skipped_by_reason["prediction_error"] += 1
                 errors.append(f"{market}: {type(error).__name__}: {error}")
+                _append_sample(skipped_samples, row, reason="prediction_error", market=market)
                 continue
             for warning in prediction.warnings or []:
                 model_feature_warning_counts[_summarize_model_warning(warning)] += 1
@@ -315,6 +341,21 @@ class PlayerPropModelScoringService:
             identity = identity_confidence_for_row(row, input_source=paths.input_source)
             if join_key_strength == "unsafe" and "unsafe_prediction_join_key" not in warnings:
                 warnings.append("unsafe_prediction_join_key")
+            output_line = _number_or_blank(first_value(row, ["line", "sportsbook_line", "prop_line"], ""))
+            output_book = str(first_value(row, ["bookKey", "book_key", "sportsbookKey", "sportsbook_key", "book", "sportsbook"], "")).strip()
+            context_readiness = _row_context_readiness(
+                row,
+                model_feature_columns=score_feature_columns or set(DEFAULT_FEATURE_COLUMNS),
+                context_artifacts=context_join_result.artifacts,
+            )
+            guardrail = _probability_guardrail(
+                row,
+                odds=odds,
+                calibration_status=calibration.status,
+                model_probability_percent=model_probability_percent,
+                edge_percent=edge_percent,
+                market=market,
+            )
 
             output = {
                 "date": selected_date,
@@ -356,8 +397,8 @@ class PlayerPropModelScoringService:
                 "normalizedSubjectOpponent": str(first_value(row, ["normalizedSubjectOpponent"], "")).strip(),
                 "subjectIdentityWarnings": str(first_value(row, ["subjectIdentityWarnings"], "")).strip(),
                 "book": str(first_value(row, ["book", "sportsbook"], "")).strip(),
-                "bookKey": str(first_value(row, ["bookKey", "book_key", "sportsbookKey", "sportsbook_key"], "")).strip(),
-                "line": _number_or_blank(first_value(row, ["line", "sportsbook_line", "prop_line"], "")),
+                "bookKey": output_book,
+                "line": output_line,
                 "side": side,
                 "rawLabel": str(first_value(row, ["rawLabel", "raw_label"], "")).strip(),
                 "americanOdds": _format_number(odds, 4),
@@ -369,6 +410,14 @@ class PlayerPropModelScoringService:
                 "calibrationMethod": calibration.method,
                 "calibrationStatus": calibration.status,
                 "calibrationArtifactGeneratedAt": calibration.artifact_generated_at,
+                "calibrationBucket": _calibration_bucket(market=market, side=side, line=output_line, book=output_book),
+                "calibrationSampleSize": _calibration_sample_size(self.settings, market),
+                "calibrationWarning": "|".join(sorted(set(calibration.warnings))),
+                "modelVersion": _clean_model_version(prediction.model_version),
+                "modelFamily": "player_prop_exact_market",
+                "modelProbabilitySource": "calibrated_model" if calibration.applied else "raw_model_uncalibrated",
+                "probabilityGuardrailStatus": guardrail["status"],
+                "probabilityGuardrailReasons": "|".join(guardrail["reasons"]),
                 "modelProbabilityPercent": _format_number(model_probability_percent, 2),
                 "impliedProbabilityPercent": _format_number(implied * 100.0, 2),
                 "edgePercent": _format_number(edge_percent, 2),
@@ -452,6 +501,14 @@ class PlayerPropModelScoringService:
                     "betActionAllowed": gate.betActionAllowed,
                 }
             )
+            output.update(
+                _row_trust(
+                    output,
+                    context_readiness=context_readiness,
+                    guardrail=guardrail,
+                    calibration_applied=calibration.applied,
+                )
+            )
             predictions.append(output)
             scored_by_market[market] += 1
 
@@ -486,6 +543,10 @@ class PlayerPropModelScoringService:
                     identity_warning_counts[warning] += 1
         extreme_probability_rows = sum(1 for row in predictions if to_float(row.get("modelProbabilityPercent"), 0.0) >= 80.0)
         extreme_edge_rows = sum(1 for row in predictions if to_float(row.get("edgePercent"), 0.0) >= 40.0)
+        trust_tier_counts = Counter(str(row.get("trustTier") or "unknown") for row in predictions)
+        guardrail_status_counts = Counter(str(row.get("probabilityGuardrailStatus") or "unknown") for row in predictions)
+        context_readiness_counts = Counter(str(row.get("contextReadinessStatus") or "unknown") for row in predictions)
+        calibration_coverage = _calibration_coverage(predictions, skipped_by_reason, skipped_samples)
         summary = {
             "date": selected_date,
             "season": int(season),
@@ -536,8 +597,32 @@ class PlayerPropModelScoringService:
                 {"message": message, "count": count} for message, count in sorted(model_feature_warning_counts.items())
             ],
             "calibrationStatusCounts": dict(sorted(calibration_status_counts.items())),
+            "calibrationCoverage": calibration_coverage,
             "calibrationAppliedRows": calibration_applied_rows,
             "calibrationSkippedRows": len(predictions) - calibration_applied_rows,
+            "trustTierCounts": dict(sorted(trust_tier_counts.items())),
+            "guardrailStatusCounts": dict(sorted(guardrail_status_counts.items())),
+            "contextReadinessCounts": dict(sorted(context_readiness_counts.items())),
+            "sampleGuardrailRows": _sample_rows(
+                predictions,
+                lambda item: str(item.get("probabilityGuardrailStatus") or "") != "ok",
+                fields=("player", "market", "side", "line", "probabilityGuardrailStatus", "probabilityGuardrailReasons"),
+            ),
+            "sampleLowTrustRows": _sample_rows(
+                predictions,
+                lambda item: str(item.get("trustTier") or "") in {"blocked", "low", "limited"},
+                fields=("player", "market", "attributionStatus", "trustTier", "trustReasons", "calibrationStatus"),
+            ),
+            "sampleHighTrustRows": _sample_rows(
+                predictions,
+                lambda item: str(item.get("trustTier") or "") == "standard",
+                fields=("player", "market", "attributionStatus", "trustTier", "calibrationStatus", "calibrationBucket"),
+            ),
+            "sampleUncalibratedRows": _sample_rows(
+                predictions,
+                lambda item: str(item.get("calibrationStatus") or "") != "applied",
+                fields=("player", "market", "side", "line", "calibrationStatus", "calibrationWarning"),
+            ),
             "modelQualityWarnings": [
                 {"message": message, "count": count} for message, count in sorted(model_quality_warning_counts.items())
             ],
@@ -548,6 +633,7 @@ class PlayerPropModelScoringService:
             "rows_skipped": len(rows) - len(predictions),
             "rowsSkipped": len(rows) - len(predictions),
             "skipped_by_reason": dict(sorted(skipped_by_reason.items())),
+            "sampleSkippedRows": skipped_samples[:10],
             "scored_by_market": dict(sorted(scored_by_market.items())),
             "missing_model_markets": sorted(missing_model_markets),
             "skippedByReason": dict(sorted(skipped_by_reason.items())),
@@ -836,6 +922,162 @@ def _feature_completeness_warnings(
     return warnings
 
 
+def _row_context_readiness(
+    row: dict[str, Any],
+    *,
+    model_feature_columns: set[str],
+    context_artifacts: dict[str, Any],
+) -> dict[str, Any]:
+    ready: list[str] = []
+    partial: list[str] = []
+    fallback: list[str] = []
+    missing: list[str] = []
+    stale: list[str] = []
+    for group, fields in FEATURE_GROUPS.items():
+        model_fields = [field for field in fields if field in model_feature_columns]
+        selected = model_fields or fields
+        populated = [field for field in selected if _is_populated_feature_value(first_value(row, [field, _camel(field)], ""), field=field)]
+        artifact = context_artifacts.get(group) or {}
+        artifact_rows = int(artifact.get("rows") or 0)
+        fallback_only = _artifact_fallback_only(artifact)
+        if populated and len(populated) == len(selected) and not fallback_only:
+            ready.append(group)
+        elif populated and not fallback_only:
+            partial.append(group)
+        elif fallback_only:
+            fallback.append(group)
+        elif artifact_rows > 0:
+            partial.append(group)
+        else:
+            missing.append(group)
+    status = "ready"
+    if fallback and not ready and not partial:
+        status = "fallback_only"
+    elif fallback or partial or missing:
+        status = "limited"
+    if len(missing) == len(FEATURE_GROUPS):
+        status = "missing"
+    return {
+        "status": status,
+        "ready": sorted(set(ready)),
+        "partial": sorted(set(partial)),
+        "fallback": sorted(set(fallback)),
+        "missing": sorted(set(missing)),
+        "stale": stale,
+    }
+
+
+def _probability_guardrail(
+    row: dict[str, Any],
+    *,
+    odds: float | None,
+    calibration_status: str,
+    model_probability_percent: float,
+    edge_percent: float,
+    market: str,
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    if odds is None:
+        reasons.append("missing_or_invalid_odds")
+    if not market:
+        reasons.append("missing_market")
+    if str(calibration_status or "") != "applied":
+        reasons.append(f"calibration_{calibration_status or 'missing'}")
+    if model_probability_percent >= 80.0 or model_probability_percent <= 20.0:
+        reasons.append("extreme_probability_review_required")
+    if abs(edge_percent) >= 40.0:
+        reasons.append("extreme_edge_review_required")
+    attribution = str(first_value(row, ["attributionStatus", "attribution_status"], "") or "").strip().lower()
+    if attribution == "invalid_player_label":
+        reasons.append("invalid_player_label")
+    confidence = str(first_value(row, ["attributionConfidence", "attribution_confidence"], "") or "").strip().lower()
+    if confidence == "inferred_low_confidence":
+        reasons.append("inferred_low_confidence")
+    status = "ok" if not reasons else ("blocked" if {"missing_or_invalid_odds", "missing_market", "invalid_player_label"} & set(reasons) else "warning")
+    return {"status": status, "reasons": sorted(set(reasons))}
+
+
+def _row_trust(
+    row: dict[str, Any],
+    *,
+    context_readiness: dict[str, Any],
+    guardrail: dict[str, Any],
+    calibration_applied: bool,
+) -> dict[str, Any]:
+    reasons: list[str] = ["research_only_lock"]
+    score = 50
+    attribution = str(row.get("attributionStatus") or "").strip().lower()
+    identity = str(row.get("identityConfidence") or "").strip().lower()
+    if attribution == "invalid_player_label":
+        score -= 50
+        reasons.append("invalid_player_label")
+    elif attribution in {"verified", "corrected"} or identity == "strong":
+        score += 20
+        reasons.append("verified_attribution")
+    elif identity in {"unknown", "weak"}:
+        score -= 20
+        reasons.append("weak_identity")
+    if calibration_applied:
+        score += 15
+        reasons.append("calibrated_probability")
+    else:
+        score -= 15
+        reasons.append(f"calibration_{row.get('calibrationStatus') or 'missing'}")
+    context_status = str(context_readiness.get("status") or "missing")
+    if context_status == "ready":
+        score += 10
+        reasons.append("context_ready")
+    elif context_status == "fallback_only":
+        score -= 20
+        reasons.append("fallback_only_context")
+    elif context_status in {"limited", "missing"}:
+        score -= 10
+        reasons.append(f"context_{context_status}")
+    if guardrail["status"] == "blocked":
+        score = min(score, 20)
+        reasons.extend(guardrail["reasons"])
+    elif guardrail["status"] == "warning":
+        score -= 10
+        reasons.extend(guardrail["reasons"])
+    if str(row.get("joinKeyStrength") or "") == "unsafe":
+        score = min(score, 25)
+        reasons.append("unsafe_prediction_join_key")
+    score = max(0, min(100, score))
+    if score < 25:
+        tier = "blocked"
+    elif score < 45:
+        tier = "low"
+    elif score < 70:
+        tier = "limited"
+    else:
+        tier = "standard"
+    attribution_block = "invalid_player_label" if attribution == "invalid_player_label" else ""
+    unsupported_reason = "" if row.get("modelPath") else "missing_model"
+    return {
+        "trustTier": tier,
+        "trustScore": score,
+        "trustReasons": "|".join(sorted(set(reasons))),
+        "contextReadinessStatus": context_status,
+        "readyFeatureGroups": "|".join(context_readiness.get("ready") or []),
+        "partialFeatureGroups": "|".join(context_readiness.get("partial") or []),
+        "fallbackFeatureGroups": "|".join(context_readiness.get("fallback") or []),
+        "missingFeatureGroups": "|".join(context_readiness.get("missing") or []),
+        "staleFeatureGroups": "|".join(context_readiness.get("stale") or []),
+        "unsupportedMarketReason": unsupported_reason,
+        "attributionBlockReason": attribution_block,
+        "dataFreshnessStatus": "current",
+        "researchOnlyReason": "MLB_ENABLE_BET_ACTIONS=0; research lock keeps action=Research and stakeUnits=0",
+    }
+
+
+def _artifact_fallback_only(artifact: dict[str, Any]) -> bool:
+    mode = " ".join(str(artifact.get(key) or "").lower() for key in ("status", "source", "sourceMode", "providerSourceMode"))
+    if "fallback" in mode:
+        return True
+    fields = {str(field).lower() for field in artifact.get("fields") or []}
+    return any("fallback" in field for field in fields)
+
+
 def _row_field_names(rows: list[dict[str, Any]]) -> set[str]:
     return {str(key) for row in rows for key in row}
 
@@ -1099,3 +1341,108 @@ def _latest_backtest_reference(settings: Settings, season: int) -> dict[str, Any
         "generatedAt": str(payload.get("generatedAt") or ""),
         "rowsEvaluated": payload.get("rowsEvaluated"),
     }
+
+
+def _append_sample(samples: list[dict[str, Any]], row: dict[str, Any], *, reason: str, market: str = "") -> None:
+    if len(samples) >= 10:
+        return
+    samples.append(
+        {
+            "reason": reason,
+            "player": str(first_value(row, ["player"], "") or "").strip(),
+            "market": market or model_market_key(first_value(row, ["market"], "")),
+            "side": _derive_side(row),
+            "line": _number_or_blank(first_value(row, ["line", "sportsbook_line", "prop_line"], "")),
+            "book": str(first_value(row, ["bookKey", "book_key", "book", "sportsbook"], "") or "").strip(),
+            "attributionStatus": str(first_value(row, ["attributionStatus", "attribution_status"], "") or "").strip(),
+        }
+    )
+
+
+def _sample_rows(rows: list[dict[str, Any]], predicate: Any, *, fields: tuple[str, ...], limit: int = 10) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    for row in rows:
+        if not predicate(row):
+            continue
+        samples.append({field: row.get(field) for field in fields})
+        if len(samples) >= limit:
+            break
+    return samples
+
+
+def _calibration_coverage(
+    predictions: list[dict[str, Any]],
+    skipped_by_reason: Counter[str],
+    skipped_samples: list[dict[str, Any]],
+) -> dict[str, Any]:
+    status_by_market: dict[str, Counter[str]] = {}
+    calibrated_samples: list[dict[str, Any]] = []
+    for row in predictions:
+        market = str(row.get("market") or "unknown")
+        status_by_market.setdefault(market, Counter())[str(row.get("calibrationStatus") or "unknown")] += 1
+        if row.get("calibrationApplied") is True and len(calibrated_samples) < 10:
+            calibrated_samples.append(
+                {
+                    "player": row.get("player"),
+                    "market": market,
+                    "side": row.get("side"),
+                    "line": row.get("line"),
+                    "book": row.get("bookKey") or row.get("book"),
+                    "calibrationBucket": row.get("calibrationBucket"),
+                    "calibrationSampleSize": row.get("calibrationSampleSize"),
+                }
+            )
+    blocked = sum(1 for row in predictions if row.get("trustTier") == "blocked")
+    unsupported = int(skipped_by_reason.get("missing_model") or 0) + sum(1 for row in predictions if row.get("unsupportedMarketReason"))
+    invalid_attribution = sum(1 for row in predictions if row.get("attributionBlockReason"))
+    return {
+        "totalScoredRows": len(predictions),
+        "calibratedRows": sum(1 for row in predictions if row.get("calibrationApplied") is True),
+        "uncalibratedRows": sum(1 for row in predictions if row.get("calibrationApplied") is not True),
+        "skippedRows": sum(skipped_by_reason.values()),
+        "blockedRows": blocked,
+        "unsupportedMarketRows": unsupported,
+        "invalidAttributionRows": invalid_attribution,
+        "calibrationStatusCountsByMarket": {market: dict(sorted(counter.items())) for market, counter in sorted(status_by_market.items())},
+        "sampleSkippedRows": skipped_samples[:10],
+        "sampleCalibratedRows": calibrated_samples,
+    }
+
+
+def _calibration_bucket(*, market: str, side: str, line: Any, book: str) -> str:
+    parsed_line = to_float(line, math.nan)
+    if math.isnan(parsed_line):
+        line_bucket = "line:missing"
+    elif parsed_line <= 0.5:
+        line_bucket = "line:0-0.5"
+    elif parsed_line <= 1.5:
+        line_bucket = "line:1-1.5"
+    elif parsed_line <= 3.5:
+        line_bucket = "line:2-3.5"
+    else:
+        line_bucket = "line:4+"
+    book_bucket = _identity_key(book) or "book:unknown"
+    return "|".join([market or "unknown_market", _identity_key(side) or "unknown_side", line_bucket, book_bucket])
+
+
+def _calibration_sample_size(settings: Settings, market: str) -> int | str:
+    path = settings.model_dir / "calibration" / f"player_prop_calibration_{market}.joblib"
+    if not path.is_file():
+        return ""
+    try:
+        import joblib
+
+        artifact = joblib.load(path)
+    except Exception:
+        return ""
+    if not isinstance(artifact, dict):
+        return ""
+    try:
+        return int(artifact.get("sampleSize") or artifact.get("sample_size"))
+    except (TypeError, ValueError):
+        return ""
+
+
+def _clean_model_version(value: Any) -> str:
+    text = str(value or "").strip()
+    return "" if text == "unknown" else text

@@ -153,6 +153,26 @@ class EdgeBoardRow(StrictPayload):
     negativeRows: Any = None
     latestGradedDate: str | None = None
     calibrationStatus: str | None = None
+    calibrationBucket: str | None = None
+    calibrationSampleSize: Any = None
+    calibrationWarning: str | None = None
+    modelVersion: str | None = None
+    modelFamily: str | None = None
+    modelProbabilitySource: str | None = None
+    probabilityGuardrailStatus: str | None = None
+    probabilityGuardrailReasons: list[str] = Field(default_factory=list)
+    trustTier: str | None = None
+    trustScore: Any = None
+    trustReasons: list[str] = Field(default_factory=list)
+    contextReadinessStatus: str | None = None
+    readyFeatureGroups: list[str] = Field(default_factory=list)
+    partialFeatureGroups: list[str] = Field(default_factory=list)
+    fallbackFeatureGroups: list[str] = Field(default_factory=list)
+    staleFeatureGroups: list[str] = Field(default_factory=list)
+    unsupportedMarketReason: str | None = None
+    attributionBlockReason: str | None = None
+    dataFreshnessStatus: str | None = None
+    researchOnlyReason: str | None = None
     backtestStatus: str | None = None
     missingFeatureGroups: list[str] = Field(default_factory=list)
     missingDataCount: int | None = None

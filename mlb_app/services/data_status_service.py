@@ -246,10 +246,19 @@ class DataStatusService:
             latest = {}
         if not isinstance(latest, dict):
             latest = {}
+        scoring_summary = self._latest_prediction_summary()
         return {
             "rowsSaved": int(latest.get("rowsSaved") or playerboard_source.get("row_count") or 0),
             "unsupportedMarketCounts": dict(latest.get("unsupportedMarketCounts") or {}),
             "attributionStatusCounts": dict(latest.get("attributionStatusCounts") or {}),
+            "calibrationCoverage": dict(scoring_summary.get("calibrationCoverage") or {}),
+            "trustTierCounts": dict(scoring_summary.get("trustTierCounts") or {}),
+            "guardrailStatusCounts": dict(scoring_summary.get("guardrailStatusCounts") or {}),
+            "contextReadinessCounts": dict(scoring_summary.get("contextReadinessCounts") or {}),
+            "sampleGuardrailRows": list(scoring_summary.get("sampleGuardrailRows") or [])[:10],
+            "sampleLowTrustRows": list(scoring_summary.get("sampleLowTrustRows") or [])[:10],
+            "sampleHighTrustRows": list(scoring_summary.get("sampleHighTrustRows") or [])[:10],
+            "sampleUncalibratedRows": list(scoring_summary.get("sampleUncalibratedRows") or [])[:10],
             "rosterEvidenceAvailableRows": int(latest.get("rosterEvidenceAvailableRows") or 0),
             "rosterEvidenceUnavailableRows": int(latest.get("rosterEvidenceUnavailableRows") or 0),
             "lastSnapshotTimestamp": str(latest.get("snapshotAt") or playerboard_source.get("latest_timestamp") or ""),
@@ -261,6 +270,20 @@ class DataStatusService:
             "slowestBuildPhases": list(latest.get("slowestBuildPhases") or []),
             "generatedAt": str(latest.get("generatedAt") or ""),
         }
+
+    def _latest_prediction_summary(self) -> dict[str, Any]:
+        predictions_dir = self.data_dir / "predictions"
+        candidates = sorted(predictions_dir.glob("prop_predictions_*_summary.json"), key=_safe_mtime, reverse=True)
+        for path in candidates:
+            if not path.is_file():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(payload, dict):
+                return payload
+        return {}
 
     def _ml_feature_exports_status(self, database_status: dict[str, Any]) -> dict[str, Any]:
         latest = latest_ml_feature_export_status(self.settings)
