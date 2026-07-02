@@ -127,6 +127,15 @@ class PlayerboardService:
             "schemaVersion": snapshot.schema_version,
             "sourceMeta": snapshot.source_meta(),
             "freshness": health.get("freshness", {}),
+            "attributionStatusCounts": health.get("attributionStatusCounts", {}),
+            "rosterEvidenceAvailableRows": health.get("rosterEvidenceAvailableRows", 0),
+            "rosterEvidenceUnavailableRows": health.get("rosterEvidenceUnavailableRows", 0),
+            "unsupportedMarketCounts": health.get("unsupportedMarketCounts", {}),
+            "buildTimingsMs": health.get("buildTimingsMs", {}),
+            "slowestBuildPhases": health.get("slowestBuildPhases", []),
+            "sourceMode": health.get("sourceMode") or snapshot.source,
+            "snapshotId": health.get("snapshotId", ""),
+            "sourceOfTruth": health.get("sourceOfTruth") or snapshot.source,
         }
         return self._attach_runtime_trust(payload)
 

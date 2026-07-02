@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 
 from scripts.benchmark_playerboard_builder import benchmark_warning
 from mlb_app.config import Settings
@@ -46,6 +47,16 @@ def test_builder_respects_requested_limit_and_includes_timings_performance(monke
         "saveMs",
         "totalMs",
     } <= set(payload["timings"])
+    assert {
+        "propLoadMs",
+        "marketFilteringMs",
+        "attributionResolutionMs",
+        "cardAggregationMs",
+        "csvSaveMs",
+        "sqliteSnapshotSaveMs",
+        "totalMs",
+    } <= set(payload["buildTimingsMs"])
+    assert payload["slowestBuildPhases"]
     assert {
         "cacheHits",
         "cacheMisses",
@@ -308,6 +319,45 @@ def test_save_playerboard_snapshot_persists_corrected_attribution(monkeypatch, t
     assert hydrated["rosterEvidenceAvailable"] is True
     assert hydrated["rosterMatchStatus"] == "matched_one_side"
     assert hydrated["playerTeamEvidenceStatus"] == "roster_match"
+
+
+def test_latest_build_status_counts_attribution_from_final_rows(monkeypatch, tmp_path) -> None:
+    status_path = tmp_path / "status" / "playerboard_build_status.json"
+    monkeypatch.setattr(builder, "_build_status_path", lambda: status_path)
+
+    builder._write_latest_build_status(
+        {
+            "season": 2026,
+            "date": "2026-07-01",
+            "market": "",
+            "propsLoaded": 3,
+            "cardsBuilt": 3,
+            "unsupportedMarketCounts": {"batter_stolen_bases": 1},
+            "buildTimingsMs": {"totalMs": 10.0},
+            "slowestBuildPhases": [{"phase": "totalMs", "ms": 10.0}],
+            "sourceMode": "canonical",
+            "inputSourceMode": "propline",
+            "saved": {
+                "rowsSaved": 3,
+                "sourceMode": "canonical",
+                "snapshotAt": "2026-07-01T12:00:00Z",
+                "servingStore": {"sourceOfTruth": "sqlite", "snapshotId": "snapshot-1"},
+            },
+            "top": [
+                {"player": "A", "attributionStatus": "verified", "rosterEvidenceAvailable": True},
+                {"player": "B", "attributionStatus": "verified", "rosterEvidenceAvailable": "true"},
+                {"player": "C", "attributionStatus": "invalid_player_label", "rosterEvidenceAvailable": False},
+            ],
+        }
+    )
+
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    assert status["rowsSaved"] == 3
+    assert status["attributionStatusCounts"] == {"invalid_player_label": 1, "verified": 2}
+    assert status["rosterEvidenceAvailableRows"] == 2
+    assert status["rosterEvidenceUnavailableRows"] == 1
+    assert status["sourceMode"] == "canonical"
+    assert status["inputSourceMode"] == "propline"
 
 
 def test_sqlite_snapshot_preserves_verified_roster_attribution_for_api_read(tmp_path) -> None:

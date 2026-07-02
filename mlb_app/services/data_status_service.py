@@ -102,6 +102,7 @@ class DataStatusService:
             database_status=database_status,
             historical_game_odds=historical_game_odds,
         )
+        playerboard_build_health = self._playerboard_build_health(source_freshness.get("playerboard", {}))
         ml_feature_exports = self._ml_feature_exports_status(database_status)
         ml_label_exports = self._ml_label_exports_status(database_status)
         ml_training_datasets = self._ml_training_datasets_status(database_status)
@@ -119,6 +120,7 @@ class DataStatusService:
             "database": database_status,
             "historical_game_odds": historical_game_odds,
             "game_market_enrichment": game_market_enrichment,
+            "playerboard_build_health": playerboard_build_health,
             "ml_feature_exports": ml_feature_exports,
             "ml_label_exports": ml_label_exports,
             "ml_training_datasets": ml_training_datasets,
@@ -231,6 +233,30 @@ class DataStatusService:
             return self.historical_game_odds_repository.latest_feature_date()
         except Exception:
             return ""
+
+    def _playerboard_build_health(self, playerboard_source: dict[str, Any]) -> dict[str, Any]:
+        path = self.data_dir / "status" / "playerboard_build_status.json"
+        try:
+            latest = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            latest = {}
+        if not isinstance(latest, dict):
+            latest = {}
+        return {
+            "rowsSaved": int(latest.get("rowsSaved") or playerboard_source.get("row_count") or 0),
+            "unsupportedMarketCounts": dict(latest.get("unsupportedMarketCounts") or {}),
+            "attributionStatusCounts": dict(latest.get("attributionStatusCounts") or {}),
+            "rosterEvidenceAvailableRows": int(latest.get("rosterEvidenceAvailableRows") or 0),
+            "rosterEvidenceUnavailableRows": int(latest.get("rosterEvidenceUnavailableRows") or 0),
+            "lastSnapshotTimestamp": str(latest.get("snapshotAt") or playerboard_source.get("latest_timestamp") or ""),
+            "sourceOfTruth": str(latest.get("sourceOfTruth") or "csv"),
+            "sourceMode": str(latest.get("sourceMode") or ""),
+            "inputSourceMode": str(latest.get("inputSourceMode") or ""),
+            "snapshotId": str(latest.get("snapshotId") or ""),
+            "buildTimingsMs": dict(latest.get("buildTimingsMs") or {}),
+            "slowestBuildPhases": list(latest.get("slowestBuildPhases") or []),
+            "generatedAt": str(latest.get("generatedAt") or ""),
+        }
 
     def _ml_feature_exports_status(self, database_status: dict[str, Any]) -> dict[str, Any]:
         latest = latest_ml_feature_export_status(self.settings)

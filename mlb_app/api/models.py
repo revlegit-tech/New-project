@@ -493,6 +493,7 @@ class DataStatusResponse(StrictResponse):
     database: dict[str, Any] = Field(default_factory=dict)
     historical_game_odds: dict[str, Any] = Field(default_factory=dict)
     game_market_enrichment: dict[str, Any] = Field(default_factory=dict)
+    playerboard_build_health: dict[str, Any] = Field(default_factory=dict)
     ml_feature_exports: dict[str, Any] = Field(default_factory=dict)
     ml_label_exports: dict[str, Any] = Field(default_factory=dict)
     ml_training_datasets: dict[str, Any] = Field(default_factory=dict)
@@ -1106,6 +1107,28 @@ class PlayerboardResponse(StrictResponse):
     source: dict[str, Any] | str | None = None
     sourceMeta: dict[str, Any] = Field(default_factory=dict)
     sourceMode: str | None = None
+    sourceOfTruth: str | None = None
+    snapshotId: str | None = None
+    attributionStatusCounts: dict[str, Any] = Field(default_factory=dict)
+    rosterEvidenceAvailableRows: int | None = None
+    rosterEvidenceUnavailableRows: int | None = None
+    unsupportedMarketCounts: dict[str, Any] = Field(default_factory=dict)
+    unsupportedMarketSamples: list[dict[str, Any]] = Field(default_factory=list)
+    buildTimingsMs: dict[str, Any] = Field(default_factory=dict)
+    slowestBuildPhases: list[dict[str, Any]] = Field(default_factory=list)
+    skipped: dict[str, Any] = Field(default_factory=dict)
+    timings: dict[str, Any] = Field(default_factory=dict)
+    performance: dict[str, Any] = Field(default_factory=dict)
+    attribution: dict[str, Any] = Field(default_factory=dict)
+    cacheHits: int | None = None
+    cacheMisses: int | None = None
+    hitProfileCacheHits: int | None = None
+    hitProfileCacheMisses: int | None = None
+    historyCacheHits: int | None = None
+    historyCacheMisses: int | None = None
+    contextCacheHits: int | None = None
+    contextCacheMisses: int | None = None
+    marketCapabilities: dict[str, Any] = Field(default_factory=dict)
     canonicalSourceFiles: list[str] = Field(default_factory=list)
     filters: dict[str, Any] = Field(default_factory=dict)
     summary: dict[str, Any] = Field(default_factory=dict)
@@ -1144,6 +1167,16 @@ class PlayerboardHealthResponse(StrictResponse):
     availableDates: list[str] = Field(default_factory=list)
     snapshots: list[Any] = Field(default_factory=list)
     marketsPresent: list[str] | dict[str, Any] = Field(default_factory=list)
+    attributionStatusCounts: dict[str, Any] = Field(default_factory=dict)
+    rosterEvidenceAvailableRows: int | None = None
+    rosterEvidenceUnavailableRows: int | None = None
+    unsupportedMarketCounts: dict[str, Any] = Field(default_factory=dict)
+    buildTimingsMs: dict[str, Any] = Field(default_factory=dict)
+    slowestBuildPhases: list[dict[str, Any]] = Field(default_factory=list)
+    sourceMode: str | None = None
+    sourceOfTruth: str | None = None
+    snapshotId: str | None = None
+    latestPlayerboardBuildHealth: dict[str, Any] = Field(default_factory=dict)
     missingMarketDisplayRows: int | None = None
     sampleMissingMarketDisplayRows: list[dict[str, Any]] = Field(default_factory=list)
     badShiftedRows: int | None = None

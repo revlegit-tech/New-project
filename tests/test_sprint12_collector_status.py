@@ -344,6 +344,26 @@ def test_data_status_endpoint_uses_strict_response_shape(tmp_path: Path) -> None
         {"runId": "run-123", "date": "2026-06-22", "runType": "manual", "success": True},
         requested_markets=["batter_hits"],
     )
+    status_dir = settings.data_dir / "status"
+    status_dir.mkdir(parents=True)
+    (status_dir / "playerboard_build_status.json").write_text(
+        json.dumps(
+            {
+                "rowsSaved": 2,
+                "unsupportedMarketCounts": {"batter_stolen_bases": 3},
+                "attributionStatusCounts": {"verified": 2},
+                "rosterEvidenceAvailableRows": 2,
+                "rosterEvidenceUnavailableRows": 0,
+                "snapshotAt": "2026-06-22T14:59:00+00:00",
+                "sourceOfTruth": "sqlite",
+                "sourceMode": "canonical",
+                "snapshotId": "snapshot-1",
+                "buildTimingsMs": {"totalMs": 123.0},
+                "slowestBuildPhases": [{"phase": "totalMs", "ms": 123.0}],
+            }
+        ),
+        encoding="utf-8",
+    )
     container = AppContainer(settings=settings)
     container.data_status_service = DataStatusService(settings=settings, now_provider=lambda: NOW)
     app = create_app(container=container)
@@ -363,6 +383,7 @@ def test_data_status_endpoint_uses_strict_response_shape(tmp_path: Path) -> None
         "database",
         "historical_game_odds",
         "game_market_enrichment",
+        "playerboard_build_health",
         "ml_feature_exports",
         "ml_label_exports",
         "ml_training_datasets",
@@ -378,4 +399,9 @@ def test_data_status_endpoint_uses_strict_response_shape(tmp_path: Path) -> None
     assert payload["historical_game_odds"]["enabled"] is False
     assert payload["game_market_enrichment"]["enabled"] is True
     assert payload["game_market_enrichment"]["historical_game_odds_available"] is False
+    assert payload["playerboard_build_health"]["rowsSaved"] == 2
+    assert payload["playerboard_build_health"]["unsupportedMarketCounts"] == {"batter_stolen_bases": 3}
+    assert payload["playerboard_build_health"]["attributionStatusCounts"] == {"verified": 2}
+    assert payload["playerboard_build_health"]["sourceOfTruth"] == "sqlite"
+    assert payload["playerboard_build_health"]["sourceMode"] == "canonical"
     assert "traceback" not in payload["latest_collector_manifest"]

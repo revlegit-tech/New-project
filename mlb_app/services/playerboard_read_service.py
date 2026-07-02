@@ -284,6 +284,10 @@ class PlayerboardReadService:
         bad_shifted_rows = [row for row in selected_rows if playerboard_row_looks_shifted(row)]
         snapshots = sorted({_clean(row.get("snapshotAt")) for row in selected_rows if _clean(row.get("snapshotAt"))})
         latest_snapshot = snapshots[-1] if snapshots else ""
+        attribution_status_counts = Counter(_clean(row.get("attributionStatus")) or "unknown" for row in selected_rows)
+        roster_evidence_available_rows = sum(1 for row in selected_rows if _truthy(row.get("rosterEvidenceAvailable")))
+        roster_evidence_unavailable_rows = len(selected_rows) - roster_evidence_available_rows
+        latest_build_health = _latest_build_health(self.settings)
         target_market = normalize_market_value(requested_market) if requested_market else ""
         date_rows = [
             row for row in all_rows
@@ -329,6 +333,16 @@ class PlayerboardReadService:
             "totalRowsInFile": read_result.total_rows,
             "dateRowsInFile": len(date_rows),
             "marketsPresent": dict(sorted(market_counts.items())),
+            "attributionStatusCounts": dict(sorted(attribution_status_counts.items())),
+            "rosterEvidenceAvailableRows": roster_evidence_available_rows,
+            "rosterEvidenceUnavailableRows": roster_evidence_unavailable_rows,
+            "unsupportedMarketCounts": dict(latest_build_health.get("unsupportedMarketCounts") or {}),
+            "buildTimingsMs": dict(latest_build_health.get("buildTimingsMs") or {}),
+            "slowestBuildPhases": list(latest_build_health.get("slowestBuildPhases") or []),
+            "sourceMode": latest_build_health.get("sourceMode") or read_result.source,
+            "snapshotId": (read_result.snapshot_ids[0] if read_result.snapshot_ids else ""),
+            "sourceOfTruth": read_result.source,
+            "latestPlayerboardBuildHealth": latest_build_health,
             "missingMarketDisplayRows": len(missing_market_display),
             "badShiftedRows": len(bad_shifted_rows),
             "latestSnapshotAt": latest_snapshot,
@@ -620,6 +634,21 @@ def _first(row: Mapping[str, Any], *keys: str) -> Any:
 
 def _clean(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return _clean(value).lower() in {"1", "true", "yes", "on"}
+
+
+def _latest_build_health(settings: Settings) -> dict[str, Any]:
+    path = settings.data_dir / "status" / "playerboard_build_status.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _slug(value: Any) -> str:

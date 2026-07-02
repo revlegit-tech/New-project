@@ -8,6 +8,7 @@ import re
 import csv
 import json
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -123,6 +124,8 @@ MARKET_CAPABILITY_MAP = {
     "eighth_inning_total_runs": "research_only",
     "ninth_inning_total_runs": "research_only",
 }
+
+UNIFIED_CARD_MARKETS = set(MARKET_CAPABILITY_MAP) - {"batter_rbis", "batter_stolen_bases"}
 
 
 def market_capability(market: Any) -> str:
@@ -611,7 +614,15 @@ def prune_playerboard_snapshot(season: int, date_label: str, market: str = "") -
     return removed
 
 
-def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str, Any]], *, replace_date: bool = False, market: str = "") -> dict[str, Any]:
+def save_playerboard_snapshot(
+    season: int,
+    date_label: str,
+    cards: list[dict[str, Any]],
+    *,
+    replace_date: bool = False,
+    market: str = "",
+    build_health: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     snapshot_at = now_iso()
     rows = []
     roster_index = build_slate_roster_index(cards, season)
@@ -688,10 +699,20 @@ def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str
     source_mode = "canonical" if canonical_prop_files(date_label) else "legacy"
     csv_path = playerboard_file(season)
 
+    sqlite_started = time.perf_counter()
+    sqlite_ms = 0.0
+    csv_ms = 0.0
     try:
         from mlb_app.repositories.board_snapshot_repository import BoardSnapshotRepository
 
         snapshot_repository = BoardSnapshotRepository(default_settings)
+        metadata = {
+            "replaceDate": bool(replace_date),
+            "market": market,
+            "csvExport": str(csv_path),
+        }
+        if build_health:
+            metadata["buildHealth"] = dict(build_health)
         activated = snapshot_repository.replace_active_snapshot(
             season=season,
             date_label=date_label,
@@ -701,11 +722,7 @@ def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str
             source="playerboard_builder",
             source_mode=source_mode,
             csv_path=csv_path,
-            metadata={
-                "replaceDate": bool(replace_date),
-                "market": market,
-                "csvExport": str(csv_path),
-            },
+            metadata=metadata,
         )
         activated_snapshot_id = activated.id
     except Exception as error:
@@ -713,9 +730,13 @@ def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str
         # unavailable, the CSV artifact is still exported so cold-start fallback
         # reads remain viable. The error is surfaced in the pipeline payload.
         db_write_error = str(error)
+    finally:
+        sqlite_ms = (time.perf_counter() - sqlite_started) * 1000.0
 
     removedRows = prune_playerboard_snapshot(season, date_label, market=market) if replace_date else 0
+    csv_started = time.perf_counter()
     append_csv(csv_path, PLAYERBOARD_FIELDS, rows)
+    csv_ms = (time.perf_counter() - csv_started) * 1000.0
 
     return {
         "snapshotAt": snapshot_at,
@@ -729,6 +750,10 @@ def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str
             "snapshotId": activated_snapshot_id,
             "atomic": bool(activated_snapshot_id),
             "error": db_write_error,
+        },
+        "timings": {
+            "sqliteSnapshotSaveMs": round(sqlite_ms, 3),
+            "csvSaveMs": round(csv_ms, 3),
         },
         "csvExport": {
             "derivedArtifact": True,
@@ -759,6 +784,82 @@ def parse_json_field(value: Any, default: Any) -> Any:
         return json.loads(text)
     except Exception:
         return copy.deepcopy(default)
+
+
+def _slowest_build_phases(timings: dict[str, Any], *, limit: int = 5) -> list[dict[str, Any]]:
+    phases: list[dict[str, Any]] = []
+    for name, value in timings.items():
+        try:
+            ms = float(value)
+        except (TypeError, ValueError):
+            continue
+        phases.append({"phase": name, "ms": round(ms, 3)})
+    phases.sort(key=lambda item: item["ms"], reverse=True)
+    return phases[: max(1, int(limit))]
+
+
+def _attribution_status_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts = Counter(clean(row.get("attributionStatus")) or "unknown" for row in rows)
+    return dict(sorted(counts.items()))
+
+
+def _truthy_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return clean(value).lower() in {"1", "true", "yes", "on"}
+
+
+def _roster_evidence_counts(rows: list[dict[str, Any]]) -> tuple[int, int]:
+    available = sum(1 for row in rows if _truthy_value(row.get("rosterEvidenceAvailable")))
+    return available, max(len(rows) - available, 0)
+
+
+def _payload_attribution_status_counts(payload: dict[str, Any]) -> dict[str, int]:
+    attribution = payload.get("attribution") if isinstance(payload.get("attribution"), dict) else {}
+    direct = payload.get("attributionStatusCounts") if isinstance(payload.get("attributionStatusCounts"), dict) else {}
+    counts = attribution.get("statusCounts") if isinstance(attribution.get("statusCounts"), dict) else direct
+    if counts:
+        return dict(sorted((str(key), int(value or 0)) for key, value in counts.items()))
+    rows = payload.get("top") if isinstance(payload.get("top"), list) else []
+    return _attribution_status_counts([row for row in rows if isinstance(row, dict)])
+
+
+def _build_status_path() -> Path:
+    return default_settings.data_dir / "status" / "playerboard_build_status.json"
+
+
+def _write_latest_build_status(payload: dict[str, Any]) -> None:
+    rows = [row for row in (payload.get("top") or []) if isinstance(row, dict)]
+    roster_evidence_available_rows, roster_evidence_unavailable_rows = _roster_evidence_counts(rows)
+    attribution = payload.get("attribution") if isinstance(payload.get("attribution"), dict) else {}
+    saved = payload.get("saved") if isinstance(payload.get("saved"), dict) else {}
+    serving_store = saved.get("servingStore") if isinstance(saved.get("servingStore"), dict) else {}
+    status = {
+        "season": payload.get("season"),
+        "date": payload.get("date"),
+        "market": payload.get("market"),
+        "propsLoaded": payload.get("propsLoaded"),
+        "cardsBuilt": payload.get("cardsBuilt"),
+        "rowsSaved": saved.get("rowsSaved") or len(rows),
+        "unsupportedMarketCounts": dict(payload.get("unsupportedMarketCounts") or {}),
+        "attributionStatusCounts": _payload_attribution_status_counts(payload),
+        "rosterEvidenceAvailableRows": int(attribution.get("rosterEvidenceAvailableRows") or roster_evidence_available_rows),
+        "rosterEvidenceUnavailableRows": int(attribution.get("rosterEvidenceUnavailableRows") or roster_evidence_unavailable_rows),
+        "buildTimingsMs": dict(payload.get("buildTimingsMs") or {}),
+        "slowestBuildPhases": list(payload.get("slowestBuildPhases") or []),
+        "sourceMode": saved.get("sourceMode") or payload.get("sourceMode") or "",
+        "inputSourceMode": payload.get("inputSourceMode") or "",
+        "snapshotId": serving_store.get("snapshotId") or "",
+        "snapshotAt": saved.get("snapshotAt") or "",
+        "sourceOfTruth": serving_store.get("sourceOfTruth") or "",
+        "generatedAt": now_iso(),
+    }
+    path = _build_status_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(status, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def parse_json_dict_field(value: Any) -> dict[str, Any]:
@@ -1859,6 +1960,26 @@ def odds_only_player_card(prop: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def research_only_market_card(prop: dict[str, Any], *, reason: str = "Market is not supported by the model card runtime.") -> dict[str, Any]:
+    card = odds_only_player_card(prop)
+    missing = list(card.get("missingData") or [])
+    missing.append(reason)
+    card.update({
+        "finalProbabilityPercent": None,
+        "finalEdgePercent": None,
+        "confidence": "Research only",
+        "recommendation": "Market unsupported for model scoring",
+        "missingData": missing,
+        "marketCapabilityStatus": "research_only",
+        "modelProductionEligible": False,
+        "action": "Research",
+        "readinessLabel": "Experimental",
+        "stakeUnits": 0,
+        "betActionAllowed": False,
+    })
+    return card
+
+
 ATTRIBUTION_METADATA_FIELDS = (
     "attributionConfidence",
     "attributionStatus",
@@ -2049,6 +2170,7 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
     cards = []
     errors = []
     skipped: dict[str, Any] = {"unsupportedMarkets": {}, "filtered": {}}
+    unsupported_market_samples: dict[str, list[dict[str, Any]]] = {}
     hit_profile_cache: dict[tuple[str, ...], dict[str, Any]] = {}
     unified_card_cache: dict[tuple[str, ...], dict[str, Any]] = {}
     context_cache: dict[tuple[str, ...], dict[str, Any]] = {}
@@ -2064,6 +2186,18 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
         normalized = normalize_market(key) if bucket == "unsupportedMarkets" else clean(key)
         skipped.setdefault(bucket, {})
         skipped[bucket][normalized] = int(skipped[bucket].get(normalized, 0)) + 1
+
+    def add_unsupported_sample(error: dict[str, Any]) -> None:
+        market_key = normalize_market(error.get("market"))
+        samples = unsupported_market_samples.setdefault(market_key, [])
+        if len(samples) >= 10:
+            return
+        samples.append({
+            "player": clean(error.get("player")),
+            "market": market_key,
+            "side": clean(error.get("side")),
+            "line": clean(error.get("line")),
+        })
 
     def install_cached_helper(name: str, bucket: str, key_builder) -> None:
         original = getattr(unified_module, name)
@@ -2190,7 +2324,13 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
         capability = market_capability(prop.get("market"))
         add_timing("marketFilterMs", filter_started)
         if capability == "unsupported_skip":
-            return None, {"type": "unsupported_market", "market": normalize_market(prop.get("market"))}
+            return None, {
+                "type": "unsupported_market",
+                "market": normalize_market(prop.get("market")),
+                "player": clean(prop.get("player")),
+                "side": clean(prop.get("side") or prop.get("rawLabel") or prop.get("outcome")),
+                "line": clean(prop.get("line")),
+            }
 
         context_key = ("infer", str(season), clean(prop.get("date"))[:10] or date_label, clean(prop.get("player")).casefold(), normalize_market(prop.get("market")), canonical_team_abbr(prop.get("team")), canonical_team_abbr(prop.get("opponent")))
         cached_context = context_cache.get(context_key)
@@ -2220,6 +2360,12 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
                 add_timing("cardPostProcessMs", post_started)
                 return attach_hit_profile(card, {**prop, **card, "date": clean(prop.get("date"))[:10] or date_label}), None
             return None, None
+
+        if capability == "research_only" and normalize_market(prop.get("market")) not in UNIFIED_CARD_MARKETS:
+            post_started = time.perf_counter()
+            card = preserve_attribution_metadata(research_only_market_card(prop), prop)
+            add_timing("cardPostProcessMs", post_started)
+            return attach_hit_profile(card, {**prop, **card, "date": clean(prop.get("date"))[:10] or date_label}), None
 
         row = {
             "season": season,
@@ -2305,6 +2451,7 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
                 if error:
                     if error.get("type") == "unsupported_market":
                         count_skip("unsupportedMarkets", error.get("market"))
+                        add_unsupported_sample(error)
                     elif error.get("type") == "filtered":
                         count_skip("filtered", error.get("reason"))
                     else:
@@ -2319,6 +2466,7 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
                     if error:
                         if error.get("type") == "unsupported_market":
                             count_skip("unsupportedMarkets", error.get("market"))
+                            add_unsupported_sample(error)
                         elif error.get("type") == "filtered":
                             count_skip("filtered", error.get("reason"))
                         else:
@@ -2336,13 +2484,53 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
     aggregate_ms = (time.perf_counter() - aggregate_started) * 1000.0
 
     top_cards = cards[:limit]
+    unsupported_counts = dict(skipped.get("unsupportedMarkets") or {})
+    unsupported_samples = [sample for samples in unsupported_market_samples.values() for sample in samples]
+    output_source_mode = "canonical" if canonical_prop_files(date_label) else "legacy"
+    pre_save_timings = {
+        "propLoadMs": round(load_ms, 3),
+        "quoteNormalizationMs": 0.0,
+        "marketFilteringMs": round(timings["marketFilterMs"], 3),
+        "attributionResolutionMs": round(load_ms + timings["contextJoinMs"], 3),
+        "cardAggregationMs": round(aggregate_ms, 3),
+        "quoteHydrationMs": 0.0,
+        "cardBuildMs": round(build_ms, 3),
+        "historyLookupMs": round(timings["historyLookupMs"], 3),
+        "hitProfileMs": round(timings["hitProfileMs"], 3),
+        "cardPostProcessMs": round(timings["cardPostProcessMs"], 3),
+    }
+    attribution = attribution_diagnostics(top_cards, roster_index=roster_index)
+    build_health = {
+        "unsupportedMarketCounts": unsupported_counts,
+        "unsupportedMarketSamples": unsupported_samples,
+        "buildTimingsMs": pre_save_timings,
+        "slowestBuildPhases": _slowest_build_phases(pre_save_timings),
+        "attribution": attribution,
+        "sourceMode": output_source_mode,
+        "inputSourceMode": source_mode,
+    }
     save_started = time.perf_counter()
-    saved = save_playerboard_snapshot(season, date_label, top_cards, replace_date=replace_date, market=market) if save and top_cards else None
+    saved = save_playerboard_snapshot(
+        season,
+        date_label,
+        top_cards,
+        replace_date=replace_date,
+        market=market,
+        build_health=build_health,
+    ) if save and top_cards else None
     save_ms = (time.perf_counter() - save_started) * 1000.0
     total_ms = (time.perf_counter() - started) * 1000.0
     elapsed_seconds = max(total_ms / 1000.0, 0.000001)
+    saved_timings = dict((saved or {}).get("timings") or {})
+    build_timings_ms = {
+        **pre_save_timings,
+        "csvSaveMs": round(float(saved_timings.get("csvSaveMs") or 0.0), 3),
+        "sqliteSnapshotSaveMs": round(float(saved_timings.get("sqliteSnapshotSaveMs") or 0.0), 3),
+        "saveMs": round(save_ms, 3),
+        "totalMs": round(total_ms, 3),
+    }
 
-    return {
+    payload = {
         "season": season,
         "date": date_label,
         "market": market,
@@ -2350,6 +2538,10 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
         "cardsBuilt": len(cards),
         "errors": errors[:10],
         "skipped": skipped,
+        "unsupportedMarketCounts": unsupported_counts,
+        "unsupportedMarketSamples": unsupported_samples,
+        "buildTimingsMs": build_timings_ms,
+        "slowestBuildPhases": _slowest_build_phases(build_timings_ms),
         "timings": {
             "loadPropsMs": round(load_ms, 3),
             "buildCardsMs": round(build_ms, 3),
@@ -2379,11 +2571,15 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
         "contextCacheMisses": counters["contextCacheMisses"],
         "marketCapabilities": dict(MARKET_CAPABILITY_MAP),
         "saved": saved,
-        "attribution": attribution_diagnostics(top_cards, roster_index=roster_index),
-        "sourceMode": source_mode,
+        "attribution": attribution,
+        "sourceMode": (saved or {}).get("sourceMode") or output_source_mode,
+        "inputSourceMode": source_mode,
         "canonicalSourceFiles": [str(path) for path in canonical_prop_files(date_label)],
         "top": top_cards,
     }
+    if save:
+        _write_latest_build_status(payload)
+    return payload
 
 
 def main() -> None:
