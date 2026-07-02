@@ -62,6 +62,8 @@ PLAYERBOARD_FIELDS: list[str] = [
     "correctedTeam",
     "correctedOpponent",
     "playerTeamEvidenceStatus",
+    "rosterEvidenceAvailable",
+    "rosterMatchStatus",
     "playerTeamEvidenceSources",
     "playerTeamEvidenceWarnings",
     "contextBlockedByAttribution",
@@ -114,6 +116,7 @@ _JSON_LIST_FIELDS = {
 _BOOL_FIELDS = {
     "isAltMarket",
     "attributionCorrectionApplied",
+    "rosterEvidenceAvailable",
     "teamVerified",
     "opponentVerified",
     "playerVerified",

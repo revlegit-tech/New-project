@@ -66,6 +66,8 @@ class EdgeBoardRow(StrictPayload):
     correctedTeam: str | None = None
     correctedOpponent: str | None = None
     playerTeamEvidenceStatus: str | None = None
+    rosterEvidenceAvailable: bool | None = None
+    rosterMatchStatus: str | None = None
     playerTeamEvidenceSources: list[str] = Field(default_factory=list)
     playerTeamEvidenceWarnings: list[str] = Field(default_factory=list)
     attributionConfidence: str | None = None

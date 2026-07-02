@@ -3,6 +3,9 @@ from __future__ import annotations
 import csv
 
 from scripts.benchmark_playerboard_builder import benchmark_warning
+from mlb_app.config import Settings
+from mlb_app.repositories.board_snapshot_repository import BoardSnapshotRepository
+from mlb_app.services.player_attribution import apply_attribution
 from mlb_app.services import playerboard_builder as builder
 
 
@@ -291,6 +294,79 @@ def test_save_playerboard_snapshot_persists_corrected_attribution(monkeypatch, t
     assert row["attributionConfidence"] == "high"
     assert row["attributionCorrectionApplied"] == "True"
     assert row["playerTeamEvidenceStatus"] == "roster_match"
+    assert row["rosterEvidenceAvailable"] == "True"
+    assert row["rosterMatchStatus"] == "matched_one_side"
+
+    card = builder.saved_card_from_row(row)
+    hydrated = apply_attribution(card)
+
+    assert hydrated["team"] == "KANSAS CITY ROYALS"
+    assert hydrated["opponent"] == "TAMPA BAY RAYS"
+    assert hydrated["attributionStatus"] == "corrected"
+    assert hydrated["attributionConfidence"] == "high"
+    assert hydrated["attributionCorrectionApplied"] is True
+    assert hydrated["rosterEvidenceAvailable"] is True
+    assert hydrated["rosterMatchStatus"] == "matched_one_side"
+    assert hydrated["playerTeamEvidenceStatus"] == "roster_match"
+
+
+def test_sqlite_snapshot_preserves_verified_roster_attribution_for_api_read(tmp_path) -> None:
+    settings = Settings(
+        root_dir=tmp_path,
+        public_dir=tmp_path / "public",
+        data_dir=tmp_path / "data",
+        model_dir=tmp_path / "data" / "models",
+        model_registry_path=tmp_path / "data" / "models" / "model_registry.json",
+        db_path=tmp_path / "data" / "state.sqlite3",
+        current_season=2026,
+    )
+    repository = BoardSnapshotRepository(settings)
+    rows = [
+        {
+            "snapshotAt": "2026-07-01T12:00:00Z",
+            "season": 2026,
+            "date": "2026-07-01",
+            "market": "batter_hits",
+            "player": "Bobby Witt",
+            "team": "KANSAS CITY ROYALS",
+            "opponent": "TAMPA BAY RAYS",
+            "line": "0.5",
+            "americanOdds": "-110",
+            "attributionStatus": "corrected",
+            "attributionConfidence": "high",
+            "attributionCorrectionApplied": True,
+            "playerTeamEvidenceStatus": "roster_match",
+            "rosterEvidenceAvailable": True,
+            "rosterMatchStatus": "matched_one_side",
+            "sourceTeam": "TBR",
+            "sourceOpponent": "KCR",
+            "correctedTeam": "KANSAS CITY ROYALS",
+            "correctedOpponent": "TAMPA BAY RAYS",
+            "teamVerified": True,
+            "opponentVerified": True,
+            "playerVerified": True,
+        }
+    ]
+
+    repository.replace_active_snapshot(
+        season=2026,
+        date_label="2026-07-01",
+        rows=rows,
+        snapshot_at="2026-07-01T12:00:00Z",
+        source="test",
+        source_mode="canonical",
+    )
+
+    result = repository.read_active_playerboard(season=2026, date_label="2026-07-01")
+    assert result is not None
+    api_row = apply_attribution(result.rows[0])
+
+    assert api_row["attributionStatus"] == "corrected"
+    assert api_row["attributionConfidence"] == "high"
+    assert api_row["attributionCorrectionApplied"] is True
+    assert api_row["playerTeamEvidenceStatus"] == "roster_match"
+    assert api_row["rosterEvidenceAvailable"] is True
+    assert api_row["rosterMatchStatus"] == "matched_one_side"
 
 
 def test_benchmark_warning_names_slowest_timing_bucket() -> None:

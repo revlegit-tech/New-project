@@ -204,6 +204,9 @@ def resolve_attribution(row: dict[str, Any], roster_index: SlateRosterIndex | No
 
 
 def apply_attribution(row: dict[str, Any], roster_index: SlateRosterIndex | None = None) -> dict[str, Any]:
+    if roster_index is None and _has_preserved_roster_attribution(row):
+        return _hydrate_preserved_attribution(row)
+
     attribution = resolve_attribution(row, roster_index=roster_index)
     enriched = dict(row)
     enriched.update(attribution)
@@ -262,6 +265,99 @@ def apply_attribution(row: dict[str, Any], roster_index: SlateRosterIndex | None
             "playerTeamEvidenceSources",
             "playerTeamEvidenceWarnings",
         )
+    }
+    enriched["trust"] = trust
+    return enriched
+
+
+def _has_preserved_roster_attribution(row: dict[str, Any]) -> bool:
+    status = _clean(row.get("attributionStatus")).lower()
+    confidence = _clean(row.get("attributionConfidence")).lower()
+    evidence_status = _clean(row.get("playerTeamEvidenceStatus")).lower()
+    roster_match_status = _clean(row.get("rosterMatchStatus")).lower()
+    return (
+        status in {"verified", "corrected"}
+        and confidence in {"verified", "high"}
+        and (
+            _truthy(row.get("rosterEvidenceAvailable"))
+            or evidence_status in {"verified", "roster_match", "game_log_match", "source_match"}
+            or roster_match_status == "matched_one_side"
+        )
+    )
+
+
+def _hydrate_preserved_attribution(row: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(row)
+    status = _clean(enriched.get("attributionStatus"))
+    confidence = _clean(enriched.get("attributionConfidence"))
+    warnings = _unique(enriched.get("attributionWarnings") or [])
+    evidence_sources = _unique(enriched.get("playerTeamEvidenceSources") or [])
+    evidence_warnings = _unique(enriched.get("playerTeamEvidenceWarnings") or [])
+    correction_applied = _truthy(enriched.get("attributionCorrectionApplied"))
+    team_verified = _truthy(enriched.get("teamVerified")) or status in {"verified", "corrected"}
+    opponent_verified = _truthy(enriched.get("opponentVerified")) or status in {"verified", "corrected"}
+    player_verified = _truthy(enriched.get("playerVerified")) or bool(_clean(enriched.get("player")))
+    context_blocked = _truthy(enriched.get("contextBlockedByAttribution"))
+    context_warning = _truthy(enriched.get("contextAllowedWithWarning"))
+    roster_evidence_available = _truthy(enriched.get("rosterEvidenceAvailable"))
+    roster_match_status = _clean(enriched.get("rosterMatchStatus")) or "matched_one_side"
+    evidence_status = _clean(enriched.get("playerTeamEvidenceStatus")) or ("verified" if status == "verified" else "roster_match")
+
+    enriched.update(
+        {
+            "attributionStatus": status,
+            "attributionConfidence": confidence,
+            "attributionWarnings": warnings,
+            "attributionSources": _unique(enriched.get("attributionSources") or []),
+            "attributionCorrectionApplied": correction_applied,
+            "teamVerified": team_verified,
+            "opponentVerified": opponent_verified,
+            "playerVerified": player_verified,
+            "playerTeamEvidenceStatus": evidence_status,
+            "rosterEvidenceAvailable": roster_evidence_available,
+            "rosterMatchStatus": roster_match_status,
+            "playerTeamEvidenceSources": evidence_sources,
+            "playerTeamEvidenceWarnings": evidence_warnings,
+            "contextBlockedByAttribution": context_blocked,
+            "contextAllowedWithWarning": context_warning,
+        }
+    )
+    trust = dict(enriched.get("trust") or {})
+    prop_identity = dict(trust.get("propIdentity") or {})
+    prop_identity.update(
+        {
+            "player": enriched.get("player", ""),
+            "team": enriched.get("team", ""),
+            "opponent": enriched.get("opponent", ""),
+            "identityConfidence": attribution_confidence_to_identity(confidence, status),
+            "identityWarnings": warnings,
+            "playerTeamVerified": team_verified,
+            "opponentVerified": opponent_verified,
+            "attributionStatus": status,
+            "attributionCorrectionApplied": correction_applied,
+            "attributionCorrectionReason": _clean(enriched.get("attributionCorrectionReason")),
+            "playerTeamEvidenceStatus": evidence_status,
+            "rosterEvidenceAvailable": roster_evidence_available,
+            "rosterMatchStatus": roster_match_status,
+        }
+    )
+    trust["propIdentity"] = prop_identity
+    trust["attribution"] = {
+        "attributionConfidence": confidence,
+        "attributionStatus": status,
+        "attributionWarnings": warnings,
+        "teamVerified": team_verified,
+        "opponentVerified": opponent_verified,
+        "playerVerified": player_verified,
+        "contextBlockedByAttribution": context_blocked,
+        "contextAllowedWithWarning": context_warning,
+        "attributionCorrectionApplied": correction_applied,
+        "attributionCorrectionReason": _clean(enriched.get("attributionCorrectionReason")),
+        "playerTeamEvidenceStatus": evidence_status,
+        "rosterEvidenceAvailable": roster_evidence_available,
+        "rosterMatchStatus": roster_match_status,
+        "playerTeamEvidenceSources": evidence_sources,
+        "playerTeamEvidenceWarnings": evidence_warnings,
     }
     enriched["trust"] = trust
     return enriched
