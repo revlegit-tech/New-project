@@ -23,6 +23,7 @@ from mlb_app.contracts.playerboard_schema import (
 from mlb_app.domain.team_game_markets import TEAM_GAME_MARKETS, TEAM_GAME_MARKET_LABELS, load_oddspapi_game_market_props
 from mlb_app.services.player_attribution import apply_attribution, attribution_diagnostics
 from mlb_app.services.player_team_resolver import SlateRosterIndex
+from mlb_app.services.team_match_utils import normalize_team_alias
 
 ROOT = default_settings.root_dir
 PLAYERBOARD_DIR = default_settings.data_dir / "playerboard"
@@ -368,7 +369,7 @@ TEAM_ABBR_ALIASES = {
 
 
 def canonical_team_abbr(value: Any) -> str:
-    text = clean(value).upper()
+    text = normalize_team_alias(value)
     return TEAM_ABBR_ALIASES.get(text, text)
 
 
@@ -1082,45 +1083,45 @@ def build_slate_roster_index(rows: list[dict[str, Any]], season: int) -> SlateRo
         return index
 
     roster_sources = [
-        INCREMENTAL_STATS_DIR / f"player_index_{season}.csv",
-        INCREMENTAL_STATS_DIR / f"batter_totals_{season}.csv",
-        INCREMENTAL_STATS_DIR / f"pitcher_totals_{season}.csv",
+        ("player_index", INCREMENTAL_STATS_DIR / f"player_index_{season}.csv"),
+        ("batter_totals", INCREMENTAL_STATS_DIR / f"batter_totals_{season}.csv"),
+        ("pitcher_totals", INCREMENTAL_STATS_DIR / f"pitcher_totals_{season}.csv"),
     ]
-    for path in roster_sources:
+    for source_name, path in roster_sources:
         for row in read_csv_rows(path):
             team = canonical_team_abbr(first_value(row, ["team", "teamAbbr", "team_abbr", "team_abbreviation"]))
             if team not in slate_teams:
                 continue
             player = first_value(row, ["player", "playerName", "player_name", "name", "fullName", "full_name"])
-            index.add_player(team, player)
+            index.add_player(team, player, source_name)
 
     # Recent logs catch call-ups/traded players before a totals/index refresh has
     # caught up, while still staying scoped to teams appearing on the slate.
-    for path in [
-        INCREMENTAL_STATS_DIR / f"batter_game_logs_{season}.csv",
-        INCREMENTAL_STATS_DIR / f"pitcher_game_logs_{season}.csv",
+    for source_name, path in [
+        ("batter_game_logs", INCREMENTAL_STATS_DIR / f"batter_game_logs_{season}.csv"),
+        ("pitcher_game_logs", INCREMENTAL_STATS_DIR / f"pitcher_game_logs_{season}.csv"),
     ]:
         for row in read_csv_rows(path):
             team = canonical_team_abbr(first_value(row, ["team", "teamAbbr", "team_abbr", "team_abbreviation"]))
             if team not in slate_teams:
                 continue
             player = first_value(row, ["player", "playerName", "player_name", "name", "fullName", "full_name"])
-            index.add_player(team, player)
+            index.add_player(team, player, source_name)
 
     for game in read_csv_rows(INCREMENTAL_STATS_DIR / f"games_{season}.csv"):
         home = canonical_team_abbr(first_value(game, ["home", "homeTeam", "home_team"]))
         away = canonical_team_abbr(first_value(game, ["away", "awayTeam", "away_team"]))
         if home in slate_teams:
-            index.add_player(home, first_value(game, ["homeProbablePitcher", "home_probable_pitcher"]))
+            index.add_player(home, first_value(game, ["homeProbablePitcher", "home_probable_pitcher"]), "probable_pitchers")
         if away in slate_teams:
-            index.add_player(away, first_value(game, ["awayProbablePitcher", "away_probable_pitcher"]))
+            index.add_player(away, first_value(game, ["awayProbablePitcher", "away_probable_pitcher"]), "probable_pitchers")
 
     for row in rows:
         # Some providers include short/common names in player fields. Add only
         # rows whose source team has already been confirmed elsewhere on slate.
         source_team = canonical_team_abbr(row.get("team"))
         if source_team in slate_teams and _source_team_already_roster_backed(index, row, source_team):
-            index.add_player(source_team, row.get("player"))
+            index.add_player(source_team, row.get("player"), "current_playerboard_verified")
 
     return index
 

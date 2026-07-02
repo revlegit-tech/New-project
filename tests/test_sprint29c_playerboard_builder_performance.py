@@ -191,6 +191,71 @@ def test_builder_uses_slate_roster_index_for_mixed_two_team_board(monkeypatch) -
     assert payload["attribution"]["rosterResolverRowsCorrected"] == 1
 
 
+def test_builder_uses_cached_evidence_when_live_rows_have_full_team_names(monkeypatch) -> None:
+    props = [
+        {
+            "date": "2026-07-02",
+            "market": "batter_hits",
+            "player": "Shohei Ohtani",
+            "team": "SAN DIEGO PADRES",
+            "opponent": "LOS ANGELES DODGERS",
+            "line": "0.5",
+            "americanOdds": "-110",
+        },
+        {
+            "date": "2026-07-02",
+            "market": "batter_hits",
+            "player": "Michael Harris",
+            "team": "ST. LOUIS CARDINALS",
+            "opponent": "ATLANTA BRAVES",
+            "line": "0.5",
+            "americanOdds": "-105",
+        },
+    ]
+    monkeypatch.setattr(builder, "load_saved_props", lambda *args, **kwargs: props)
+
+    def fake_read_csv_rows(path):
+        if path.name == "player_index_2026.csv":
+            return [
+                {"player": "Shohei Ohtani", "team": "LAD"},
+                {"player": "Michael Harris II", "team": "ATL"},
+            ]
+        return []
+
+    monkeypatch.setattr(builder, "read_csv_rows", fake_read_csv_rows)
+    monkeypatch.setattr(
+        "mlb_app.domain.unified_prop_card.unified_prop_card",
+        lambda row: {
+            "player": row["player"],
+            "market": row["market"],
+            "team": row["team"],
+            "opponent": row["opponent"],
+            "line": row["line"],
+            "americanOdds": row["american_odds"],
+            "finalEdgePercent": 1,
+        },
+    )
+
+    payload = builder.build_playerboard(season=2026, date_label="2026-07-02", limit=10, save=False, source_mode="propline")
+    rows = {row["player"]: row for row in payload["top"]}
+
+    assert rows["Shohei Ohtani"]["team"] == "LOS ANGELES DODGERS"
+    assert rows["Shohei Ohtani"]["opponent"] == "SAN DIEGO PADRES"
+    assert rows["Shohei Ohtani"]["attributionStatus"] == "corrected"
+    assert rows["Shohei Ohtani"]["attributionConfidence"] == "high"
+    assert rows["Michael Harris"]["team"] == "ATLANTA BRAVES"
+    assert rows["Michael Harris"]["opponent"] == "ST. LOUIS CARDINALS"
+    assert rows["Michael Harris"]["attributionStatus"] == "corrected"
+    assert rows["Michael Harris"]["attributionConfidence"] == "high"
+    assert payload["attribution"]["rosterIndexPlayersLoaded"] == 2
+    assert payload["attribution"]["rosterIndexTeamsLoaded"] == 2
+    assert payload["attribution"]["rosterIndexSourceCounts"]["player_index"] == 2
+    assert payload["attribution"]["rosterEvidenceAvailableRows"] == 2
+    assert payload["attribution"]["rosterEvidenceUnavailableRows"] == 0
+    assert payload["attribution"]["sampleKnownTeamMatches"]
+    assert payload["attribution"]["sampleRosterCorrections"]
+
+
 def test_save_playerboard_snapshot_persists_corrected_attribution(monkeypatch, tmp_path) -> None:
     class FakeBoardSnapshotRepository:
         def __init__(self, *args, **kwargs) -> None:

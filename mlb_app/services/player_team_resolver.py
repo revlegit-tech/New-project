@@ -31,14 +31,23 @@ class SlateRosterIndex:
 
     names_by_team: dict[str, set[str]] = field(default_factory=dict)
     teams_by_name: dict[str, set[str]] = field(default_factory=dict)
+    players_by_team: dict[str, set[str]] = field(default_factory=dict)
+    source_counts: dict[str, int] = field(default_factory=dict)
+    sources_by_team_name: dict[tuple[str, str], set[str]] = field(default_factory=dict)
 
-    def add_player(self, team: Any, player_name: Any) -> None:
+    def add_player(self, team: Any, player_name: Any, source: str = "unknown") -> None:
         team_abbr = normalize_team_alias(team)
-        if not team_abbr:
+        normalized_player = normalize_player_name(player_name)
+        if not team_abbr or not normalized_player:
             return
+        already_loaded_player = normalized_player in self.players_by_team.get(team_abbr, set())
+        self.players_by_team.setdefault(team_abbr, set()).add(normalized_player)
+        if not already_loaded_player:
+            self.source_counts[source] = self.source_counts.get(source, 0) + 1
         for name_key in player_name_variants(player_name):
             self.names_by_team.setdefault(team_abbr, set()).add(name_key)
             self.teams_by_name.setdefault(name_key, set()).add(team_abbr)
+            self.sources_by_team_name.setdefault((team_abbr, name_key), set()).add(source)
 
     def teams_for_player(self, player_name: Any, event_teams: list[str]) -> set[str]:
         event_team_set = {team for team in event_teams if team}
@@ -47,8 +56,23 @@ class SlateRosterIndex:
             matched.update(team for team in self.teams_by_name.get(name_key, set()) if team in event_team_set)
         return matched
 
+    def sources_for_player_team(self, player_name: Any, team: Any) -> list[str]:
+        team_abbr = normalize_team_alias(team)
+        sources: set[str] = set()
+        for name_key in player_name_variants(player_name):
+            sources.update(self.sources_by_team_name.get((team_abbr, name_key), set()))
+        return sorted(sources)
+
     def has_evidence_for_event(self, event_teams: list[str]) -> bool:
         return any(team and self.names_by_team.get(team) for team in event_teams)
+
+    @property
+    def players_loaded(self) -> int:
+        return sum(len(players) for players in self.players_by_team.values())
+
+    @property
+    def teams_loaded(self) -> int:
+        return sum(1 for players in self.names_by_team.values() if players)
 
 
 _ROSTER_TEAM_BY_NAME: dict[str, str] = {
@@ -155,6 +179,9 @@ def resolve_player_team(
         if len(matched_teams) == 1:
             roster_team = next(iter(matched_teams))
             roster_match_status = "matched_one_side"
+            matched_sources = roster_index.sources_for_player_team(name_key, roster_team)
+            if matched_sources:
+                sources = matched_sources
         elif roster_evidence_available:
             return PlayerTeamResolution(
                 status="missing",

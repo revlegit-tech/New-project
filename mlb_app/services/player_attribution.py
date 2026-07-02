@@ -299,7 +299,15 @@ def attribution_diagnostics(rows: list[dict[str, Any]], roster_index: SlateRoste
     enriched = [apply_attribution(row, roster_index=roster_index) if "attributionConfidence" not in row else row for row in rows]
     counts = Counter(_clean(row.get("attributionConfidence")) or "unknown" for row in enriched)
     status_counts = Counter(_clean(row.get("attributionStatus")) or "unknown" for row in enriched)
+    roster_index_source_counts = dict(getattr(roster_index, "source_counts", {}) or {})
+    roster_index_players_loaded = int(getattr(roster_index, "players_loaded", 0) or 0) if roster_index is not None else 0
+    roster_index_teams_loaded = int(getattr(roster_index, "teams_loaded", 0) or 0) if roster_index is not None else 0
     return {
+        "rosterIndexSourceCounts": roster_index_source_counts,
+        "rosterIndexPlayersLoaded": roster_index_players_loaded,
+        "rosterIndexTeamsLoaded": roster_index_teams_loaded,
+        "rosterEvidenceUnavailableRows": sum(1 for row in enriched if not row.get("rosterEvidenceAvailable")),
+        "rosterEvidenceAvailableRows": sum(1 for row in enriched if row.get("rosterEvidenceAvailable")),
         "attributionRowsVerified": counts.get("verified", 0),
         "attributionRowsHigh": counts.get("high", 0),
         "attributionRowsMedium": counts.get("medium", 0),
@@ -329,6 +337,8 @@ def attribution_diagnostics(rows: list[dict[str, Any]], roster_index: SlateRoste
         "sampleRosterEvidenceMatches": _samples(enriched, lambda row: row.get("playerTeamEvidenceStatus") in {"verified", "roster_match"}),
         "sampleRosterEvidenceMisses": _samples(enriched, lambda row: "no_roster_evidence" in (row.get("playerTeamEvidenceWarnings") or [])),
         "sampleRowsBlockedFromModelContext": _samples(enriched, attribution_blocks_context),
+        "sampleRosterEvidenceUnavailableRows": _samples(enriched, lambda row: not row.get("rosterEvidenceAvailable")),
+        "sampleKnownTeamMatches": _samples(enriched, lambda row: row.get("rosterEvidenceAvailable") and row.get("rosterMatchStatus") == "matched_one_side"),
         "rosterResolverRowsChecked": sum(1 for row in enriched if _is_player_market(row.get("market"))),
         "rosterResolverRowsMatchedOneSide": sum(1 for row in enriched if row.get("playerTeamEvidenceStatus") in {"verified", "roster_match"}),
         "rosterResolverRowsCorrected": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and row.get("playerTeamEvidenceStatus") == "roster_match"),
