@@ -17,6 +17,7 @@ from mlb_app.services.context_sources.base import (
     to_float,
     write_csv_rows,
 )
+from mlb_app.services.player_prop_context_identity_service import align_board_context_identity, normalize_player_name, normalize_team
 
 
 STATCAST_FIELDS = [
@@ -54,15 +55,33 @@ class SavantStatcastContextProvider:
     def materialize(self, *, date_label: str, season: int) -> ContextProviderResult:
         output_path = context_path(self.settings, "statcast", f"statcast_context_{date_label}.csv")
         warnings = []
+        diagnostics: dict[str, Any] = {
+            "filesInspected": [],
+            "rowsLoaded": 0,
+            "pregameRows": 0,
+            "rowsRejectedMissingPlayerIdentity": 0,
+            "rowsRejectedMissingTeam": 0,
+            "rowsRejectedAmbiguousIdentity": 0,
+            "rowsMatchedToPlayerboardSubjects": 0,
+            "sampleRejectedRows": [],
+            "sampleMatchedRows": [],
+        }
+        board_index = _playerboard_subject_index(self.settings, date_label)
         for source_path in self._candidate_paths(date_label, season):
             rows = read_csv_rows(source_path)
+            if not rows:
+                continue
+            diagnostics["filesInspected"].append({"path": str(source_path), "rowsLoaded": len(rows)})
+            diagnostics["rowsLoaded"] += len(rows)
             pregame_rows = _pregame_rows(rows, date_label)
             if not pregame_rows:
                 continue
+            diagnostics["pregameRows"] += len(pregame_rows)
             generated_at = datetime.now(timezone.utc).isoformat()
+            safe_rows = _safe_batter_rows(pregame_rows, board_index, diagnostics)
             output = [
                 _statcast_summary(date_label, season, player_rows, source_path, generated_at)
-                for player_rows in _group_batter_rows(pregame_rows)
+                for player_rows in _group_batter_rows(safe_rows)
             ]
             output = [row for row in output if row.get("player")]
             if not output:
@@ -86,10 +105,14 @@ class SavantStatcastContextProvider:
                 rows=len(output),
                 path=str(output_path),
                 warnings=warnings,
+                diagnostics=diagnostics,
             )
-        warnings.append("No local Statcast artifact found; external Savant calls skipped.")
+        if diagnostics["rowsLoaded"]:
+            warnings.append("No local Statcast artifact produced safely matched batter context rows; external Savant calls skipped.")
+        else:
+            warnings.append("No local Statcast artifact found; external Savant calls skipped.")
         write_csv_rows(output_path, [], STATCAST_FIELDS)
-        return ContextProviderResult(status="missing", date=date_label, season=season, source="statcast", rows=0, path=str(output_path), warnings=warnings)
+        return ContextProviderResult(status="missing", date=date_label, season=season, source="statcast", rows=0, path=str(output_path), warnings=warnings, diagnostics=diagnostics)
 
     def _candidate_paths(self, date_label: str, season: int) -> list[Path]:
         return [
@@ -128,6 +151,78 @@ def _group_batter_rows(rows: list[dict[str, str]]) -> list[list[dict[str, str]]]
         team = _batter_team(row)
         grouped[(key(player), team)].append(row)
     return list(grouped.values())
+
+
+def _safe_batter_rows(
+    rows: list[dict[str, str]],
+    board_index: dict[str, Any],
+    diagnostics: dict[str, Any],
+) -> list[dict[str, str]]:
+    safe: list[dict[str, str]] = []
+    for row in rows:
+        enriched = dict(row)
+        player = _batter_name(enriched)
+        team = _batter_team(enriched)
+        player_id = clean(first_value(enriched, ["batter", "batter_id", "player_mlbam_id", "playerId"]))
+        rejection = ""
+        board_match: dict[str, str] | None = None
+        if player and team:
+            matches = (board_index.get("byNameTeam") or {}).get((normalize_player_name(player), normalize_team(team)), [])
+            if len(matches) == 1:
+                board_match = matches[0]
+            elif len(matches) > 1:
+                rejection = "ambiguous_identity"
+        elif player_id:
+            matches = (board_index.get("byPlayerId") or {}).get(player_id, [])
+            if len(matches) == 1:
+                board_match = matches[0]
+                player = player or str(board_match.get("player") or "")
+                team = team or str(board_match.get("team") or "")
+            elif len(matches) > 1:
+                rejection = "ambiguous_identity"
+
+        if not player:
+            rejection = rejection or "missing_player_identity"
+        if not team:
+            rejection = rejection or "missing_team"
+        if rejection:
+            _record_rejection(diagnostics, row, rejection)
+            continue
+        if board_index.get("hasBoard") and not board_match:
+            _record_rejection(diagnostics, row, "ambiguous_identity")
+            continue
+        enriched["_safe_batter_name"] = player
+        enriched["_safe_batter_team"] = team
+        safe.append(enriched)
+        if board_match:
+            diagnostics["rowsMatchedToPlayerboardSubjects"] += 1
+            _append_sample(diagnostics["sampleMatchedRows"], {"player": player, "team": team, "player_mlbam_id": player_id})
+    return safe
+
+
+def _record_rejection(diagnostics: dict[str, Any], row: dict[str, str], reason: str) -> None:
+    if reason == "missing_player_identity":
+        diagnostics["rowsRejectedMissingPlayerIdentity"] += 1
+    elif reason == "missing_team":
+        diagnostics["rowsRejectedMissingTeam"] += 1
+    else:
+        diagnostics["rowsRejectedAmbiguousIdentity"] += 1
+    _append_sample(
+        diagnostics["sampleRejectedRows"],
+        {
+            "reason": reason,
+            "game_date": clean(first_value(row, ["date", "game_date", "gameDate"])),
+            "player": _batter_name(row),
+            "player_name": clean(row.get("player_name")),
+            "batter": clean(first_value(row, ["batter", "batter_id"])),
+            "team": _batter_team(row),
+        },
+    )
+
+
+def _append_sample(samples: list[dict[str, Any]], row: dict[str, Any], limit: int = 5) -> None:
+    if len(samples) < limit:
+        samples.append(row)
 
 
 def _statcast_summary(date_label: str, season: int, rows: list[dict[str, str]], source: Path, generated_at: str) -> dict[str, Any]:
@@ -177,6 +272,9 @@ def _normal_name(value: str) -> str:
 
 
 def _batter_name(row: dict[str, str]) -> str:
+    safe = clean(row.get("_safe_batter_name"))
+    if safe:
+        return safe
     explicit = _normal_name(clean(first_value(row, ["player", "batter_name", "batterName", "name"])))
     if explicit:
         return explicit
@@ -191,6 +289,9 @@ def _batter_name(row: dict[str, str]) -> str:
 
 
 def _batter_team(row: dict[str, str]) -> str:
+    safe = clean(row.get("_safe_batter_team"))
+    if safe:
+        return safe
     explicit = clean(first_value(row, ["team", "bat_team", "batTeam", "batting_team"]))
     if explicit:
         return explicit
@@ -232,3 +333,53 @@ def _source_updated_at(path: Path) -> str:
         return date.fromtimestamp(path.stat().st_mtime).isoformat()
     except OSError:
         return ""
+
+
+def _playerboard_subject_index(settings: Settings, date_label: str) -> dict[str, Any]:
+    rows, source = _playerboard_rows(settings, date_label)
+    by_name_team: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
+    by_player_id: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for row in rows:
+        status = clean(row.get("attributionStatus")).lower()
+        if status in {"invalid_player_label", "ambiguous", "conflict"}:
+            continue
+        aligned = align_board_context_identity(row)
+        if aligned.get("subjectRole") not in {"batter", "unknown"}:
+            continue
+        player = clean(aligned.get("subjectName") or row.get("player"))
+        normalized_player = clean(aligned.get("normalizedSubjectName")) or normalize_player_name(player)
+        team = clean(aligned.get("subjectTeam") or row.get("team"))
+        normalized_team = normalize_team(team)
+        if not player or not normalized_player or not normalized_team:
+            continue
+        entry = {
+            "player": player,
+            "normalizedPlayer": normalized_player,
+            "team": normalized_team,
+            "source": source,
+            "attributionStatus": status,
+        }
+        by_name_team[(normalized_player, normalized_team)].append(entry)
+        player_id = clean(first_value(row, ["player_mlbam_id", "playerId", "player_id", "subjectPlayerId"]))
+        if player_id:
+            by_player_id[player_id].append(entry)
+    return {"hasBoard": bool(rows), "source": source, "byNameTeam": by_name_team, "byPlayerId": by_player_id}
+
+
+def _playerboard_rows(settings: Settings, date_label: str) -> tuple[list[dict[str, str]], str]:
+    root = settings.data_dir / "playerboard"
+    candidates = [root / f"playerboard_{settings.current_season}.csv"]
+    candidates.extend(sorted(root.glob("playerboard_*.csv"), key=lambda item: item.stat().st_mtime, reverse=True))
+    seen: set[Path] = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        rows = [
+            row
+            for row in read_csv_rows(path)
+            if not clean(first_value(row, ["date", "eventDateLocal", "game_date"])) or clean(first_value(row, ["date", "eventDateLocal", "game_date"]))[:10] == date_label
+        ]
+        if rows:
+            return rows, str(path)
+    return [], ""

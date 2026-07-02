@@ -10,6 +10,7 @@ import joblib
 from mlb_app.config import Settings
 from mlb_app.services.context_sources.base import ContextProviderResult
 from mlb_app.services.context_sources.bullpen_context_provider import BullpenContextProvider
+from mlb_app.services.context_sources.game_market_context_provider import GameMarketContextProvider
 from mlb_app.services.context_sources.handedness_platoon_context_provider import HandednessPlatoonContextProvider
 from mlb_app.services.context_sources.mlb_stats_context_provider import MLBStatsContextProvider
 from mlb_app.services.context_sources.odds_movement_context_provider import OddsMovementContextProvider
@@ -127,7 +128,7 @@ def test_local_season_logs_produce_player_recent_form_without_same_day_labels(tm
     result = MLBStatsContextProvider(settings).player_recent_form(date_label="2026-06-30", season=2026)
     rows = read_csv(Path(result.path))
 
-    assert result.status == "ok"
+    assert result.status == "partial"
     assert result.rows == 1
     assert rows[0]["player"] == "Aaron Judge"
     assert rows[0]["recent_games"] == "1"
@@ -206,9 +207,113 @@ def test_missing_prior_odds_snapshot_warns_without_failure(tmp_path: Path) -> No
 
     result = OddsMovementContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
 
-    assert result.status == "partial"
+    assert result.status == "ok"
     assert result.rows == 1
     assert "Prior odds snapshot not found; movement fields left null." in result.warnings
+
+
+def test_game_markets_provider_reads_local_actionnetwork_game_markets(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "warehouse" / "normalized" / "odds" / "actionnetwork_all_markets_2026-06-30.csv",
+        [
+            {
+                "source": "actionnetwork",
+                "game_date": "2026-06-30",
+                "event_id": "evt-1",
+                "market": "moneyline",
+                "book": "Consensus",
+                "home_team": "NYY",
+                "away_team": "BOS",
+                "team": "NYY",
+                "opponent": "BOS",
+                "american_odds": "-120",
+                "implied_probability": "0.545455",
+                "is_live": "False",
+            }
+        ],
+    )
+
+    result = GameMarketContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.status == "ok"
+    assert result.rows == 1
+    assert rows[0]["market"] == "moneyline"
+    assert rows[0]["moneyline"] == "-120"
+    assert rows[0]["pregameSafe"] == "True"
+
+
+def test_game_markets_provider_ignores_player_prop_odds_and_falls_back_to_slate(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "warehouse" / "normalized" / "odds" / "actionnetwork_all_markets_2026-06-30.csv",
+        [
+            {
+                "source": "actionnetwork",
+                "game_date": "2026-06-30",
+                "event_id": "evt-1",
+                "market_group": "home_runs",
+                "market": "HR",
+                "player_id": "592450",
+                "player_name": "Aaron Judge",
+                "american_odds": "450",
+                "implied_probability": "0.181818",
+            }
+        ],
+    )
+    write_csv(
+        settings.data_dir / "odds" / "propline_props_2026-06-30.csv",
+        [
+            {
+                "eventDateLocal": "2026-06-30",
+                "eventId": "evt-1",
+                "homeTeam": "New York Yankees",
+                "awayTeam": "Boston Red Sox",
+                "market": "batter_hits",
+                "player": "Aaron Judge",
+                "americanOdds": "-105",
+            }
+        ],
+    )
+
+    result = GameMarketContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.status == "neutral_fallback"
+    assert result.rows == 2
+    assert {row["team"] for row in rows} == {"Boston Red Sox", "New York Yankees"}
+    assert all(row["market"] == "slate" for row in rows)
+    assert all(row["american_odds"] == "" and row["implied_probability"] == "" for row in rows)
+    assert "no true local game-market odds" in rows[0]["warnings"]
+
+
+def test_game_markets_provider_marks_live_rows_not_pregame_safe(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "warehouse" / "normalized" / "odds" / "actionnetwork_all_markets_2026-06-30.csv",
+        [
+            {
+                "source": "actionnetwork",
+                "game_date": "2026-06-30",
+                "event_id": "evt-1",
+                "market": "total",
+                "home_team": "NYY",
+                "away_team": "BOS",
+                "side": "Over",
+                "line": "8.5",
+                "american_odds": "-110",
+                "is_live": "true",
+            }
+        ],
+    )
+
+    result = GameMarketContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.status == "partial"
+    assert rows[0]["pregameSafe"] == "False"
+    assert rows[0]["warnings"] == "live row marked not pregame safe"
 
 
 def test_statcast_provider_derives_safe_contract_and_excludes_same_day(tmp_path: Path) -> None:
@@ -298,6 +403,7 @@ def test_statcast_provider_skips_rows_without_safe_player_identity(tmp_path: Pat
     assert result.status == "missing"
     assert rows == []
     assert any("no safely identifiable batter rows" in warning for warning in result.warnings)
+    assert result.diagnostics["rowsRejectedMissingPlayerIdentity"] == 1
 
 
 def test_statcast_provider_does_not_treat_pitcher_player_name_as_batter(tmp_path: Path) -> None:
@@ -324,6 +430,80 @@ def test_statcast_provider_does_not_treat_pitcher_player_name_as_batter(tmp_path
 
     assert rows == []
     assert any("no safely identifiable batter rows" in warning for warning in result.warnings)
+    assert result.diagnostics["rowsRejectedMissingPlayerIdentity"] == 1
+
+
+def test_statcast_provider_matches_batter_id_to_verified_playerboard_subject(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "playerboard" / "playerboard_2026.csv",
+        [
+            {
+                "date": "2026-06-30",
+                "market": "batter_hits",
+                "player": "Aaron Judge",
+                "team": "NYY",
+                "opponent": "BOS",
+                "playerId": "592450",
+                "attributionStatus": "verified",
+            }
+        ],
+    )
+    write_csv(
+        settings.data_dir / "cache" / "savant" / "raw" / "statcast_2026_sample.csv",
+        [
+            {
+                "game_date": "2026-06-29",
+                "player_name": "Cole, Gerrit",
+                "batter": "592450",
+                "pitcher": "543037",
+                "home_team": "NYY",
+                "away_team": "BOS",
+                "inning_topbot": "Bot",
+                "events": "single",
+                "launch_speed": "101",
+            }
+        ],
+    )
+
+    result = SavantStatcastContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.rows == 1
+    assert rows[0]["player"] == "Aaron Judge"
+    assert rows[0]["team"] == "NYY"
+    assert result.diagnostics["rowsMatchedToPlayerboardSubjects"] == 1
+
+
+def test_statcast_provider_refuses_ambiguous_playerboard_subject_match(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "playerboard" / "playerboard_2026.csv",
+        [
+            {"date": "2026-06-30", "market": "batter_hits", "player": "Same Name", "team": "NYY", "opponent": "BOS", "playerId": "111", "attributionStatus": "verified"},
+            {"date": "2026-06-30", "market": "batter_hits", "player": "Same Name", "team": "BOS", "opponent": "NYY", "playerId": "111", "attributionStatus": "verified"},
+        ],
+    )
+    write_csv(
+        settings.data_dir / "cache" / "savant" / "raw" / "statcast_2026_sample.csv",
+        [
+            {
+                "game_date": "2026-06-29",
+                "batter": "111",
+                "pitcher": "543037",
+                "home_team": "NYY",
+                "away_team": "BOS",
+                "inning_topbot": "Bot",
+                "events": "single",
+                "launch_speed": "101",
+            }
+        ],
+    )
+
+    result = SavantStatcastContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+
+    assert result.rows == 0
+    assert result.diagnostics["rowsRejectedAmbiguousIdentity"] == 1
 
 
 def test_statcast_missing_local_cache_warns_without_crashing(tmp_path: Path) -> None:

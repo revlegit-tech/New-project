@@ -132,6 +132,11 @@ def _coverage_for_result(name: str, result: ContextProviderResult) -> dict[str, 
         rows = []
     fallback_rows = sum(1 for row in rows if "fallback" in str(row.get("source") or row.get("assignment_status") or row.get("warnings") or "").lower())
     populated_rows = sum(1 for row in rows if any(_populated(value) for field, value in row.items() if field not in _META_FIELDS))
+    missing_feature_fields = [
+        field
+        for field in _feature_fields_for_group(name, fields)
+        if field in fields and not any(_populated(row.get(field)) for row in rows)
+    ]
     missing_required = [
         field
         for field in _required_fields_for_group(name, fields)
@@ -144,13 +149,17 @@ def _coverage_for_result(name: str, result: ContextProviderResult) -> dict[str, 
         "rows": total,
         "populatedRows": populated_rows,
         "fallbackRows": fallback_rows if result.status == "neutral_fallback" else int(result.diagnostics.get("fallbackRows") or fallback_rows),
+        "rejectedRows": _rejected_rows(result),
         "missingRequiredFields": missing_required,
+        "missingFeatureFields": missing_feature_fields,
         "populatedPercent": populated_percent,
         "source": result.source,
         "status": status,
         "warnings": list(result.warnings),
+        "sampleRows": rows[:3] if result.status in {"ok", "partial"} else [],
         "sampleJoinedRows": rows[:3] if result.status in {"ok", "partial"} else [],
         "sampleFallbackRows": rows[:3] if result.status == "neutral_fallback" else [],
+        "sampleRejectedRows": list(result.diagnostics.get("sampleRejectedRows") or [])[:3],
         "sampleRejectedIdentityRows": list(result.diagnostics.get("sampleRejectedRows") or [])[:3],
     }
 
@@ -176,6 +185,44 @@ def _required_fields_for_group(name: str, fields: list[str]) -> list[str]:
         "umpire": ["date", "season", "assignment_status", "pregameSafe", "labelsExcluded"],
     }
     return [field for field in contracts.get(name, []) if field in fields or name in contracts]
+
+
+def _feature_fields_for_group(name: str, fields: list[str]) -> list[str]:
+    contracts = {
+        "game_markets": ["moneyline", "total", "team_total", "run_line", "american_odds", "implied_probability"],
+        "statcast": [
+            "barrel_rate",
+            "hard_hit_rate",
+            "xwoba",
+            "xba",
+            "xslg",
+            "batter_babip",
+            "batter_k_rate",
+            "batter_walk_rate",
+            "batter_ld_rate",
+            "batter_gb_rate",
+            "batter_sprint_speed",
+        ],
+    }
+    return [field for field in contracts.get(name, []) if field in fields]
+
+
+def _rejected_rows(result: ContextProviderResult) -> int:
+    diagnostics = result.diagnostics or {}
+    explicit = diagnostics.get("rejectedRows")
+    if explicit is not None:
+        try:
+            return int(explicit)
+        except (TypeError, ValueError):
+            return 0
+    total = 0
+    for key, value in diagnostics.items():
+        if key.startswith("rowsRejected"):
+            try:
+                total += int(value or 0)
+            except (TypeError, ValueError):
+                continue
+    return total
 
 
 def _populated(value: Any) -> bool:

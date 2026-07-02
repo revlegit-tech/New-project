@@ -86,7 +86,7 @@ class OddsMovementContextProvider:
         if prior_path and not any(clean(row.get("previousAmericanOdds")) for row in output):
             warnings.append("Prior odds snapshot did not match current prop keys.")
         write_csv_rows(output_path, output, ODDS_MOVEMENT_FIELDS)
-        status = "partial" if warnings and output else "ok" if output else "missing"
+        status = _status_for_output(output, prior_path=prior_path)
         return self._result(status, date_label, season, len(output), output_path, warnings)
 
     def _prior_snapshot(self, date_label: str) -> Path | None:
@@ -104,6 +104,12 @@ class OddsMovementContextProvider:
             path=str(path),
             warnings=warnings,
         )
+
+
+def _status_for_output(output: list[dict[str, Any]], *, prior_path: Path | None) -> str:
+    if not output:
+        return "missing"
+    return "partial" if prior_path and not any(clean(row.get("previousAmericanOdds")) for row in output) else "ok"
 
 
 def _odds_key(row: dict[str, Any]) -> str:

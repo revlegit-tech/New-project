@@ -124,6 +124,8 @@ class MLBStatsContextProvider:
             warnings.append("No prior batter game logs available before target date.")
         if not seed_rows:
             warnings.append("No current board batter subjects available for player_recent_form.")
+        if historical.get("sameDayRejected"):
+            warnings.append("Same-day batter game log rows excluded to avoid label leakage.")
         write_csv_rows(path, output, PLAYER_RECENT_FORM_FIELDS)
         diagnostics = _player_diagnostics(date_label, season, seed_diagnostics, historical, output, seed_rows, warnings)
         return self._result(
