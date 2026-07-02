@@ -259,6 +259,34 @@ def test_data_status_reports_missing_noncritical_edge_board(tmp_path: Path) -> N
     assert payload["data_health_score"] == 96
 
 
+def test_data_status_reports_fallback_context_coverage_from_latest_audit(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    seed_complete_data(settings)
+    write_json(
+        settings.data_dir / "context" / "context_source_audit_2026-06-22.json",
+        {
+            "date": "2026-06-22",
+            "generatedAt": NOW.isoformat(),
+            "contextCoverageByGroup": {
+                "weather": {"rows": 2, "fallbackRows": 2, "status": "fallback", "missingRequiredFields": []},
+                "bullpen_context": {"rows": 2, "fallbackRows": 2, "status": "fallback", "missingRequiredFields": []},
+                "umpire": {"rows": 1, "fallbackRows": 1, "status": "fallback", "missingRequiredFields": []},
+            },
+            "contextFeatureGroups": {"ready": [], "partial": [], "fallback": ["bullpen_context", "umpire", "weather"], "missing": []},
+            "warnings": ["neutral fallback rows materialized"],
+        },
+    )
+
+    payload = DataStatusService(settings=settings, now_provider=lambda: NOW).payload({"season": ["2026"]})
+
+    for group in ("weather", "bullpen_context", "umpire"):
+        coverage = payload["contextCoverageByGroup"][group]
+        assert coverage["rows"] > 0
+        assert coverage["fallbackRows"] > 0
+        assert coverage["status"] == "fallback"
+        assert coverage["missingRequiredFields"] == []
+
+
 def test_edge_board_snapshot_writer_and_status_detection(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     seed_complete_data(settings, include_edge_board=False)
@@ -387,6 +415,9 @@ def test_data_status_endpoint_uses_strict_response_shape(tmp_path: Path) -> None
         "ml_feature_exports",
         "ml_label_exports",
         "ml_training_datasets",
+        "contextCoverageByGroup",
+        "contextFeatureGroups",
+        "context_source_audit",
         "expected_files",
         "missing_files",
         "warnings",

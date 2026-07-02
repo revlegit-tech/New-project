@@ -76,15 +76,25 @@ class FeatureSourceAuditService:
                     providers[name]["externalApiCallsMade"] = diagnostics.get("externalApiCallsMade", providers[name].get("externalApiCallsMade", 0))
                     providers[name]["pregameSafe"] = diagnostics.get("pregameSafe", providers[name].get("pregameSafe", True))
                     providers[name]["labelsExcluded"] = diagnostics.get("labelsExcluded", providers[name].get("labelsExcluded", True))
-        ready = sorted(name for name, result in results.items() if result.status in {"ok", "partial"} and result.rows > 0)
-        missing = sorted(name for name in results if name not in ready)
+        ready = sorted(name for name, result in results.items() if result.status == "ok" and result.rows > 0)
+        fallback = sorted(name for name, result in results.items() if result.status == "neutral_fallback")
+        partial = sorted(name for name, result in results.items() if result.status == "partial")
+        missing = sorted(name for name, result in results.items() if result.status in {"missing", "error"})
         warnings = [warning for result in results.values() for warning in result.warnings]
+        coverage = {name: _coverage_for_result(name, result) for name, result in results.items()}
         return {
             "date": date_label,
             "season": int(season),
             "providers": providers,
             "providerStatuses": {name: result.status for name, result in results.items()},
             "rowsByProvider": {name: result.rows for name, result in results.items()},
+            "contextCoverageByGroup": coverage,
+            "contextFeatureGroups": {
+                "ready": sorted(name for name in ready if name not in fallback),
+                "partial": partial,
+                "fallback": fallback,
+                "missing": sorted(name for name, result in results.items() if result.status in {"missing", "error"}),
+            },
             "missingFeatureGroups": missing,
             "readyFeatureGroups": ready,
             "warnings": warnings,
@@ -108,6 +118,64 @@ def _field_status(result: ContextProviderResult, expected_fields: list[str]) -> 
     ready = [field for field in expected_fields if field in fields and any(_populated(row.get(field)) for row in rows)]
     missing = [field for field in expected_fields if field not in ready]
     return {"readyFields": ready, "missingFields": missing}
+
+
+def _coverage_for_result(name: str, result: ContextProviderResult) -> dict[str, Any]:
+    fields: list[str] = []
+    rows: list[dict[str, Any]] = []
+    try:
+        with open(result.path, "r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            fields = [field for field in (reader.fieldnames or []) if field]
+            rows = [dict(row) for row in reader]
+    except OSError:
+        rows = []
+    fallback_rows = sum(1 for row in rows if "fallback" in str(row.get("source") or row.get("assignment_status") or row.get("warnings") or "").lower())
+    populated_rows = sum(1 for row in rows if any(_populated(value) for field, value in row.items() if field not in _META_FIELDS))
+    missing_required = [
+        field
+        for field in _required_fields_for_group(name, fields)
+        if field not in fields or not any(_populated(row.get(field)) for row in rows)
+    ]
+    total = int(result.rows)
+    populated_percent = round((populated_rows / total) * 100.0, 2) if total else 0.0
+    status = "fallback" if result.status == "neutral_fallback" else result.status
+    return {
+        "rows": total,
+        "populatedRows": populated_rows,
+        "fallbackRows": fallback_rows if result.status == "neutral_fallback" else int(result.diagnostics.get("fallbackRows") or fallback_rows),
+        "missingRequiredFields": missing_required,
+        "populatedPercent": populated_percent,
+        "source": result.source,
+        "status": status,
+        "warnings": list(result.warnings),
+        "sampleJoinedRows": rows[:3] if result.status in {"ok", "partial"} else [],
+        "sampleFallbackRows": rows[:3] if result.status == "neutral_fallback" else [],
+        "sampleRejectedIdentityRows": list(result.diagnostics.get("sampleRejectedRows") or [])[:3],
+    }
+
+
+_META_FIELDS = {
+    "date",
+    "season",
+    "source",
+    "generatedAt",
+    "sourceUpdatedAt",
+    "pregameSafe",
+    "labelsExcluded",
+    "warnings",
+}
+
+
+def _required_fields_for_group(name: str, fields: list[str]) -> list[str]:
+    contracts = {
+        "weather": ["date", "season", "team", "opponent", "pregameSafe", "labelsExcluded"],
+        "game_markets": ["date", "season", "team", "opponent", "market", "source"],
+        "bullpen_context": ["date", "season", "team", "opponent", "pregameSafe", "labelsExcluded"],
+        "statcast": ["date", "season", "player", "team", "pregameSafe", "labelsExcluded"],
+        "umpire": ["date", "season", "assignment_status", "pregameSafe", "labelsExcluded"],
+    }
+    return [field for field in contracts.get(name, []) if field in fields or name in contracts]
 
 
 def _populated(value: Any) -> bool:

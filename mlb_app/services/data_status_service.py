@@ -106,6 +106,7 @@ class DataStatusService:
         ml_feature_exports = self._ml_feature_exports_status(database_status)
         ml_label_exports = self._ml_label_exports_status(database_status)
         ml_training_datasets = self._ml_training_datasets_status(database_status)
+        context_health = self._context_health(current_date)
 
         warnings.extend(f"Missing expected file: {path}" for path in missing_files)
         data_health_score = self._score(source_freshness, missing_files)
@@ -124,6 +125,9 @@ class DataStatusService:
             "ml_feature_exports": ml_feature_exports,
             "ml_label_exports": ml_label_exports,
             "ml_training_datasets": ml_training_datasets,
+            "contextCoverageByGroup": context_health["contextCoverageByGroup"],
+            "contextFeatureGroups": context_health["contextFeatureGroups"],
+            "context_source_audit": context_health["context_source_audit"],
             "expected_files": expected_files,
             "missing_files": missing_files,
             "warnings": _dedupe(warnings)[:40],
@@ -302,6 +306,69 @@ class DataStatusService:
             "warnings": [str(item) for item in latest.get("warnings", []) if str(item).strip()][:10],
         }
 
+    def _context_health(self, current_date: str) -> dict[str, Any]:
+        audit = self._latest_context_audit(current_date)
+        if audit:
+            return {
+                "contextCoverageByGroup": audit.get("contextCoverageByGroup") if isinstance(audit.get("contextCoverageByGroup"), dict) else {},
+                "contextFeatureGroups": audit.get("contextFeatureGroups") if isinstance(audit.get("contextFeatureGroups"), dict) else {},
+                "context_source_audit": {
+                    "path": audit.get("path") or "",
+                    "date": audit.get("date") or "",
+                    "generatedAt": audit.get("generatedAt") or "",
+                    "warnings": list(audit.get("warnings") or [])[:20],
+                },
+            }
+        coverage: dict[str, Any] = {}
+        groups = {
+            "weather": self.data_dir / "context" / "weather" / f"weather_context_{current_date}.csv",
+            "game_markets": self.data_dir / "context" / "game_markets" / f"game_markets_{current_date}.csv",
+            "bullpen_context": self.data_dir / "context" / "bullpen" / f"bullpen_context_{current_date}.csv",
+            "statcast": self.data_dir / "context" / "statcast" / f"statcast_context_{current_date}.csv",
+            "umpire": self.data_dir / "context" / "umpire" / f"umpire_context_{current_date}.csv",
+        }
+        feature_groups = {"ready": [], "partial": [], "fallback": [], "missing": []}
+        for group, path in groups.items():
+            rows, fields, sample = _read_small_csv(path)
+            status = "missing"
+            fallback_rows = sum(1 for row in sample if "fallback" in json.dumps(row).lower())
+            if rows > 0 and fallback_rows == rows:
+                status = "fallback"
+                feature_groups["fallback"].append(group)
+            elif rows > 0:
+                status = "partial"
+                feature_groups["partial"].append(group)
+            else:
+                feature_groups["missing"].append(group)
+            coverage[group] = {
+                "rows": rows,
+                "populatedRows": rows,
+                "fallbackRows": fallback_rows,
+                "missingRequiredFields": [],
+                "populatedPercent": 100.0 if rows else 0.0,
+                "source": str(path),
+                "status": status,
+                "warnings": [] if path.is_file() else [f"{group} context artifact missing."],
+                "fields": fields,
+            }
+        return {"contextCoverageByGroup": coverage, "contextFeatureGroups": feature_groups, "context_source_audit": {}}
+
+    def _latest_context_audit(self, current_date: str) -> dict[str, Any]:
+        context_dir = self.data_dir / "context"
+        candidates = [context_dir / f"context_source_audit_{current_date}.json"]
+        candidates.extend(sorted(context_dir.glob("context_source_audit_*.json"), key=_safe_mtime, reverse=True))
+        for path in candidates:
+            if not path.is_file():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(payload, dict):
+                payload.setdefault("path", _relative_data_path(path, self.data_dir))
+                return payload
+        return {}
+
     def _inspect_source(self, spec: SourceSpec, *, generated_at: datetime) -> dict[str, Any]:
         root = self.data_dir / spec.relative_path
         warnings: list[str] = []
@@ -428,6 +495,18 @@ def _cheap_row_count(path: Path) -> int | None:
     except (OSError, json.JSONDecodeError):
         return None
     return None
+
+
+def _read_small_csv(path: Path) -> tuple[int, list[str], list[dict[str, Any]]]:
+    if not path.is_file():
+        return 0, [], []
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            rows = [dict(row) for row in reader]
+            return len(rows), [field for field in (reader.fieldnames or []) if field], rows
+    except OSError:
+        return 0, [], []
 
 
 def _dedupe(values: Iterable[str]) -> list[str]:

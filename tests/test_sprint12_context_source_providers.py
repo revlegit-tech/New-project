@@ -9,6 +9,7 @@ import joblib
 
 from mlb_app.config import Settings
 from mlb_app.services.context_sources.base import ContextProviderResult
+from mlb_app.services.context_sources.bullpen_context_provider import BullpenContextProvider
 from mlb_app.services.context_sources.handedness_platoon_context_provider import HandednessPlatoonContextProvider
 from mlb_app.services.context_sources.mlb_stats_context_provider import MLBStatsContextProvider
 from mlb_app.services.context_sources.odds_movement_context_provider import OddsMovementContextProvider
@@ -45,6 +46,32 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def write_schedule(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "dates": [
+                    {
+                        "date": "2026-06-30",
+                        "games": [
+                            {
+                                "gamePk": 123,
+                                "teams": {
+                                    "away": {"team": {"abbreviation": "BOS"}},
+                                    "home": {"team": {"abbreviation": "NYY"}},
+                                },
+                                "venue": {"name": "Yankee Stadium"},
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -367,6 +394,56 @@ def test_weather_provider_returns_missing_safely_without_configured_source(tmp_p
     assert "external weather calls skipped" in result.warnings[0]
 
 
+def test_weather_provider_emits_neutral_schedule_rows_when_weather_missing(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_schedule(settings.data_dir / "cache" / "incremental_stats" / "raw" / "schedules" / "schedule_2026-06-30.json")
+
+    result = WeatherContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.status == "neutral_fallback"
+    assert result.rows == 2
+    assert {row["team"] for row in rows} == {"BOS", "NYY"}
+    assert rows[0]["temperature"] == ""
+    assert rows[0]["pregameSafe"] == "True"
+    assert "neutral fallback" in rows[0]["warnings"]
+
+
+def test_bullpen_provider_emits_neutral_schedule_rows_when_logs_missing(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_schedule(settings.data_dir / "cache" / "incremental_stats" / "raw" / "schedules" / "schedule_2026-06-30.json")
+
+    result = BullpenContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.status == "neutral_fallback"
+    assert result.rows == 2
+    assert rows[0]["opponent_bullpen_era_7d"] == ""
+    assert rows[0]["bullpen_rest_warning"] == "neutral fallback"
+    assert rows[0]["labelsExcluded"] == "True"
+
+
+def test_bullpen_provider_uses_prior_logs_for_scheduled_opponents(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_schedule(settings.data_dir / "cache" / "incremental_stats" / "raw" / "schedules" / "schedule_2026-06-30.json")
+    write_csv(
+        settings.data_dir / "cloud" / "season_logs" / "pitcher_game_logs_2026.csv",
+        [
+            {"date": "2026-06-28", "team": "NYY", "earnedRuns": "2", "inningsPitched": "4"},
+            {"date": "2026-06-30", "team": "NYY", "earnedRuns": "9", "inningsPitched": "1"},
+        ],
+    )
+
+    result = BullpenContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+    bos_row = next(row for row in rows if row["team"] == "BOS")
+
+    assert result.status == "partial"
+    assert bos_row["opponent"] == "NYY"
+    assert bos_row["opponent_bullpen_era_7d"] == "4.5"
+    assert bos_row["bullpen_games_last_3d"] == "1"
+
+
 def test_umpire_provider_uses_neutral_fallback(tmp_path: Path) -> None:
     result = UmpireContextProvider(make_settings(tmp_path)).materialize(date_label="2026-06-30", season=2026)
 
@@ -374,6 +451,97 @@ def test_umpire_provider_uses_neutral_fallback(tmp_path: Path) -> None:
     assert result.rows == 0
     assert result.criticalForBoard is False
     assert result.warnings == ["Umpire context unavailable; neutral fallback used."]
+
+
+def test_umpire_provider_emits_one_neutral_row_per_scheduled_game(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_schedule(settings.data_dir / "cache" / "incremental_stats" / "raw" / "schedules" / "schedule_2026-06-30.json")
+
+    result = UmpireContextProvider(settings).materialize(date_label="2026-06-30", season=2026)
+    rows = read_csv(Path(result.path))
+
+    assert result.status == "neutral_fallback"
+    assert result.rows == 1
+    assert rows[0]["umpire_name"] == ""
+    assert rows[0]["assignment_status"] == "neutral_fallback"
+    assert rows[0]["game_pk"] == "123"
+
+
+def test_context_materialization_uses_propline_slate_for_neutral_fallbacks(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "odds" / "propline_props_2026-06-30.csv",
+        [
+            {
+                "date": "2026-06-30T23:05:00Z",
+                "eventDateLocal": "2026-06-30",
+                "eventId": "evt-1",
+                "homeTeam": "New York Yankees",
+                "awayTeam": "Boston Red Sox",
+                "market": "batter_hits",
+                "player": "Aaron Judge",
+                "side": "Over",
+                "line": "0.5",
+                "bookKey": "fanduel",
+                "americanOdds": "-105",
+            }
+        ],
+    )
+
+    audit = FeatureSourceAuditService(settings).materialize(date_label="2026-06-30", season=2026)
+
+    for group in ("weather", "bullpen_context", "umpire"):
+        coverage = audit["contextCoverageByGroup"][group]
+        assert coverage["rows"] > 0
+        assert coverage["fallbackRows"] > 0
+        assert coverage["status"] == "fallback"
+        assert coverage["missingRequiredFields"] == []
+    weather_rows = read_csv(settings.data_dir / "context" / "weather" / "weather_context_2026-06-30.csv")
+    bullpen_rows = read_csv(settings.data_dir / "context" / "bullpen" / "bullpen_context_2026-06-30.csv")
+    umpire_rows = read_csv(settings.data_dir / "context" / "umpire" / "umpire_context_2026-06-30.csv")
+    assert {row["team"] for row in weather_rows} == {"Boston Red Sox", "New York Yankees"}
+    assert all(row["temperature"] == "" and row["pregameSafe"] == "True" and row["labelsExcluded"] == "True" for row in weather_rows)
+    assert all(row["opponent_bullpen_era_7d"] == "" for row in bullpen_rows)
+    assert umpire_rows[0]["umpire_name"] == ""
+    assert umpire_rows[0]["assignment_status"] == "neutral_fallback"
+
+
+def test_context_materialization_uses_playerboard_slate_and_skips_invalid_labels(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    write_csv(
+        settings.data_dir / "playerboard" / "playerboard_2026.csv",
+        [
+            {
+                "date": "2026-06-30",
+                "season": "2026",
+                "player": "Aaron Judge",
+                "team": "NYY",
+                "opponent": "BOS",
+                "market": "batter_hits",
+                "attributionStatus": "verified",
+            },
+            {
+                "date": "2026-06-30",
+                "season": "2026",
+                "player": "Over 1.5",
+                "team": "LAD",
+                "opponent": "SDP",
+                "market": "batter_hits",
+                "attributionStatus": "invalid_player_label",
+            },
+        ],
+    )
+
+    audit = FeatureSourceAuditService(settings).materialize(date_label="2026-06-30", season=2026)
+
+    for group in ("weather", "bullpen_context", "umpire"):
+        coverage = audit["contextCoverageByGroup"][group]
+        assert coverage["rows"] > 0
+        assert coverage["fallbackRows"] > 0
+        assert coverage["status"] == "fallback"
+    weather_rows = read_csv(settings.data_dir / "context" / "weather" / "weather_context_2026-06-30.csv")
+    assert {row["team"] for row in weather_rows} == {"NYY"}
+    assert "LAD" not in {row["team"] for row in weather_rows}
 
 
 def test_context_audit_summary_includes_all_providers(tmp_path: Path) -> None:
@@ -398,6 +566,9 @@ def test_context_audit_summary_includes_all_providers(tmp_path: Path) -> None:
     assert set(audit["providers"]) == expected
     assert audit["externalApiCallsMade"] == 0
     assert audit["pregameSafe"] is True
+    assert "contextCoverageByGroup" in audit
+    assert "contextFeatureGroups" in audit
+    assert "umpire" in audit["contextFeatureGroups"]["fallback"]
     assert Path(audit["path"]).is_file()
 
 
