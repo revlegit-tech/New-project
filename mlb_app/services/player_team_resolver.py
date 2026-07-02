@@ -23,6 +23,29 @@ class PlayerTeamResolution:
         return self.status in {"verified", "roster_match", "game_log_match", "source_match"}
 
 
+@dataclass
+class SlateRosterIndex:
+    """Roster/name evidence scoped to the teams appearing on one slate."""
+
+    names_by_team: dict[str, set[str]] = field(default_factory=dict)
+    teams_by_name: dict[str, set[str]] = field(default_factory=dict)
+
+    def add_player(self, team: Any, player_name: Any) -> None:
+        team_abbr = normalize_team_alias(team)
+        if not team_abbr:
+            return
+        for name_key in player_name_variants(player_name):
+            self.names_by_team.setdefault(team_abbr, set()).add(name_key)
+            self.teams_by_name.setdefault(name_key, set()).add(team_abbr)
+
+    def teams_for_player(self, player_name: Any, event_teams: list[str]) -> set[str]:
+        event_team_set = {team for team in event_teams if team}
+        matched: set[str] = set()
+        for name_key in player_name_variants(player_name):
+            matched.update(team for team in self.teams_by_name.get(name_key, set()) if team in event_team_set)
+        return matched
+
+
 _ROSTER_TEAM_BY_NAME: dict[str, str] = {
     "bobby witt": "KCR",
     "bobby witt jr": "KCR",
@@ -66,6 +89,22 @@ def normalize_player_name(value: Any) -> str:
     return _ALIASES.get(normalized, normalized)
 
 
+def player_name_variants(value: Any) -> set[str]:
+    normalized = normalize_player_name(value)
+    if not normalized:
+        return set()
+    variants = {normalized}
+    tokens = normalized.split()
+    suffixes = {"jr", "sr", "ii", "iii", "iv", "v"}
+    if len(tokens) > 2 and tokens[-1] in suffixes:
+        variants.add(" ".join(tokens[:-1]))
+    elif len(tokens) >= 2:
+        # Common source rows sometimes omit suffixes while roster rows include them.
+        for suffix in ("jr", "ii"):
+            variants.add(f"{normalized} {suffix}")
+    return variants
+
+
 def resolve_player_team(
     *,
     player_name: Any,
@@ -74,6 +113,7 @@ def resolve_player_team(
     home_team: Any = "",
     away_team: Any = "",
     player_id: Any = "",
+    roster_index: SlateRosterIndex | None = None,
 ) -> PlayerTeamResolution:
     del player_id
     name_key = normalize_player_name(player_name)
@@ -86,20 +126,32 @@ def resolve_player_team(
     if name_key in _AMBIGUOUS_NAMES:
         return PlayerTeamResolution(status="ambiguous", sources=["local_roster_seed"], warnings=["ambiguous_player_name"])
 
-    roster_team = _ROSTER_TEAM_BY_NAME.get(name_key)
+    roster_team = ""
+    sources = ["slate_roster_index"]
+    if roster_index is not None and event_teams:
+        matched_teams = roster_index.teams_for_player(name_key, event_teams)
+        if len(matched_teams) > 1:
+            return PlayerTeamResolution(status="ambiguous", sources=sources, warnings=["ambiguous_player_name"])
+        if len(matched_teams) == 1:
+            roster_team = next(iter(matched_teams))
+
+    if not roster_team:
+        roster_team = _ROSTER_TEAM_BY_NAME.get(name_key)
+        sources = ["local_roster_seed"] if roster_team else sources
+
     if not roster_team:
         if source_team_abbr and source_opponent_abbr:
             return PlayerTeamResolution(
-                status="inferred",
+                status="missing",
                 team_abbr=source_team_abbr,
                 opponent_abbr=source_opponent_abbr,
                 team=team_display_name(source_team_abbr),
                 opponent=team_display_name(source_opponent_abbr),
+                sources=sources if roster_index is not None else [],
                 warnings=["no_roster_evidence"],
             )
         return PlayerTeamResolution(status="missing", warnings=["no_roster_evidence"])
 
-    sources = ["local_roster_seed"]
     if len(event_teams) < 2:
         return PlayerTeamResolution(
             status="missing",

@@ -4,7 +4,7 @@ import re
 from collections import Counter
 from typing import Any
 
-from mlb_app.services.player_team_resolver import resolve_player_team
+from mlb_app.services.player_team_resolver import SlateRosterIndex, resolve_player_team
 from mlb_app.services.team_match_utils import normalize_team_alias
 
 ATTRIBUTION_CONTEXT_WARNING = "Context limited by unverified player/team attribution."
@@ -49,7 +49,7 @@ def clean_player_label(value: Any, *, market: Any = "", raw_label: Any = "") -> 
     }
 
 
-def resolve_attribution(row: dict[str, Any]) -> dict[str, Any]:
+def resolve_attribution(row: dict[str, Any], roster_index: SlateRosterIndex | None = None) -> dict[str, Any]:
     raw_player = _clean(_first(row, "rawPlayerName", "sourcePlayerLabel", "sourcePlayerName", "player", "playerName", "name"))
     market = _clean(row.get("market"))
     label_result = clean_player_label(raw_player, market=market, raw_label=_first(row, "rawLabel", "side"))
@@ -70,6 +70,7 @@ def resolve_attribution(row: dict[str, Any]) -> dict[str, Any]:
         home_team=_first(row, "homeTeam", "home_team", "home"),
         away_team=_first(row, "awayTeam", "away_team", "away"),
         player_id=_first(row, "playerId", "mlbPlayerId", "player_id"),
+        roster_index=roster_index,
     )
 
     warnings = list(label_result["playerLabelWarnings"])
@@ -137,17 +138,17 @@ def resolve_attribution(row: dict[str, Any]) -> dict[str, Any]:
                 warnings.append("source_team_mismatch_corrected")
     elif not raw_team or not raw_opponent:
         status = "source_missing"
-        confidence = "low" if not (raw_team or raw_opponent) else "medium"
+        confidence = "low"
         warnings.append("missing_source_team_or_opponent")
     elif team_verified and opponent_verified:
         status = "verified"
         confidence = "verified"
     else:
-        status = "inferred"
-        confidence = "medium"
+        status = "inferred_low_confidence" if _is_player_market(market) else "inferred"
+        confidence = "low" if _is_player_market(market) else "medium"
         warnings.append("team_opponent_inferred")
 
-    context_allowed = confidence in {"verified", "high", "medium"} and status not in {"conflict", "invalid_player_label"}
+    context_allowed = confidence in {"verified", "high", "medium"} and status not in {"conflict", "ambiguous", "invalid_player_label", "inferred_low_confidence"}
     context_warning = confidence == "medium" and context_allowed
     if not context_allowed:
         warnings.append("context_limited_by_attribution")
@@ -184,8 +185,8 @@ def resolve_attribution(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def apply_attribution(row: dict[str, Any]) -> dict[str, Any]:
-    attribution = resolve_attribution(row)
+def apply_attribution(row: dict[str, Any], roster_index: SlateRosterIndex | None = None) -> dict[str, Any]:
+    attribution = resolve_attribution(row, roster_index=roster_index)
     enriched = dict(row)
     enriched.update(attribution)
     if attribution["cleanedPlayerName"]:
@@ -262,8 +263,8 @@ def attribution_confidence_to_identity(confidence: Any, status: Any = "") -> str
     return "unknown"
 
 
-def attribution_diagnostics(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    enriched = [apply_attribution(row) if "attributionConfidence" not in row else row for row in rows]
+def attribution_diagnostics(rows: list[dict[str, Any]], roster_index: SlateRosterIndex | None = None) -> dict[str, Any]:
+    enriched = [apply_attribution(row, roster_index=roster_index) if "attributionConfidence" not in row else row for row in rows]
     counts = Counter(_clean(row.get("attributionConfidence")) or "unknown" for row in enriched)
     status_counts = Counter(_clean(row.get("attributionStatus")) or "unknown" for row in enriched)
     return {
@@ -296,6 +297,16 @@ def attribution_diagnostics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "sampleRosterEvidenceMatches": _samples(enriched, lambda row: row.get("playerTeamEvidenceStatus") in {"verified", "roster_match"}),
         "sampleRosterEvidenceMisses": _samples(enriched, lambda row: "no_roster_evidence" in (row.get("playerTeamEvidenceWarnings") or [])),
         "sampleRowsBlockedFromModelContext": _samples(enriched, lambda row: row.get("contextBlockedByAttribution")),
+        "rosterResolverRowsChecked": sum(1 for row in enriched if _is_player_market(row.get("market"))),
+        "rosterResolverRowsMatchedOneSide": sum(1 for row in enriched if row.get("playerTeamEvidenceStatus") in {"verified", "roster_match"}),
+        "rosterResolverRowsCorrected": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and row.get("playerTeamEvidenceStatus") == "roster_match"),
+        "rosterResolverRowsAlreadyVerified": sum(1 for row in enriched if row.get("attributionStatus") == "verified" and row.get("playerTeamEvidenceStatus") == "verified"),
+        "rosterResolverRowsAmbiguous": status_counts.get("ambiguous", 0),
+        "rosterResolverRowsNoRosterMatch": sum(1 for row in enriched if "no_roster_evidence" in (row.get("playerTeamEvidenceWarnings") or [])),
+        "sampleRosterCorrections": _samples(enriched, lambda row: bool(row.get("attributionCorrectionApplied")) and row.get("playerTeamEvidenceStatus") == "roster_match"),
+        "sampleRosterVerified": _samples(enriched, lambda row: row.get("attributionStatus") == "verified" and row.get("playerTeamEvidenceStatus") == "verified"),
+        "sampleRosterNoMatch": _samples(enriched, lambda row: "no_roster_evidence" in (row.get("playerTeamEvidenceWarnings") or [])),
+        "sampleRosterAmbiguous": _samples(enriched, lambda row: row.get("attributionStatus") == "ambiguous"),
     }
 
 

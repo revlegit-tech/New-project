@@ -148,6 +148,49 @@ def test_builder_corrects_roster_attribution_before_source_rows(monkeypatch) -> 
     assert invalid["contextBlockedByAttribution"] is True
 
 
+def test_builder_uses_slate_roster_index_for_mixed_two_team_board(monkeypatch) -> None:
+    props = [
+        {"date": "2026-07-01", "market": "batter_hits", "player": "Camden Vale", "team": "TBR", "opponent": "KCR", "line": "0.5", "americanOdds": "-110"},
+        {"date": "2026-07-01", "market": "batter_hits", "player": "River Stone", "team": "TBR", "opponent": "KCR", "line": "0.5", "americanOdds": "-105"},
+    ]
+    monkeypatch.setattr(builder, "load_saved_props", lambda *args, **kwargs: props)
+
+    def fake_read_csv_rows(path):
+        if path.name == "player_index_2026.csv":
+            return [
+                {"player": "Camden Vale", "team": "KCR"},
+                {"player": "River Stone", "team": "TBR"},
+            ]
+        return []
+
+    monkeypatch.setattr(builder, "read_csv_rows", fake_read_csv_rows)
+    monkeypatch.setattr(
+        "mlb_app.domain.unified_prop_card.unified_prop_card",
+        lambda row: {
+            "player": row["player"],
+            "market": row["market"],
+            "team": row["team"],
+            "opponent": row["opponent"],
+            "line": row["line"],
+            "americanOdds": row["american_odds"],
+            "finalEdgePercent": 1,
+        },
+    )
+
+    payload = builder.build_playerboard(season=2026, date_label="2026-07-01", limit=10, save=False, source_mode="propline")
+    rows = {row["player"]: row for row in payload["top"]}
+
+    assert rows["Camden Vale"]["team"] == "KANSAS CITY ROYALS"
+    assert rows["Camden Vale"]["opponent"] == "TAMPA BAY RAYS"
+    assert rows["Camden Vale"]["attributionStatus"] == "corrected"
+    assert rows["River Stone"]["team"] == "TAMPA BAY RAYS"
+    assert rows["River Stone"]["opponent"] == "KANSAS CITY ROYALS"
+    assert rows["River Stone"]["attributionStatus"] == "verified"
+    assert payload["attribution"]["rosterResolverRowsChecked"] == 2
+    assert payload["attribution"]["rosterResolverRowsMatchedOneSide"] == 2
+    assert payload["attribution"]["rosterResolverRowsCorrected"] == 1
+
+
 def test_save_playerboard_snapshot_persists_corrected_attribution(monkeypatch, tmp_path) -> None:
     class FakeBoardSnapshotRepository:
         def __init__(self, *args, **kwargs) -> None:

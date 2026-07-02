@@ -22,9 +22,11 @@ from mlb_app.contracts.playerboard_schema import (
 
 from mlb_app.domain.team_game_markets import TEAM_GAME_MARKETS, TEAM_GAME_MARKET_LABELS, load_oddspapi_game_market_props
 from mlb_app.services.player_attribution import apply_attribution, attribution_diagnostics
+from mlb_app.services.player_team_resolver import SlateRosterIndex
 
 ROOT = default_settings.root_dir
 PLAYERBOARD_DIR = default_settings.data_dir / "playerboard"
+INCREMENTAL_STATS_DIR = ROOT / "data" / "cache" / "incremental_stats"
 
 _CSV_CACHE: dict[Path, tuple[tuple[int, int], list[dict[str, str]]]] = {}
 _SAVED_PLAYERBOARD_CACHE: dict[tuple[int, str, str, int, tuple[int, int] | None], dict[str, Any]] = {}
@@ -611,9 +613,10 @@ def prune_playerboard_snapshot(season: int, date_label: str, market: str = "") -
 def save_playerboard_snapshot(season: int, date_label: str, cards: list[dict[str, Any]], *, replace_date: bool = False, market: str = "") -> dict[str, Any]:
     snapshot_at = now_iso()
     rows = []
+    roster_index = build_slate_roster_index(cards, season)
 
     for card in cards:
-        card = apply_attribution(card)
+        card = apply_attribution(card, roster_index=roster_index)
         rows.append({
             "snapshotAt": snapshot_at,
             "season": season,
@@ -1071,6 +1074,91 @@ def first_value(row: dict[str, Any], names: list[str]) -> str:
     return ""
 
 
+def build_slate_roster_index(rows: list[dict[str, Any]], season: int) -> SlateRosterIndex:
+    """Build roster evidence for teams present in the current playerboard slate."""
+    index = SlateRosterIndex()
+    slate_teams = _slate_team_abbrs(rows)
+    if not slate_teams:
+        return index
+
+    roster_sources = [
+        INCREMENTAL_STATS_DIR / f"player_index_{season}.csv",
+        INCREMENTAL_STATS_DIR / f"batter_totals_{season}.csv",
+        INCREMENTAL_STATS_DIR / f"pitcher_totals_{season}.csv",
+    ]
+    for path in roster_sources:
+        for row in read_csv_rows(path):
+            team = canonical_team_abbr(first_value(row, ["team", "teamAbbr", "team_abbr", "team_abbreviation"]))
+            if team not in slate_teams:
+                continue
+            player = first_value(row, ["player", "playerName", "player_name", "name", "fullName", "full_name"])
+            index.add_player(team, player)
+
+    # Recent logs catch call-ups/traded players before a totals/index refresh has
+    # caught up, while still staying scoped to teams appearing on the slate.
+    for path in [
+        INCREMENTAL_STATS_DIR / f"batter_game_logs_{season}.csv",
+        INCREMENTAL_STATS_DIR / f"pitcher_game_logs_{season}.csv",
+    ]:
+        for row in read_csv_rows(path):
+            team = canonical_team_abbr(first_value(row, ["team", "teamAbbr", "team_abbr", "team_abbreviation"]))
+            if team not in slate_teams:
+                continue
+            player = first_value(row, ["player", "playerName", "player_name", "name", "fullName", "full_name"])
+            index.add_player(team, player)
+
+    for game in read_csv_rows(INCREMENTAL_STATS_DIR / f"games_{season}.csv"):
+        home = canonical_team_abbr(first_value(game, ["home", "homeTeam", "home_team"]))
+        away = canonical_team_abbr(first_value(game, ["away", "awayTeam", "away_team"]))
+        if home in slate_teams:
+            index.add_player(home, first_value(game, ["homeProbablePitcher", "home_probable_pitcher"]))
+        if away in slate_teams:
+            index.add_player(away, first_value(game, ["awayProbablePitcher", "away_probable_pitcher"]))
+
+    for row in rows:
+        # Some providers include short/common names in player fields. Add only
+        # rows whose source team has already been confirmed elsewhere on slate.
+        source_team = canonical_team_abbr(row.get("team"))
+        if source_team in slate_teams and _source_team_already_roster_backed(index, row, source_team):
+            index.add_player(source_team, row.get("player"))
+
+    return index
+
+
+def _slate_team_abbrs(rows: list[dict[str, Any]]) -> set[str]:
+    teams: set[str] = set()
+    for row in rows:
+        for key in ("homeTeam", "home_team", "home", "awayTeam", "away_team", "away", "team", "opponent"):
+            team = canonical_team_abbr(row.get(key))
+            if team:
+                teams.add(team)
+        game = clean(row.get("game"))
+        for separator in (" @ ", " vs ", " VS "):
+            if separator in game:
+                left, right = [part.strip() for part in game.split(separator, 1)]
+                for value in (left, right):
+                    team = canonical_team_abbr(value)
+                    if team:
+                        teams.add(team)
+                break
+    return teams
+
+
+def _source_team_already_roster_backed(index: SlateRosterIndex, row: dict[str, Any], source_team: str) -> bool:
+    player = clean(row.get("player"))
+    if not player:
+        return False
+    home = canonical_team_abbr(row.get("homeTeam") or row.get("home_team") or row.get("home"))
+    away = canonical_team_abbr(row.get("awayTeam") or row.get("away_team") or row.get("away"))
+    opponent = canonical_team_abbr(row.get("opponent"))
+    event_teams = [team for team in (away, home, source_team, opponent) if team]
+    seen: list[str] = []
+    for team in event_teams:
+        if team not in seen:
+            seen.append(team)
+    return index.teams_for_player(player, seen) == {source_team}
+
+
 _PLAYER_DESCRIPTION_SUFFIXES = (
     "Strikeouts Thrown",
     "Pitcher Strikeouts",
@@ -1477,7 +1565,7 @@ def aggregate_book_prices(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return collapsed
 
 
-def load_saved_props(date_label: str, markets: list[str] | None = None, limit: int = 5000, source_mode: str = "auto") -> list[dict[str, Any]]:
+def load_saved_props(date_label: str, markets: list[str] | None = None, limit: int = 5000, source_mode: str = "auto", season: int = default_settings.current_season) -> list[dict[str, Any]]:
     market_set = {normalize_market(m) for m in (markets or DEFAULT_MARKETS)}
     rows = []
 
@@ -1516,6 +1604,8 @@ def load_saved_props(date_label: str, markets: list[str] | None = None, limit: i
         )
     )
 
+    roster_index = build_slate_roster_index(rows, season)
+    rows = [apply_attribution(row, roster_index=roster_index) for row in rows]
     out = aggregate_book_prices(rows)
     return out[:limit]
 
@@ -1736,6 +1826,45 @@ def odds_only_player_card(prop: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+ATTRIBUTION_METADATA_FIELDS = (
+    "attributionConfidence",
+    "attributionStatus",
+    "attributionCorrectionApplied",
+    "attributionCorrectionReason",
+    "attributionWarnings",
+    "attributionSources",
+    "teamVerified",
+    "opponentVerified",
+    "playerVerified",
+    "cleanedPlayerName",
+    "rawPlayerName",
+    "sourceTeam",
+    "sourceOpponent",
+    "resolvedTeam",
+    "resolvedOpponent",
+    "resolvedTeamAbbr",
+    "resolvedOpponentAbbr",
+    "resolvedGameId",
+    "attributionConflictReason",
+    "originalTeam",
+    "originalOpponent",
+    "correctedTeam",
+    "correctedOpponent",
+    "playerTeamEvidenceStatus",
+    "playerTeamEvidenceSources",
+    "playerTeamEvidenceWarnings",
+    "contextBlockedByAttribution",
+    "contextAllowedWithWarning",
+)
+
+
+def preserve_attribution_metadata(card: dict[str, Any], prop: dict[str, Any]) -> dict[str, Any]:
+    for field in ATTRIBUTION_METADATA_FIELDS:
+        if field in prop and field not in card:
+            card[field] = copy.deepcopy(prop.get(field))
+    return card
+
+
 def _card_cache_key(row: dict[str, Any], season: int, date_label: str) -> tuple[str, ...]:
     return (
         str(season),
@@ -1874,7 +2003,12 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
     markets = [market] if market else DEFAULT_MARKETS
     load_limit = max(1, int(limit or 5000))
     load_started = time.perf_counter()
-    props = load_saved_props(date_label, markets=markets, limit=load_limit, source_mode=source_mode)
+    try:
+        props = load_saved_props(date_label, markets=markets, limit=load_limit, source_mode=source_mode, season=season)
+    except TypeError:
+        props = load_saved_props(date_label, markets=markets, limit=load_limit, source_mode=source_mode)
+    roster_index = build_slate_roster_index(props, season)
+    props = [apply_attribution(prop, roster_index=roster_index) for prop in props]
     load_ms = (time.perf_counter() - load_started) * 1000.0
 
     cards = []
@@ -2032,6 +2166,7 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
             counters["contextCacheMisses"] += 1
             context_started = time.perf_counter()
             prop = infer_missing_context(prop, season)
+            prop = apply_attribution(prop, roster_index=roster_index)
             add_timing("contextJoinMs", context_started)
             context_cache[context_key] = copy.deepcopy(prop)
 
@@ -2039,14 +2174,14 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
             if not team_game_market_display_allowed(prop):
                 return None, {"type": "filtered", "reason": "extreme_alt_line_filtered", "market": normalize_market(prop.get("market"))}
             post_started = time.perf_counter()
-            card = team_game_prop_to_playerboard_card(prop)
+            card = preserve_attribution_metadata(team_game_prop_to_playerboard_card(prop), prop)
             add_timing("cardPostProcessMs", post_started)
             return attach_hit_profile(card, {**prop, **card, "date": clean(prop.get("date"))[:10] or date_label}), None
 
         if not prop.get("team") or not prop.get("opponent"):
             if clean(prop.get("americanOdds")):
                 post_started = time.perf_counter()
-                card = odds_only_player_card(prop)
+                card = preserve_attribution_metadata(odds_only_player_card(prop), prop)
                 add_timing("cardPostProcessMs", post_started)
                 return attach_hit_profile(card, {**prop, **card, "date": clean(prop.get("date"))[:10] or date_label}), None
             return None, None
@@ -2070,7 +2205,7 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
         try:
             card = cached_unified_prop_card(row)
             post_started = time.perf_counter()
-            out = {
+            out = preserve_attribution_metadata({
                 "player": card.get("player"),
                 "market": card.get("market"),
                 "marketDisplay": clean(prop.get("marketDisplay")) or market_display_label(card.get("market"), prop.get("rawLabel")),
@@ -2111,7 +2246,7 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
                 "bestImpliedProbability": prop.get("bestImpliedProbability"),
                 "bestBookLastUpdate": prop.get("bestBookLastUpdate") or clean(prop.get("lastUpdate")),
                 "normalizedPropKey": prop.get("normalizedPropKey"),
-            }
+            }, prop)
             add_timing("cardPostProcessMs", post_started)
             return attach_hit_profile(out, row), None
         except Exception as error:
@@ -2160,9 +2295,9 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
     # Final aggregation after context inference/model card creation.
     # This collapses remaining book/alias duplicates into one clean prop card.
     aggregate_started = time.perf_counter()
-    cards = [apply_attribution(card) for card in cards]
+    cards = [apply_attribution(card, roster_index=roster_index) for card in cards]
     cards = sorted(aggregate_book_prices(cards), key=rank_value, reverse=True)
-    cards = [apply_attribution(card) for card in cards]
+    cards = [apply_attribution(card, roster_index=roster_index) for card in cards]
     aggregate_ms = (time.perf_counter() - aggregate_started) * 1000.0
 
     top_cards = cards[:limit]
@@ -2209,7 +2344,7 @@ def build_playerboard(season: int = default_settings.current_season, date_label:
         "contextCacheMisses": counters["contextCacheMisses"],
         "marketCapabilities": dict(MARKET_CAPABILITY_MAP),
         "saved": saved,
-        "attribution": attribution_diagnostics(top_cards),
+        "attribution": attribution_diagnostics(top_cards, roster_index=roster_index),
         "sourceMode": source_mode,
         "canonicalSourceFiles": [str(path) for path in canonical_prop_files(date_label)],
         "top": top_cards,
