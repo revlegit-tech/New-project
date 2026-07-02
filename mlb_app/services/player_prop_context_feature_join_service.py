@@ -15,7 +15,7 @@ from mlb_app.services.player_prop_context_identity_service import (
     normalize_player_name,
     normalize_team,
 )
-from mlb_app.services.player_attribution import apply_attribution
+from mlb_app.services.player_attribution import apply_attribution, attribution_blocks_context
 from mlb_app.services.player_prop_identity_confidence import identity_confidence_for_row
 from mlb_app.services.player_prop_model_runtime import first_value, model_market_key, to_float
 from mlb_app.services.prop_side_normalization import normalize_prop_side
@@ -802,8 +802,7 @@ def _raw_context_key_for_diag(original: dict[str, Any], aligned: dict[str, Any],
 
 
 def _context_blocked_by_attribution(row: dict[str, Any]) -> bool:
-    status = str(row.get("attributionStatus") or "").strip().lower()
-    return bool(row.get("contextBlockedByAttribution")) or status in {"conflict", "ambiguous", "invalid_player_label"}
+    return attribution_blocks_context(row)
 
 
 def _odds_join_key(row: dict[str, Any], *, date_label: str, season: int, is_context: bool) -> tuple[str, str]:

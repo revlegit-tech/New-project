@@ -95,6 +95,8 @@ def resolve_attribution(row: dict[str, Any], roster_index: SlateRosterIndex | No
     evidence_status = team_resolution.status
     evidence_sources = list(team_resolution.sources)
     evidence_warnings = list(team_resolution.warnings)
+    roster_evidence_available = bool(team_resolution.roster_evidence_available)
+    roster_match_status = team_resolution.roster_match_status or "unavailable"
     resolved_team_abbr = resolved_team
     resolved_opponent_abbr = resolved_opponent
 
@@ -143,12 +145,26 @@ def resolve_attribution(row: dict[str, Any], roster_index: SlateRosterIndex | No
     elif team_verified and opponent_verified:
         status = "verified"
         confidence = "verified"
+    elif not roster_evidence_available and roster_match_status == "unavailable":
+        status = "inferred_low_confidence" if _is_player_market(market) else "inferred"
+        confidence = "low" if _is_player_market(market) else "medium"
+        warnings.append("team_opponent_inferred")
     else:
         status = "inferred_low_confidence" if _is_player_market(market) else "inferred"
         confidence = "low" if _is_player_market(market) else "medium"
         warnings.append("team_opponent_inferred")
 
-    context_allowed = confidence in {"verified", "high", "medium"} and status not in {"conflict", "ambiguous", "invalid_player_label", "inferred_low_confidence"}
+    legacy_safe_identity = (
+        not roster_evidence_available
+        and roster_match_status == "unavailable"
+        and bool(cleaned_player and raw_team and raw_opponent)
+        and status == "inferred_low_confidence"
+    )
+    context_allowed = (
+        legacy_safe_identity
+        or confidence in {"verified", "high", "medium"}
+        and status not in {"conflict", "ambiguous", "invalid_player_label", "inferred_low_confidence"}
+    )
     context_warning = confidence == "medium" and context_allowed
     if not context_allowed:
         warnings.append("context_limited_by_attribution")
@@ -178,6 +194,8 @@ def resolve_attribution(row: dict[str, Any], roster_index: SlateRosterIndex | No
         "correctedTeam": corrected_team if correction_applied else "",
         "correctedOpponent": corrected_opponent if correction_applied else "",
         "playerTeamEvidenceStatus": evidence_status,
+        "rosterEvidenceAvailable": roster_evidence_available,
+        "rosterMatchStatus": roster_match_status,
         "playerTeamEvidenceSources": _unique(evidence_sources),
         "playerTeamEvidenceWarnings": _unique(evidence_warnings),
         "contextBlockedByAttribution": not context_allowed,
@@ -220,6 +238,8 @@ def apply_attribution(row: dict[str, Any], roster_index: SlateRosterIndex | None
             "attributionCorrectionApplied": attribution["attributionCorrectionApplied"],
             "attributionCorrectionReason": attribution["attributionCorrectionReason"],
             "playerTeamEvidenceStatus": attribution["playerTeamEvidenceStatus"],
+            "rosterEvidenceAvailable": attribution["rosterEvidenceAvailable"],
+            "rosterMatchStatus": attribution["rosterMatchStatus"],
         }
     )
     trust["propIdentity"] = prop_identity
@@ -237,6 +257,8 @@ def apply_attribution(row: dict[str, Any], roster_index: SlateRosterIndex | None
             "attributionCorrectionApplied",
             "attributionCorrectionReason",
             "playerTeamEvidenceStatus",
+            "rosterEvidenceAvailable",
+            "rosterMatchStatus",
             "playerTeamEvidenceSources",
             "playerTeamEvidenceWarnings",
         )
@@ -248,7 +270,17 @@ def apply_attribution(row: dict[str, Any], roster_index: SlateRosterIndex | None
 def attribution_allows_context(row: dict[str, Any]) -> bool:
     if "contextBlockedByAttribution" not in row:
         row = apply_attribution(row)
-    return not bool(row.get("contextBlockedByAttribution"))
+    return not attribution_blocks_context(row)
+
+
+def attribution_blocks_context(row: dict[str, Any]) -> bool:
+    status = _clean(row.get("attributionStatus")).lower()
+    if status in {"conflict", "ambiguous", "invalid_player_label"}:
+        return True
+    if not bool(row.get("contextBlockedByAttribution")):
+        return False
+    roster_match_status = _clean(row.get("rosterMatchStatus")).lower()
+    return bool(row.get("rosterEvidenceAvailable")) or roster_match_status in {"matched_both_sides", "no_match"}
 
 
 def attribution_confidence_to_identity(confidence: Any, status: Any = "") -> str:
@@ -281,10 +313,10 @@ def attribution_diagnostics(rows: list[dict[str, Any]], roster_index: SlateRoste
         "attributionRowsStillConflict": status_counts.get("conflict", 0),
         "attributionRowsAmbiguous": status_counts.get("ambiguous", 0),
         "attributionRowsNoRosterEvidence": sum(1 for row in enriched if "no_roster_evidence" in (row.get("playerTeamEvidenceWarnings") or [])),
-        "contextRowsUnblockedByCorrection": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and not row.get("contextBlockedByAttribution")),
-        "predictionRowsUnblockedByCorrection": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and not row.get("contextBlockedByAttribution")),
+        "contextRowsUnblockedByCorrection": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and not attribution_blocks_context(row)),
+        "predictionRowsUnblockedByCorrection": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and not attribution_blocks_context(row)),
         "attributionRowsInvalidPlayerLabel": status_counts.get("invalid_player_label", 0),
-        "rowsBlockedFromContextByAttribution": sum(1 for row in enriched if row.get("contextBlockedByAttribution")),
+        "rowsBlockedFromContextByAttribution": sum(1 for row in enriched if attribution_blocks_context(row)),
         "rowsAllowedContextWithWarning": sum(1 for row in enriched if row.get("contextAllowedWithWarning")),
         "sampleAttributionConflicts": _samples(enriched, lambda row: row.get("attributionStatus") == "conflict"),
         "sampleWeakAttributionRows": _samples(enriched, lambda row: row.get("attributionConfidence") in {"low", "unknown"}),
@@ -296,7 +328,7 @@ def attribution_diagnostics(rows: list[dict[str, Any]], roster_index: SlateRoste
         "sampleUncorrectedConflicts": _samples(enriched, lambda row: row.get("attributionStatus") == "conflict"),
         "sampleRosterEvidenceMatches": _samples(enriched, lambda row: row.get("playerTeamEvidenceStatus") in {"verified", "roster_match"}),
         "sampleRosterEvidenceMisses": _samples(enriched, lambda row: "no_roster_evidence" in (row.get("playerTeamEvidenceWarnings") or [])),
-        "sampleRowsBlockedFromModelContext": _samples(enriched, lambda row: row.get("contextBlockedByAttribution")),
+        "sampleRowsBlockedFromModelContext": _samples(enriched, attribution_blocks_context),
         "rosterResolverRowsChecked": sum(1 for row in enriched if _is_player_market(row.get("market"))),
         "rosterResolverRowsMatchedOneSide": sum(1 for row in enriched if row.get("playerTeamEvidenceStatus") in {"verified", "roster_match"}),
         "rosterResolverRowsCorrected": sum(1 for row in enriched if row.get("attributionCorrectionApplied") and row.get("playerTeamEvidenceStatus") == "roster_match"),

@@ -10,7 +10,7 @@ from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
 from mlb_app.services.player_prop_identity_confidence import parse_identity_warnings
-from mlb_app.services.player_attribution import apply_attribution
+from mlb_app.services.player_attribution import apply_attribution, attribution_blocks_context
 from mlb_app.services.prop_side_normalization import normalize_prop_side
 
 
@@ -71,7 +71,7 @@ class PlayerPropPredictionRepository:
         blocked_by_attribution = 0
         for row in rows:
             row = apply_attribution(row)
-            if row.get("contextBlockedByAttribution"):
+            if attribution_blocks_context(row):
                 enriched = dict(row)
                 warnings = list(enriched.get("predictionWarnings") or [])
                 if "context_limited_by_attribution" not in warnings:

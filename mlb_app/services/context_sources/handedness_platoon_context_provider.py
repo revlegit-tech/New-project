@@ -24,7 +24,7 @@ from mlb_app.services.player_prop_context_identity_service import (
     normalize_player_name,
     normalize_team,
 )
-from mlb_app.services.player_attribution import apply_attribution
+from mlb_app.services.player_attribution import apply_attribution, attribution_blocks_context
 from mlb_app.services.player_handedness_lookup_service import PlayerHandednessLookupService
 
 
@@ -205,7 +205,7 @@ class HandednessPlatoonContextProvider:
                         "attributionStatus": status,
                     },
                 )
-            if status in {"conflict", "ambiguous", "invalid_player_label"} or aligned.get("contextBlockedByAttribution"):
+            if attribution_blocks_context(aligned):
                 diagnostics["contextRowsSkippedByAttributionConflict"] = int(diagnostics["contextRowsSkippedByAttributionConflict"]) + 1
                 skip_reasons[f"attribution_{status or 'blocked'}"] += 1
                 _add_sample(diagnostics["sampleBlockedContextJoinKeys"], after_key)
@@ -459,7 +459,7 @@ class _OpposingPitcherResolver:
             for raw in _read_date_rows(path, self.date_label, date_aliases=date_aliases):
                 row = align_board_context_identity(apply_attribution(raw))
                 status = clean(row.get("attributionStatus")).lower()
-                if status in {"conflict", "ambiguous", "invalid_player_label"} or row.get("contextBlockedByAttribution"):
+                if attribution_blocks_context(row):
                     continue
                 if clean(row.get("subjectRole")).lower() != "pitcher":
                     continue

@@ -14,6 +14,8 @@ class PlayerTeamResolution:
     opponent_abbr: str = ""
     team: str = ""
     opponent: str = ""
+    roster_evidence_available: bool = False
+    roster_match_status: str = "unavailable"
     sources: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     reason: str = ""
@@ -44,6 +46,9 @@ class SlateRosterIndex:
         for name_key in player_name_variants(player_name):
             matched.update(team for team in self.teams_by_name.get(name_key, set()) if team in event_team_set)
         return matched
+
+    def has_evidence_for_event(self, event_teams: list[str]) -> bool:
+        return any(team and self.names_by_team.get(team) for team in event_teams)
 
 
 _ROSTER_TEAM_BY_NAME: dict[str, str] = {
@@ -124,20 +129,51 @@ def resolve_player_team(
     if not name_key:
         return PlayerTeamResolution(status="missing", warnings=["missing_player_name"])
     if name_key in _AMBIGUOUS_NAMES:
-        return PlayerTeamResolution(status="ambiguous", sources=["local_roster_seed"], warnings=["ambiguous_player_name"])
+        return PlayerTeamResolution(
+            status="ambiguous",
+            roster_evidence_available=True,
+            roster_match_status="matched_both_sides",
+            sources=["local_roster_seed"],
+            warnings=["ambiguous_player_name"],
+        )
 
     roster_team = ""
     sources = ["slate_roster_index"]
+    roster_evidence_available = False
+    roster_match_status = "unavailable"
     if roster_index is not None and event_teams:
+        roster_evidence_available = roster_index.has_evidence_for_event(event_teams)
         matched_teams = roster_index.teams_for_player(name_key, event_teams)
         if len(matched_teams) > 1:
-            return PlayerTeamResolution(status="ambiguous", sources=sources, warnings=["ambiguous_player_name"])
+            return PlayerTeamResolution(
+                status="ambiguous",
+                roster_evidence_available=True,
+                roster_match_status="matched_both_sides",
+                sources=sources,
+                warnings=["ambiguous_player_name"],
+            )
         if len(matched_teams) == 1:
             roster_team = next(iter(matched_teams))
+            roster_match_status = "matched_one_side"
+        elif roster_evidence_available:
+            return PlayerTeamResolution(
+                status="missing",
+                team_abbr=source_team_abbr,
+                opponent_abbr=source_opponent_abbr,
+                team=team_display_name(source_team_abbr),
+                opponent=team_display_name(source_opponent_abbr),
+                roster_evidence_available=True,
+                roster_match_status="no_match",
+                sources=sources,
+                warnings=["no_roster_match"],
+            )
 
     if not roster_team:
         roster_team = _ROSTER_TEAM_BY_NAME.get(name_key)
-        sources = ["local_roster_seed"] if roster_team else sources
+        if roster_team:
+            sources = ["local_roster_seed"]
+            roster_evidence_available = True
+            roster_match_status = "matched_one_side"
 
     if not roster_team:
         if source_team_abbr and source_opponent_abbr:
@@ -147,16 +183,25 @@ def resolve_player_team(
                 opponent_abbr=source_opponent_abbr,
                 team=team_display_name(source_team_abbr),
                 opponent=team_display_name(source_opponent_abbr),
-                sources=sources if roster_index is not None else [],
+                roster_evidence_available=False,
+                roster_match_status="unavailable",
+                sources=sources if roster_index is not None and roster_evidence_available else [],
                 warnings=["no_roster_evidence"],
             )
-        return PlayerTeamResolution(status="missing", warnings=["no_roster_evidence"])
+        return PlayerTeamResolution(
+            status="missing",
+            roster_evidence_available=False,
+            roster_match_status="unavailable",
+            warnings=["no_roster_evidence"],
+        )
 
     if len(event_teams) < 2:
         return PlayerTeamResolution(
             status="missing",
             team_abbr=roster_team,
             team=team_display_name(roster_team),
+            roster_evidence_available=roster_evidence_available,
+            roster_match_status=roster_match_status,
             sources=sources,
             warnings=["missing_event_context"],
         )
@@ -165,6 +210,8 @@ def resolve_player_team(
             status="conflict",
             team_abbr=roster_team,
             team=team_display_name(roster_team),
+            roster_evidence_available=True,
+            roster_match_status="no_match",
             sources=sources,
             warnings=["roster_team_not_in_event"],
             reason=f"roster_team_not_in_event:{roster_team}",
@@ -187,6 +234,8 @@ def resolve_player_team(
         opponent_abbr=opponent,
         team=team_display_name(roster_team),
         opponent=team_display_name(opponent) if opponent else "",
+        roster_evidence_available=roster_evidence_available,
+        roster_match_status=roster_match_status,
         sources=sources,
         warnings=[],
         reason=reason,

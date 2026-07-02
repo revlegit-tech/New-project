@@ -8,7 +8,7 @@ from mlb_app.config import Settings, settings as default_settings
 from mlb_app.repositories.historical_game_odds_repository import HistoricalGameOddsRepository
 from mlb_app.repositories.warehouse_utils import clean, first
 from mlb_app.services.team_match_utils import normalize_team_alias
-from mlb_app.services.player_attribution import apply_attribution
+from mlb_app.services.player_attribution import apply_attribution, attribution_blocks_context
 
 MATCHED = "matched"
 MISSING_DATE = "missing_date"
@@ -94,7 +94,7 @@ class GameMarketFeatureLookupService:
         for index, row in enumerate(output):
             row = apply_attribution(row)
             output[index] = row
-            if row.get("contextBlockedByAttribution"):
+            if attribution_blocks_context(row):
                 output[index].update(_no_match(ATTRIBUTION_BLOCKED))
                 stats["status_counts"][ATTRIBUTION_BLOCKED] += 1
                 continue

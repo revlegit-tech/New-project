@@ -15,6 +15,7 @@ from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.playerboard_builder import market_capability
 from mlb_app.services.player_attribution import (
     apply_attribution,
+    attribution_blocks_context,
     attribution_diagnostics,
 )
 from mlb_app.services.player_prop_identity_confidence import (
@@ -1629,7 +1630,7 @@ def _phase18_v7_game_context_index(query: dict[str, list[str]], board: dict[str,
 
 def _phase18_v7_merge_game_context(row: dict[str, Any], index: dict[tuple[str, str], dict[str, str]]) -> dict[str, Any]:
     merged = apply_attribution(dict(row))
-    if merged.get("contextBlockedByAttribution"):
+    if attribution_blocks_context(merged):
         merged.setdefault("game_context_source", "context_limited_by_attribution")
         return merged
     team = _phase18_v7_team_key(_first(merged, "team", "team_abbr", "teamCode"))
