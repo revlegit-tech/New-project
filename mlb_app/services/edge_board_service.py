@@ -308,13 +308,25 @@ class EdgeBoardService:
     @staticmethod
     def _prediction_default_row(row: dict[str, Any]) -> dict[str, Any]:
         enriched = _with_identity_defaults(dict(row))
+        prediction_warnings = [
+            warning
+            for warning in list(row.get("predictionWarnings") or [])
+            if _clean(warning) != "skipped_by_model_scoring"
+        ]
+        readiness_label = _clean(row.get("readinessLabel"))
+        trust_readiness = row.get("trust") if isinstance(row.get("trust"), dict) else {}
+        trust_readiness_label = ""
+        if isinstance(trust_readiness.get("readiness"), dict):
+            trust_readiness_label = _clean(trust_readiness["readiness"].get("label"))
+        if not readiness_label or readiness_label == "Experimental":
+            readiness_label = trust_readiness_label if trust_readiness_label and trust_readiness_label != "Experimental" else "No model"
         return enriched | {
             "predictionMatched": False,
             "predictionKey": _clean(row.get("predictionKey")),
             "predictionSource": _clean(row.get("predictionSource")),
-            "predictionWarnings": list(row.get("predictionWarnings") or []),
-            "readinessLabel": _clean(row.get("readinessLabel")) or "No model",
-            "action": _clean(row.get("action")) or "No bet",
+            "predictionWarnings": prediction_warnings,
+            "readinessLabel": readiness_label,
+            "action": "No bet",
             "stakeUnits": 0,
             "productionGateStatus": "research_only",
             "productionGateReasons": ["no_modeled_prediction"],

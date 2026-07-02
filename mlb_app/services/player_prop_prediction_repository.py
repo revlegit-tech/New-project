@@ -11,6 +11,7 @@ from typing import Any
 from mlb_app.config import Settings, settings as default_settings
 from mlb_app.services.player_prop_identity_confidence import parse_identity_warnings
 from mlb_app.services.player_attribution import apply_attribution, attribution_blocks_context
+from mlb_app.services.playerboard_builder import market_capability
 from mlb_app.services.prop_side_normalization import normalize_prop_side
 
 
@@ -62,7 +63,7 @@ class PlayerPropPredictionRepository:
             "predictionsByMarket": dict(sorted(by_market.items())),
         }
         if not rows or not predictions:
-            return PredictionJoinResult(rows=[dict(row) for row in rows], meta=meta)
+            return PredictionJoinResult(rows=[apply_unscored_trust_defaults(row) for row in rows], meta=meta)
 
         index = _PredictionIndex(predictions)
         enriched_rows: list[dict[str, Any]] = []
@@ -72,7 +73,7 @@ class PlayerPropPredictionRepository:
         for row in rows:
             row = apply_attribution(row)
             if attribution_blocks_context(row):
-                enriched = dict(row)
+                enriched = apply_unscored_trust_defaults(row)
                 warnings = list(enriched.get("predictionWarnings") or [])
                 if "context_limited_by_attribution" not in warnings:
                     warnings.append("context_limited_by_attribution")
@@ -85,7 +86,14 @@ class PlayerPropPredictionRepository:
                 enriched_rows.append(_apply_prediction(row, match.row, source=source))
                 matched += 1
             else:
-                enriched_rows.append(dict(row))
+                enriched = apply_unscored_trust_defaults(row)
+                if match.status == "ambiguous":
+                    reasons = list(enriched.get("trustReasons") or [])
+                    if "ambiguous_prediction_match" not in reasons:
+                        reasons.append("ambiguous_prediction_match")
+                    enriched["trustReasons"] = reasons
+                    enriched["unscoredReason"] = "scoring_skipped"
+                enriched_rows.append(enriched)
                 if match.status == "ambiguous":
                     ambiguous += 1
 
@@ -239,6 +247,219 @@ def _apply_prediction(row: dict[str, Any], prediction: dict[str, Any], *, source
         }
     )
     return enriched
+
+
+def apply_unscored_trust_defaults(row: dict[str, Any]) -> dict[str, Any]:
+    """Attach an honest low-trust envelope without inventing model output."""
+    if _truthy(row.get("predictionMatched")):
+        return dict(row)
+    enriched = dict(row)
+    reason = classify_unscored_reason(enriched)
+    trust_tier = _unscored_trust_tier(reason)
+    trust_score = _unscored_trust_score(reason)
+    trust_reasons = _unique_list(
+        [
+            *_list_value(enriched.get("trustReasons")),
+            "no_model_prediction_available",
+            _trust_reason_for_unscored(reason),
+        ]
+    )
+    guardrail_reasons = _unique_list(
+        [
+            *_list_value(enriched.get("probabilityGuardrailReasons")),
+            "model_probability_not_emitted",
+            "edge_not_emitted",
+            "unsupported_or_unscored_row",
+        ]
+    )
+    warnings = _unique_list(_list_value(enriched.get("predictionWarnings")))
+    if "skipped_by_model_scoring" not in warnings:
+        warnings.append("skipped_by_model_scoring")
+
+    enriched.update(
+        {
+            "action": "Research",
+            "readinessLabel": "Experimental",
+            "modelReadiness": "Experimental",
+            "stakeUnits": 0,
+            "betActionAllowed": False,
+            "predictionMatched": False,
+            "predictionKey": _clean(enriched.get("predictionKey")),
+            "predictionSource": _clean(enriched.get("predictionSource")),
+            "predictionWarnings": warnings,
+            "modelProbabilityPercent": "",
+            "rawModelProbability": "",
+            "calibratedProbability": "",
+            "edgePercent": "",
+            "fairOdds": "",
+            "expectedValue": "",
+            "calibrationApplied": False,
+            "calibrationMethod": "",
+            "calibrationStatus": _clean(enriched.get("calibrationStatus")) or "not_applicable",
+            "calibrationBucket": None,
+            "calibrationSampleSize": None,
+            "calibrationWarning": _clean(enriched.get("calibrationWarning")) or "no_calibration_applied_for_unscored_row",
+            "modelProbabilitySource": _clean(enriched.get("modelProbabilitySource")) or "none",
+            "probabilityGuardrailStatus": _clean(enriched.get("probabilityGuardrailStatus")) or _guardrail_status_for_unscored(reason),
+            "probabilityGuardrailReasons": guardrail_reasons,
+            "trustTier": _clean(enriched.get("trustTier")) or trust_tier,
+            "trustScore": enriched.get("trustScore") if _clean(enriched.get("trustScore")) else trust_score,
+            "trustReasons": trust_reasons,
+            "contextReadinessStatus": _clean(enriched.get("contextReadinessStatus")) or _context_status_for_unscored(reason),
+            "readyFeatureGroups": _list_value(enriched.get("readyFeatureGroups")),
+            "partialFeatureGroups": _list_value(enriched.get("partialFeatureGroups")),
+            "fallbackFeatureGroups": _list_value(enriched.get("fallbackFeatureGroups")),
+            "missingFeatureGroups": _list_value(enriched.get("missingFeatureGroups")),
+            "staleFeatureGroups": _list_value(enriched.get("staleFeatureGroups")),
+            "unsupportedMarketReason": _unsupported_market_reason(enriched, reason),
+            "attributionBlockReason": _attribution_block_reason(enriched, reason),
+            "dataFreshnessStatus": _clean(enriched.get("dataFreshnessStatus")) or "unknown",
+            "researchOnlyReason": _clean(enriched.get("researchOnlyReason")) or "research_only_unscored_row",
+            "unscoredReason": reason,
+            "confidence": _clean(enriched.get("confidence")) or "Research",
+            "recommendation": _clean(enriched.get("recommendation")) or "Research",
+        }
+    )
+    return enriched
+
+
+def classify_unscored_reason(row: dict[str, Any]) -> str:
+    existing = _clean(_first(row, "unscoredReason", "scoringSkipReason", "skipReason", "calibrationSkipReason"))
+    if existing:
+        return existing
+    status = _clean(_first(row, "attributionStatus", "attribution_status")).lower()
+    if status in {"invalid_player_label", "conflict", "ambiguous"} or attribution_blocks_context(row):
+        return "invalid_attribution"
+    if status == "inferred_low_confidence" or _clean(row.get("identityConfidence")).lower() == "weak":
+        return "inferred_low_confidence"
+    if _clean(row.get("unsupportedMarketReason")):
+        return "unsupported_market"
+    if market_capability(row.get("market")) == "unsupported_skip":
+        return "unsupported_market"
+    side = _side_key(row)
+    if not side:
+        return "unsupported_side"
+    if _line_missing_or_invalid(row):
+        return "unsupported_line"
+    if _missing_book(row):
+        return "missing_book"
+    if _missing_odds(row):
+        return "missing_odds"
+    if _clean(row.get("calibrationStatus")).lower() in {"missing", "not_available"}:
+        return "missing_calibration"
+    if _clean(row.get("modelPath")).lower() in {"missing", "not_available"}:
+        return "missing_model"
+    if row.get("predictionMatched") is False:
+        return "scoring_skipped"
+    return "unknown_unscored"
+
+
+def _unscored_trust_tier(reason: str) -> str:
+    if reason == "unsupported_market":
+        return "unsupported"
+    if reason in {"invalid_attribution", "missing_odds", "missing_book", "unsupported_side", "unsupported_line"}:
+        return "blocked"
+    if reason == "inferred_low_confidence":
+        return "low"
+    return "unscored"
+
+
+def _unscored_trust_score(reason: str) -> int:
+    if reason == "unsupported_market":
+        return 0
+    if reason in {"invalid_attribution", "missing_odds", "missing_book", "unsupported_side", "unsupported_line"}:
+        return 0
+    if reason == "inferred_low_confidence":
+        return 20
+    return 10
+
+
+def _trust_reason_for_unscored(reason: str) -> str:
+    mapping = {
+        "unsupported_market": "unsupported_market",
+        "unsupported_side": "unsupported_side",
+        "unsupported_line": "unsupported_line",
+        "missing_odds": "missing_odds",
+        "missing_book": "missing_book",
+        "invalid_attribution": "attribution_blocked",
+        "inferred_low_confidence": "inferred_low_confidence",
+        "missing_model": "missing_model",
+        "missing_calibration": "missing_calibration",
+        "scoring_skipped": "skipped_by_model_scoring",
+    }
+    return mapping.get(reason, "unknown_unscored")
+
+
+def _guardrail_status_for_unscored(reason: str) -> str:
+    return "blocked" if reason not in {"unknown_unscored"} else "not_applicable"
+
+
+def _context_status_for_unscored(reason: str) -> str:
+    if reason in {"invalid_attribution", "unsupported_market", "missing_odds", "missing_book", "unsupported_side", "unsupported_line"}:
+        return "blocked"
+    if reason == "inferred_low_confidence":
+        return "limited"
+    return "unknown"
+
+
+def _unsupported_market_reason(row: dict[str, Any], reason: str) -> str:
+    existing = _clean(row.get("unsupportedMarketReason"))
+    if existing:
+        return existing
+    if reason == "unsupported_market":
+        market = _clean(row.get("market")) or "unknown_market"
+        return f"unsupported_market:{market}"
+    return ""
+
+
+def _attribution_block_reason(row: dict[str, Any], reason: str) -> str:
+    existing = _clean(row.get("attributionBlockReason"))
+    if existing:
+        return existing
+    if reason == "invalid_attribution":
+        return _clean(row.get("attributionStatus")) or "invalid_attribution"
+    return ""
+
+
+def _line_missing_or_invalid(row: dict[str, Any]) -> bool:
+    line = _first(row, "line", "sportsbook_line", "prop_line")
+    text = _clean(line)
+    if not text:
+        return True
+    try:
+        float(text)
+    except (TypeError, ValueError):
+        return True
+    return False
+
+
+def _missing_book(row: dict[str, Any]) -> bool:
+    return not _clean(_first(row, "bookKey", "book_key", "sportsbookKey", "sportsbook_key", "book", "sportsbook", "bestBook", "selectedBook"))
+
+
+def _missing_odds(row: dict[str, Any]) -> bool:
+    return not _clean(_first(row, "americanOdds", "american_odds", "odds", "price", "bestAmericanOdds", "selectedBookAmericanOdds"))
+
+
+def _unique_list(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = _clean(value)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def _list_value(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    raw = _clean(value)
+    if not raw:
+        return []
+    return [part.strip() for part in re.split(r"[|;]", raw) if part.strip()]
 
 
 def _prediction_composite_key(row: dict[str, Any]) -> str:

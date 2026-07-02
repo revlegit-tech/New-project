@@ -10,7 +10,7 @@ from mlb_app.services.grading_state_service import GradingStateService
 from mlb_app.services.model_readiness_service import ModelReadinessService
 from mlb_app.services.data_source_capability_service import DataSourceCapabilityService
 from mlb_app.services.model_training_readiness_service import ModelTrainingReadinessService
-from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository
+from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository, apply_unscored_trust_defaults
 from mlb_app.services.playerboard_builder import build_playerboard, market_capability
 from mlb_app.services.playerboard_builder import american_implied_probability, hydrate_playerboard_quote_fields
 from mlb_app.services.playerboard_read_service import PlayerboardReadService, PlayerboardSnapshot
@@ -198,7 +198,7 @@ class PlayerboardService:
                 enriched["top"] = enriched_rows
             meta.update(prediction_join.meta)
         elif requested_date and join_date:
-            enriched_rows = [_prediction_default_row(row) for row in enriched_rows]
+            enriched_rows = [apply_unscored_trust_defaults(_prediction_default_row(row)) for row in enriched_rows]
             enriched["rows"] = enriched_rows
             if "top" in enriched:
                 enriched["top"] = enriched_rows
@@ -464,7 +464,7 @@ def _annotate_market_trust(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _prediction_default_row(row: dict[str, Any]) -> dict[str, Any]:
-    return dict(row) | {
+    return apply_unscored_trust_defaults(dict(row) | {
         "action": "Research",
         "readinessLabel": "Experimental",
         "stakeUnits": 0,
@@ -473,4 +473,4 @@ def _prediction_default_row(row: dict[str, Any]) -> dict[str, Any]:
         "predictionKey": _clean(row.get("predictionKey")),
         "predictionSource": _clean(row.get("predictionSource")),
         "predictionWarnings": list(row.get("predictionWarnings") or []),
-    }
+    })

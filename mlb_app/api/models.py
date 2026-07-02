@@ -173,6 +173,7 @@ class EdgeBoardRow(StrictPayload):
     attributionBlockReason: str | None = None
     dataFreshnessStatus: str | None = None
     researchOnlyReason: str | None = None
+    unscoredReason: str | None = None
     backtestStatus: str | None = None
     missingFeatureGroups: list[str] = Field(default_factory=list)
     missingDataCount: int | None = None

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,7 @@ from mlb_app.repositories.warehouse_db import WarehouseDatabase
 from mlb_app.services.collector_manifest_service import CollectorManifestService
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.ml_feature_export_service import latest_ml_feature_export_status
+from mlb_app.services.player_prop_prediction_repository import apply_unscored_trust_defaults
 from mlb_app.services.player_prop_label_builder_service import (
     latest_player_prop_label_status,
     latest_player_prop_training_status,
@@ -247,6 +249,8 @@ class DataStatusService:
         if not isinstance(latest, dict):
             latest = {}
         scoring_summary = self._latest_prediction_summary()
+        board_rows = self._latest_playerboard_rows(playerboard_source)
+        trust_coverage = _playerboard_trust_coverage(board_rows)
         return {
             "rowsSaved": int(latest.get("rowsSaved") or playerboard_source.get("row_count") or 0),
             "unsupportedMarketCounts": dict(latest.get("unsupportedMarketCounts") or {}),
@@ -259,6 +263,13 @@ class DataStatusService:
             "sampleLowTrustRows": list(scoring_summary.get("sampleLowTrustRows") or [])[:10],
             "sampleHighTrustRows": list(scoring_summary.get("sampleHighTrustRows") or [])[:10],
             "sampleUncalibratedRows": list(scoring_summary.get("sampleUncalibratedRows") or [])[:10],
+            "trustCoverage": trust_coverage["trustCoverage"],
+            "unscoredRowCounts": trust_coverage["unscoredRowCounts"],
+            "unscoredReasonCounts": trust_coverage["unscoredReasonCounts"],
+            "blankTrustFieldCounts": trust_coverage["blankTrustFieldCounts"],
+            "sampleUnscoredRows": trust_coverage["sampleUnscoredRows"],
+            "sampleUnsupportedRows": trust_coverage["sampleUnsupportedRows"],
+            "sampleBlankTrustRows": trust_coverage["sampleBlankTrustRows"],
             "rosterEvidenceAvailableRows": int(latest.get("rosterEvidenceAvailableRows") or 0),
             "rosterEvidenceUnavailableRows": int(latest.get("rosterEvidenceUnavailableRows") or 0),
             "lastSnapshotTimestamp": str(latest.get("snapshotAt") or playerboard_source.get("latest_timestamp") or ""),
@@ -270,6 +281,21 @@ class DataStatusService:
             "slowestBuildPhases": list(latest.get("slowestBuildPhases") or []),
             "generatedAt": str(latest.get("generatedAt") or ""),
         }
+
+    def _latest_playerboard_rows(self, playerboard_source: dict[str, Any]) -> list[dict[str, Any]]:
+        latest_file = str(playerboard_source.get("latest_file") or "")
+        if latest_file:
+            path = self.data_dir / latest_file.removeprefix("data/").lstrip("/\\")
+        else:
+            candidates = sorted((self.data_dir / "playerboard").glob("playerboard_*.csv"), key=_safe_mtime, reverse=True)
+            path = candidates[0] if candidates else self.data_dir / "playerboard" / "missing.csv"
+        if not path.is_file() or path.suffix.lower() != ".csv":
+            return []
+        try:
+            with path.open("r", encoding="utf-8-sig", newline="") as handle:
+                return [dict(row) for row in csv.DictReader(handle)]
+        except OSError:
+            return []
 
     def _latest_prediction_summary(self) -> dict[str, Any]:
         predictions_dir = self.data_dir / "predictions"
@@ -494,6 +520,89 @@ class DataStatusService:
             value = self._now_provider()
             return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc)
+
+
+TRUST_COVERAGE_FIELDS = (
+    "trustTier",
+    "probabilityGuardrailStatus",
+    "calibrationStatus",
+    "contextReadinessStatus",
+)
+
+
+def _playerboard_trust_coverage(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    enriched_rows = [apply_unscored_trust_defaults(row) for row in rows]
+    blank_counts = {
+        "totalRowsMissingTrustTier": _missing_field_count(enriched_rows, "trustTier"),
+        "totalRowsMissingGuardrailStatus": _missing_field_count(enriched_rows, "probabilityGuardrailStatus"),
+        "totalRowsMissingCalibrationStatus": _missing_field_count(enriched_rows, "calibrationStatus"),
+        "totalRowsMissingContextReadinessStatus": _missing_field_count(enriched_rows, "contextReadinessStatus"),
+    }
+    unscored_rows = [row for row in enriched_rows if not _truthy(row.get("predictionMatched"))]
+    unsupported_rows = [
+        row
+        for row in unscored_rows
+        if str(row.get("unscoredReason") or "") == "unsupported_market" or str(row.get("trustTier") or "") == "unsupported"
+    ]
+    blank_rows = [row for row in enriched_rows if any(not _clean(row.get(field)) for field in TRUST_COVERAGE_FIELDS)]
+    return {
+        "trustCoverage": {
+            "totalBoardRows": len(enriched_rows),
+            "totalRowsWithTrustTier": len(enriched_rows) - blank_counts["totalRowsMissingTrustTier"],
+            "totalRowsMissingTrustTier": blank_counts["totalRowsMissingTrustTier"],
+            "totalRowsWithGuardrailStatus": len(enriched_rows) - blank_counts["totalRowsMissingGuardrailStatus"],
+            "totalRowsMissingGuardrailStatus": blank_counts["totalRowsMissingGuardrailStatus"],
+            "totalRowsWithCalibrationStatus": len(enriched_rows) - blank_counts["totalRowsMissingCalibrationStatus"],
+            "totalRowsMissingCalibrationStatus": blank_counts["totalRowsMissingCalibrationStatus"],
+            "totalRowsWithContextReadinessStatus": len(enriched_rows) - blank_counts["totalRowsMissingContextReadinessStatus"],
+            "totalRowsMissingContextReadinessStatus": blank_counts["totalRowsMissingContextReadinessStatus"],
+        },
+        "unscoredRowCounts": {
+            "totalUnscoredRows": len(unscored_rows),
+            "totalUnsupportedRows": len(unsupported_rows),
+            "totalScoredRows": len(enriched_rows) - len(unscored_rows),
+        },
+        "unscoredReasonCounts": dict(sorted(Counter(str(row.get("unscoredReason") or "unknown_unscored") for row in unscored_rows).items())),
+        "blankTrustFieldCounts": blank_counts,
+        "sampleUnscoredRows": _sample_trust_rows(unscored_rows),
+        "sampleUnsupportedRows": _sample_trust_rows(unsupported_rows),
+        "sampleBlankTrustRows": _sample_trust_rows(blank_rows),
+    }
+
+
+def _missing_field_count(rows: list[dict[str, Any]], field: str) -> int:
+    return sum(1 for row in rows if not _clean(row.get(field)))
+
+
+def _sample_trust_rows(rows: list[dict[str, Any]], *, limit: int = 10) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    for row in rows:
+        samples.append(
+            {
+                "player": _clean(row.get("player")),
+                "market": _clean(row.get("market")),
+                "side": _clean(row.get("side")),
+                "line": _clean(row.get("line")),
+                "book": _clean(row.get("book") or row.get("bookKey") or row.get("bestBook")),
+                "attributionStatus": _clean(row.get("attributionStatus")),
+                "unscoredReason": _clean(row.get("unscoredReason")),
+                "trustTier": _clean(row.get("trustTier")),
+                "calibrationStatus": _clean(row.get("calibrationStatus")),
+                "probabilityGuardrailStatus": _clean(row.get("probabilityGuardrailStatus")),
+                "contextReadinessStatus": _clean(row.get("contextReadinessStatus")),
+            }
+        )
+        if len(samples) >= limit:
+            break
+    return samples
+
+
+def _truthy(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "verified"}
+
+
+def _clean(value: Any) -> str:
+    return str(value or "").strip()
 
 
 def _cheap_row_count(path: Path) -> int | None:
