@@ -21,6 +21,7 @@ from mlb_app.services.player_prop_model_runtime import (
     score_exact_market_model,
     to_float,
 )
+from mlb_app.services.ml_feature_schema import safe_game_market_feature_names
 from mlb_app.services.player_prop_model_calibration_service import PlayerPropModelCalibrationService
 from mlb_app.services.player_prop_context_feature_join_service import PlayerPropContextFeatureJoinService
 from mlb_app.services.player_attribution import apply_attribution
@@ -213,7 +214,16 @@ FEATURE_GROUPS = {
         "pitcher_velo_delta",
     ],
     "bullpen_context": ["opponent_bullpen_era_7d"],
-    "game_markets": ["team_k_rate", "team_walk_rate", "opponent_rate", "park_factor", "hit_factor", "hr_factor", "k_factor"],
+    "game_markets": [
+        "team_k_rate",
+        "team_walk_rate",
+        "opponent_rate",
+        "park_factor",
+        "hit_factor",
+        "hr_factor",
+        "k_factor",
+        *safe_game_market_feature_names(),
+    ],
 }
 
 
@@ -515,11 +525,21 @@ class PlayerPropModelScoringService:
         feature_columns = sorted(score_feature_columns or set(DEFAULT_FEATURE_COLUMNS))
         context_artifacts = context_join_result.artifacts
         feature_completeness = _feature_completeness(predictions, feature_columns, context_artifacts=context_artifacts)
+        context_consumption = _context_consumption(
+            predictions,
+            feature_columns,
+            context_artifacts=context_artifacts,
+            context_join_counts=context_join_result.counts,
+        )
         feature_groups_ready = sorted(
-            group for group, payload in feature_completeness.items() if payload["populatedPercent"] > 0
+            group
+            for group, payload in context_consumption.items()
+            if payload["usedByCurrentModel"]
         )
         feature_groups_missing = sorted(
-            group for group, payload in feature_completeness.items() if payload["populatedPercent"] == 0
+            group
+            for group, payload in context_consumption.items()
+            if payload["configuredForCurrentModel"] and not payload["usedByCurrentModel"]
         )
         for warning in _feature_completeness_warnings(feature_completeness, rows, feature_columns):
             model_feature_warning_counts[warning] += 1
@@ -568,6 +588,7 @@ class PlayerPropModelScoringService:
             "identityWarningCounts": dict(sorted(identity_warning_counts.items())),
             "featureCompleteness": feature_completeness,
             "contextFeatureArtifacts": context_artifacts,
+            "contextConsumption": context_consumption,
             "contextJoinCounts": context_join_result.counts,
             "contextJoinWarnings": context_join_result.warnings,
             "contextIdentityDiagnostics": context_join_result.diagnostics,
@@ -826,6 +847,141 @@ def _feature_completeness(
             "warnings": warnings,
         }
     return report
+
+
+def _context_consumption(
+    rows: list[dict[str, Any]],
+    feature_columns: list[str],
+    *,
+    context_artifacts: dict[str, Any] | None = None,
+    context_join_counts: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    model_features = set(feature_columns)
+    context_artifacts = context_artifacts or {}
+    context_join_counts = context_join_counts or {}
+    report: dict[str, Any] = {}
+    for group, fields in FEATURE_GROUPS.items():
+        artifact = context_artifacts.get(group) or {}
+        artifact_exists = bool(artifact.get("exists"))
+        artifact_rows = int(artifact.get("rows") or 0)
+        artifact_path = str(artifact.get("path") or "") or None
+        rows_loaded = artifact_rows
+        joined_from_diagnostics = _rows_joined_to_scoring(group, context_join_counts)
+        model_fields = [field for field in fields if field in model_features]
+        selected = model_fields or list(fields)
+        populated_fields = [field for field in selected if _field_populated_count(rows, field) > 0]
+        missing_fields = [field for field in selected if field not in populated_fields]
+        scoring_rows_with_model_fields = _rows_with_any_populated_field(rows, model_fields)
+        joined_to_scoring = joined_from_diagnostics
+        if joined_to_scoring == 0 and scoring_rows_with_model_fields > 0:
+            joined_to_scoring = scoring_rows_with_model_fields
+        denominator = max(len(rows) * len(selected), 1)
+        populated_percent = round(
+            (sum(_field_populated_count(rows, field) for field in selected) / denominator) * 100.0,
+            2,
+        )
+        configured_for_model = bool(model_fields)
+        warnings = list(artifact.get("warnings") or [])
+        status, reason = _context_consumption_status(
+            group=group,
+            artifact_exists=artifact_exists,
+            artifact_rows=artifact_rows,
+            joined_to_scoring=joined_to_scoring,
+            populated_fields=populated_fields,
+            configured_for_model=configured_for_model,
+            model_fields=model_fields,
+        )
+        used_by_model = bool(status == "used" and joined_to_scoring > 0 and populated_fields)
+        if artifact_exists and artifact_rows == 0:
+            warnings.append("Artifact exists but contains 0 safe local rows.")
+        elif artifact_exists and joined_to_scoring == 0 and group in _JOINED_CONTEXT_GROUPS:
+            warnings.append("Artifact exists but no scoring rows joined safely.")
+        elif artifact_exists and not configured_for_model:
+            warnings.append("Artifact exists but current model metadata does not include this group.")
+        report[group] = {
+            "artifactExists": artifact_exists,
+            "artifactRows": artifact_rows,
+            "artifactPath": artifact_path,
+            "rowsLoaded": rows_loaded,
+            "rowsJoinedToScoring": joined_to_scoring,
+            "populatedFeatureFields": populated_fields,
+            "missingFeatureFields": missing_fields,
+            "populatedPercent": populated_percent,
+            "configuredForCurrentModel": configured_for_model,
+            "usedByCurrentModel": used_by_model,
+            "modelFeatureFields": model_fields,
+            "status": status,
+            "reason": reason,
+            "warnings": sorted(set(warnings)),
+        }
+    return report
+
+
+_JOINED_CONTEXT_GROUPS = {
+    "odds_movement",
+    "player_recent_form",
+    "pitcher_context",
+    "statcast",
+    "handedness_platoon",
+}
+
+
+_JOINED_COUNT_KEYS = {
+    "odds_movement": "oddsMovementRowsJoined",
+    "player_recent_form": "playerRecentFormRowsJoined",
+    "pitcher_context": "pitcherContextRowsJoined",
+    "statcast": "statcastRowsJoined",
+    "handedness_platoon": "handednessPlatoonRowsJoined",
+}
+
+
+_UNCONFIGURED_CONTEXT_GROUPS = {"weather", "umpire", "bullpen_context", "game_markets"}
+
+
+def _rows_joined_to_scoring(group: str, counts: dict[str, Any]) -> int:
+    joined_by_group = counts.get("joinedByGroup") if isinstance(counts.get("joinedByGroup"), dict) else {}
+    if group in joined_by_group:
+        return int(joined_by_group.get(group) or 0)
+    key = _JOINED_COUNT_KEYS.get(group)
+    if key:
+        return int(counts.get(key) or 0)
+    return 0
+
+
+def _context_consumption_status(
+    *,
+    group: str,
+    artifact_exists: bool,
+    artifact_rows: int,
+    joined_to_scoring: int,
+    populated_fields: list[str],
+    configured_for_model: bool,
+    model_fields: list[str],
+) -> tuple[str, str]:
+    if artifact_rows == 0:
+        if artifact_exists:
+            if group == "statcast":
+                return "no_safe_rows", "Statcast artifact exists but safe identity filtering produced no local rows."
+            return "no_safe_rows", "Artifact exists but contains no safe local rows."
+    if configured_for_model and populated_fields and joined_to_scoring > 0:
+        return "used", "Current model consumes populated fields from this context group."
+    if not artifact_exists:
+        if group in _UNCONFIGURED_CONTEXT_GROUPS and not configured_for_model:
+            return "not_configured", "No local artifact is configured or available for this context group."
+        return "unavailable", "No local context artifact exists for this group."
+    if not configured_for_model:
+        if group in _JOINED_CONTEXT_GROUPS and joined_to_scoring > 0:
+            return "available_not_used", "Context joined to scoring rows, but current model metadata does not consume this group."
+        if group in _JOINED_CONTEXT_GROUPS:
+            return "artifact_only", "Artifact exists, but no safe scoring join populated current model inputs."
+        return "available_not_used", "Artifact exists, but current model metadata does not consume this group."
+    if group in _JOINED_CONTEXT_GROUPS and joined_to_scoring > 0:
+        return "joined_not_populated", "Context joined to scoring rows, but model feature fields are missing or all-null."
+    if group in _JOINED_CONTEXT_GROUPS:
+        return "artifact_only", "Artifact exists, but no scoring rows joined safely for the current model fields."
+    if model_fields:
+        return "artifact_only", "Artifact exists, but join into scoring/model features is pending or not implemented."
+    return "available_not_used", "Artifact exists, but current model metadata does not consume this group."
 
 
 def _context_feature_artifacts(settings: Settings, date_label: str) -> dict[str, Any]:
@@ -1090,6 +1246,14 @@ def _field_populated_count(rows: list[dict[str, Any]], field: str) -> int:
         if _is_populated_feature_value(value, field=field):
             count += 1
     return count
+
+
+def _rows_with_any_populated_field(rows: list[dict[str, Any]], fields: list[str]) -> int:
+    return sum(
+        1
+        for row in rows
+        if any(_is_populated_feature_value(first_value(row, [field, _camel(field)], ""), field=field) for field in fields)
+    )
 
 
 def _is_populated_feature_value(value: Any, *, field: str = "") -> bool:

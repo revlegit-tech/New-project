@@ -669,6 +669,11 @@ def test_odds_movement_available_from_current_and_prior_snapshot_fields(tmp_path
     assert report["rows"][0]["odds_move"] == 15
     assert report["rows"][0]["line_move"] == 1
     assert "odds_movement" in report["summary"]["featureGroupsReady"]
+    payload = report["summary"]["contextConsumption"]["odds_movement"]
+    assert payload["status"] == "used"
+    assert payload["usedByCurrentModel"] is True
+    assert payload["configuredForCurrentModel"] is True
+    assert payload["rowsJoinedToScoring"] > 0
 
 
 def test_no_odds_movement_when_prior_snapshot_is_missing(tmp_path: Path) -> None:

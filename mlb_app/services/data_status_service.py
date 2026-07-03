@@ -283,6 +283,7 @@ class DataStatusService:
             outside_active_date=scope["active_date"],
         )
         explainability = explainability_coverage(attach_player_prop_explainability(trust_coverage["enrichedRows"]))
+        context_consumption = _normalized_context_consumption(scoring_summary.get("contextConsumption"))
         return {
             "rowsSaved": int(latest.get("rowsSaved") or playerboard_source.get("row_count") or 0),
             "unsupportedMarketCounts": dict(latest.get("unsupportedMarketCounts") or {}),
@@ -291,6 +292,12 @@ class DataStatusService:
             "trustTierCounts": dict(scoring_summary.get("trustTierCounts") or {}),
             "guardrailStatusCounts": dict(scoring_summary.get("guardrailStatusCounts") or {}),
             "contextReadinessCounts": dict(scoring_summary.get("contextReadinessCounts") or {}),
+            "contextConsumption": context_consumption,
+            "contextFeatureArtifacts": dict(scoring_summary.get("contextFeatureArtifacts") or {}),
+            "contextJoinCounts": dict(scoring_summary.get("contextJoinCounts") or {}),
+            "featureCompleteness": dict(scoring_summary.get("featureCompleteness") or {}),
+            "featureGroupsReady": list(scoring_summary.get("featureGroupsReady") or []),
+            "featureGroupsMissing": list(scoring_summary.get("featureGroupsMissing") or []),
             "sampleGuardrailRows": list(scoring_summary.get("sampleGuardrailRows") or [])[:10],
             "sampleLowTrustRows": list(scoring_summary.get("sampleLowTrustRows") or [])[:10],
             "sampleHighTrustRows": list(scoring_summary.get("sampleHighTrustRows") or [])[:10],
@@ -690,6 +697,42 @@ def _playerboard_trust_coverage(
         "unknownUnscoredDiagnostics": _unknown_unscored_diagnostics(unscored_rows, reason_counts),
         "enrichedRows": enriched_rows,
     }
+
+
+def _normalized_context_consumption(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, Any] = {}
+    for group, payload in raw.items():
+        if not isinstance(payload, dict):
+            continue
+        entry = dict(payload)
+        model_fields = _list_field(entry.get("modelFeatureFields"))
+        populated_fields = _list_field(entry.get("populatedFeatureFields"))
+        configured_for_model = bool(model_fields)
+        status = _normalize_status(entry.get("status"))
+        rows_joined = _safe_int(entry.get("rowsJoinedToScoring"))
+        entry["modelFeatureFields"] = model_fields
+        entry["populatedFeatureFields"] = populated_fields
+        entry["configuredForCurrentModel"] = configured_for_model
+        entry["usedByCurrentModel"] = bool(status == "used" and rows_joined > 0 and populated_fields)
+        normalized[str(group)] = entry
+    return normalized
+
+
+def _list_field(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, tuple):
+        return list(value)
+    return []
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _annotate_scope(row: dict[str, Any], *, scope_name: str, active_date: str) -> dict[str, Any]:
