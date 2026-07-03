@@ -123,6 +123,7 @@ export class DetailRailController {
         ]),
         h("p", { className: "ob-muted", text: summary.missingDataSummary }),
       ]),
+      renderExplainability(row),
       renderRowTrustDetail(row, context.status),
       renderServerDetail(state),
       h("article", { className: "ob-rail-card" }, [
@@ -133,6 +134,42 @@ export class DetailRailController {
       ]),
     ]);
   }
+}
+
+function renderExplainability(row: OutlierBoardRow): HTMLElement {
+  const explainability = objectValue(row.explainability);
+  const model = objectValue(explainability.model);
+  const calibration = objectValue(explainability.calibration);
+  const context = objectValue(explainability.context);
+  const guardrails = objectValue(explainability.guardrails);
+  const researchOnly = objectValue(explainability.researchOnly);
+  const reasons = arrayValue(explainability.primaryReasons);
+  const blocks = arrayValue(explainability.blocks);
+  const nextChecks = arrayValue(explainability.nextChecks);
+  const tier = text(explainability.trustTier ?? row.trustTier, "unscored");
+  const score = text(explainability.trustScore ?? row.trustScore, "n/a");
+  return h("article", { className: "ob-rail-card" }, [
+    h("h3", { text: "Trust explanation" }),
+    h("div", { className: "ob-chip-row is-rail" }, [
+      h("span", { className: `ob-pill ob-pill-mini ${badgeToneClass(tierTone(tier))}`, text: tier }),
+      h("span", { className: "ob-pill ob-pill-mini", text: `Score ${score}` }),
+      h("span", { className: `ob-pill ob-pill-mini ${badgeToneClass("risk")}`, text: "Research only" }),
+    ]),
+    h("p", { text: text(explainability.summary, rowTrustCopy(row)) }),
+    h("div", { className: "ob-stat-grid" }, [
+      stat("Model", text(model.modelProbabilitySource, "none")),
+      stat("Probability", Boolean(model.hasModelProbability) ? percent(model.modelProbabilityPercent) : "Withheld"),
+      stat("Calibration", trustStatusLabel(calibration.calibrationStatus || row.calibrationStatus || "missing")),
+      stat("Context", trustStatusLabel(context.contextReadinessStatus || row.contextReadinessStatus || "unknown")),
+      stat("Guardrail", trustStatusLabel(guardrails.probabilityGuardrailStatus || row.probabilityGuardrailStatus || "unknown")),
+      stat("Unscored", text(guardrails.unscoredReason || row.unscoredReason, "none")),
+      stat("Action", text(researchOnly.action || row.action, "Research")),
+      stat("No bet action", Boolean(researchOnly.betActionAllowed) ? "Allowed" : "Disabled"),
+    ]),
+    reasons.length ? h("p", { className: "ob-muted", text: `Reasons: ${reasons.join(", ")}` }) : h("p", { className: "ob-muted", text: "No primary reasons reported." }),
+    blocks.length ? h("p", { className: "ob-muted", text: `Blocks: ${blocks.join(", ")}` }) : h("p", { className: "ob-muted", text: "No hard blocks reported." }),
+    h("p", { className: "ob-muted", text: `Next: ${nextChecks.length ? nextChecks.join(" / ") : "Check lineup confirmation / Check book/odds freshness."}` }),
+  ]);
 }
 
 function renderRowTrustDetail(row: OutlierBoardRow, status: unknown): HTMLElement {
@@ -215,6 +252,18 @@ function exposureCopy(exposure: unknown): string {
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function arrayValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => text(item, "")).filter(Boolean) : [];
+}
+
+function tierTone(tier: string): "good" | "watch" | "risk" | "neutral" {
+  const normalized = tier.toLowerCase();
+  if (normalized === "standard") return "good";
+  if (normalized === "low" || normalized === "limited" || normalized === "unscored") return "watch";
+  if (normalized === "blocked" || normalized === "unsupported") return "risk";
+  return "neutral";
 }
 
 export function emptyRail(): HTMLElement {

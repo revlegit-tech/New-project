@@ -16,6 +16,10 @@ from mlb_app.services.collector_manifest_service import CollectorManifestService
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.ml_feature_export_service import latest_ml_feature_export_status
 from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository, apply_unscored_trust_defaults
+from mlb_app.services.player_prop_explainability_service import (
+    attach_player_prop_explainability,
+    explainability_coverage,
+)
 from mlb_app.services.player_prop_label_builder_service import (
     latest_player_prop_label_status,
     latest_player_prop_training_status,
@@ -278,6 +282,7 @@ class DataStatusService:
             rows_excluded_by_season_scope=scope["rows_excluded_by_season_scope"],
             outside_active_date=scope["active_date"],
         )
+        explainability = explainability_coverage(attach_player_prop_explainability(trust_coverage["enrichedRows"]))
         return {
             "rowsSaved": int(latest.get("rowsSaved") or playerboard_source.get("row_count") or 0),
             "unsupportedMarketCounts": dict(latest.get("unsupportedMarketCounts") or {}),
@@ -291,6 +296,12 @@ class DataStatusService:
             "sampleHighTrustRows": list(scoring_summary.get("sampleHighTrustRows") or [])[:10],
             "sampleUncalibratedRows": list(scoring_summary.get("sampleUncalibratedRows") or [])[:10],
             "trustCoverage": trust_coverage["trustCoverage"],
+            "explainabilityCoverage": explainability["explainabilityCoverage"],
+            "rowsWithExplainability": explainability["rowsWithExplainability"],
+            "rowsMissingExplainability": explainability["rowsMissingExplainability"],
+            "explainabilityTierCounts": explainability["explainabilityTierCounts"],
+            "sampleMissingExplainabilityRows": explainability["sampleMissingExplainabilityRows"],
+            "sampleExplainabilityRowsByTier": explainability["sampleExplainabilityRowsByTier"],
             "seasonTrustCoverage": season_trust_coverage["trustCoverage"],
             "trustCoverageScope": trust_coverage["trustCoverage"]["trustCoverageScope"],
             "activeDate": scope["active_date"],
@@ -677,6 +688,7 @@ def _playerboard_trust_coverage(
         "sampleBlankTrustRows": _sample_trust_rows(blank_rows),
         "sampleOutsideActiveSlateRows": _sample_trust_rows(outside_rows),
         "unknownUnscoredDiagnostics": _unknown_unscored_diagnostics(unscored_rows, reason_counts),
+        "enrichedRows": enriched_rows,
     }
 
 

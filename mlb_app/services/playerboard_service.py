@@ -11,6 +11,7 @@ from mlb_app.services.model_readiness_service import ModelReadinessService
 from mlb_app.services.data_source_capability_service import DataSourceCapabilityService
 from mlb_app.services.model_training_readiness_service import ModelTrainingReadinessService
 from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository, apply_unscored_trust_defaults
+from mlb_app.services.player_prop_explainability_service import attach_player_prop_explainability
 from mlb_app.services.playerboard_builder import build_playerboard, market_capability
 from mlb_app.services.playerboard_builder import american_implied_probability, hydrate_playerboard_quote_fields
 from mlb_app.services.playerboard_read_service import PlayerboardReadService, PlayerboardSnapshot
@@ -78,6 +79,7 @@ class PlayerboardService:
             payload = self._payload_from_snapshot(snapshot, market=market, limit=limit)
             payload = self._apply_game_market_enrichment(payload, requested_date=date_label)
             payload = _apply_selected_book(payload, selected_book)
+            payload = _attach_explainability(payload)
             payload = self._attach_market_registry(payload, query)
             if payload.get("cacheHit") or not build_if_missing:
                 return payload
@@ -93,6 +95,7 @@ class PlayerboardService:
         )
         payload = self._apply_game_market_enrichment(self._attach_trust(payload, query), requested_date=date_label)
         payload = _apply_selected_book(payload, selected_book)
+        payload = _attach_explainability(payload)
         return self._attach_market_registry(payload, query)
 
     def _payload_from_snapshot(self, snapshot: PlayerboardSnapshot, *, market: str, limit: int) -> dict[str, Any]:
@@ -404,6 +407,18 @@ def _apply_selected_book(payload: dict[str, Any], selected_book: str) -> dict[st
     filters["selectedBook"] = selected_book
     filters["selectedBookMode"] = "selected_book" if selected_book else "best_available"
     enriched["filters"] = filters
+    return enriched
+
+
+def _attach_explainability(payload: dict[str, Any]) -> dict[str, Any]:
+    rows = _list_rows(payload.get("rows") or payload.get("top") or [])
+    if not rows:
+        return payload
+    enriched_rows = attach_player_prop_explainability(rows)
+    enriched = dict(payload)
+    enriched["rows"] = enriched_rows
+    if "top" in enriched:
+        enriched["top"] = enriched_rows
     return enriched
 
 
