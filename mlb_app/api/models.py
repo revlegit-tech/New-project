@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
@@ -24,6 +24,24 @@ class ErrorResponse(StrictResponse):
     error: str | None = None
     requestId: str | None = None
     meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlayerPropExplainability(StrictPayload):
+    summary: str = ""
+    trustTier: str = ""
+    trustScore: int | None = None
+    primaryReasons: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    blocks: list[str] = Field(default_factory=list)
+    propIdentity: dict[str, Any] = Field(default_factory=dict)
+    attribution: dict[str, Any] = Field(default_factory=dict)
+    model: dict[str, Any] = Field(default_factory=dict)
+    calibration: dict[str, Any] = Field(default_factory=dict)
+    guardrails: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)
+    dataFreshness: dict[str, Any] = Field(default_factory=dict)
+    researchOnly: dict[str, Any] = Field(default_factory=dict)
+    nextChecks: list[str] = Field(default_factory=list)
 
 
 class EdgeBoardRow(StrictPayload):
@@ -221,6 +239,7 @@ class EdgeBoardRow(StrictPayload):
     game_market_opponent_moneyline_movement: Any = None
     game_market_quality_flags: list[str] = Field(default_factory=list)
     game_market_enrichment_status: str | None = None
+    explainability: PlayerPropExplainability | None = None
 
 
 class ModelCardItem(StrictPayload):
@@ -1134,6 +1153,7 @@ class PlayerboardResponse(StrictResponse):
     source: dict[str, Any] | str | None = None
     sourceMeta: dict[str, Any] = Field(default_factory=dict)
     sourceMode: str | None = None
+    inputSourceMode: str | None = None
     sourceOfTruth: str | None = None
     snapshotId: str | None = None
     attributionStatusCounts: dict[str, Any] = Field(default_factory=dict)
@@ -1201,6 +1221,7 @@ class PlayerboardHealthResponse(StrictResponse):
     buildTimingsMs: dict[str, Any] = Field(default_factory=dict)
     slowestBuildPhases: list[dict[str, Any]] = Field(default_factory=list)
     sourceMode: str | None = None
+    inputSourceMode: str | None = None
     sourceOfTruth: str | None = None
     snapshotId: str | None = None
     latestPlayerboardBuildHealth: dict[str, Any] = Field(default_factory=dict)
@@ -1324,4 +1345,6 @@ class HealthResponse(StrictResponse):
     status: str
     ok: bool
     checks: dict[str, Any] = Field(default_factory=dict)
+
+
 

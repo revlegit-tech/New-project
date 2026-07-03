@@ -107,9 +107,11 @@ def test_invalid_and_inferred_attribution_rows_remain_low_or_blocked_trust(tmp_p
     assert invalid["unscoredReason"] == "invalid_attribution"
     assert invalid["trustTier"] == "blocked"
     assert invalid["attributionBlockReason"] == "invalid_player_label"
-    assert inferred["unscoredReason"] == "inferred_low_confidence"
     assert inferred["trustTier"] == "low"
     assert inferred["contextReadinessStatus"] == "limited"
+    assert inferred["unscoredReason"] == ""
+    assert inferred["unscoredReasonDetail"] == ""
+    assert inferred["missingPredictionReason"] == ""
 
 
 def test_data_status_reports_zero_blank_trust_fields_after_fallback(tmp_path: Path) -> None:

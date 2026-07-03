@@ -7,7 +7,7 @@ from typing import Any
 
 from mlb_app.config import Settings
 from mlb_app.services.data_status_service import DataStatusService
-from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository
+from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository, prediction_key_for_board_row
 
 
 def make_settings(tmp_path: Path) -> Settings:
@@ -157,6 +157,44 @@ def test_unscored_rows_do_not_receive_fake_model_outputs(tmp_path: Path) -> None
     assert row["betActionAllowed"] is False
 
 
+def test_matched_standard_row_clears_prejoin_unscored_reasons(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    board_row = base_row(unscoredReason="missing_prediction", missingPredictionReason="prediction_join_no_match")
+    write_csv(settings.data_dir / "predictions" / "prop_predictions_2026-06-29.csv", [_prediction_for(board_row, trustTier="standard")])
+
+    row = PlayerPropPredictionRepository(settings=settings).join_predictions([board_row], date_label="2026-06-29").rows[0]
+
+    assert row["trustTier"] == "standard"
+    assert row["unscoredReason"] == ""
+    assert row["unscoredReasonDetail"] == ""
+    assert row["missingPredictionReason"] == ""
+    assert row["scoringSkipReason"] == ""
+
+
+def test_matched_low_row_clears_prejoin_unscored_reasons(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    board_row = base_row(unscoredReason="missing_prediction", missingPredictionReason="prediction_join_no_match")
+    write_csv(settings.data_dir / "predictions" / "prop_predictions_2026-06-29.csv", [_prediction_for(board_row, trustTier="low")])
+
+    row = PlayerPropPredictionRepository(settings=settings).join_predictions([board_row], date_label="2026-06-29").rows[0]
+
+    assert row["trustTier"] == "low"
+    assert row["unscoredReason"] == ""
+    assert row["missingPredictionReason"] == ""
+
+
+def test_matched_limited_row_clears_prejoin_unscored_reasons(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    board_row = base_row(unscoredReason="missing_prediction", missingPredictionReason="prediction_join_no_match")
+    write_csv(settings.data_dir / "predictions" / "prop_predictions_2026-06-29.csv", [_prediction_for(board_row, trustTier="limited")])
+
+    row = PlayerPropPredictionRepository(settings=settings).join_predictions([board_row], date_label="2026-06-29").rows[0]
+
+    assert row["trustTier"] == "limited"
+    assert row["unscoredReason"] == ""
+    assert row["missingPredictionReason"] == ""
+
+
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = sorted({key for row in rows for key in row})
@@ -164,3 +202,43 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _prediction_for(row: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+    date_label = str(row.get("date") or "2026-06-29")
+    prediction = {
+        "date": date_label,
+        "season": "2026",
+        "market": row["market"],
+        "player": row["player"],
+        "team": row["team"],
+        "opponent": row["opponent"],
+        "book": row["book"],
+        "bookKey": row["bookKey"],
+        "line": row["line"],
+        "side": row["side"],
+        "americanOdds": row["americanOdds"],
+        "rawModelProbability": "0.59",
+        "calibratedProbability": "0.6125",
+        "calibrationApplied": "true",
+        "calibrationStatus": "applied",
+        "modelProbabilityPercent": "61.25",
+        "impliedProbabilityPercent": "52.38",
+        "edgePercent": "8.87",
+        "modelProbabilitySource": "calibrated_model",
+        "trustTier": "standard",
+        "trustScore": "82",
+        "trustReasons": "verified_attribution|missing_prediction|prediction_join_no_match",
+        "contextReadinessStatus": "ready",
+        "probabilityGuardrailStatus": "ok",
+        "probabilityGuardrailReasons": "missing_prediction|prediction_join_no_match",
+        "readinessLabel": "Experimental",
+        "action": "Research",
+        "stakeUnits": "0",
+        "predictionKey": prediction_key_for_board_row(row, date_label=date_label),
+        "joinKeyStrength": "strong",
+        "productionEligible": "false",
+        "betActionAllowed": "false",
+    }
+    prediction.update(overrides)
+    return prediction

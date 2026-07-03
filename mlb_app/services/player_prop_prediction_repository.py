@@ -15,6 +15,21 @@ from mlb_app.services.playerboard_builder import market_capability
 from mlb_app.services.prop_side_normalization import normalize_prop_side
 
 
+UNSCORED_REASON_TRUST_TIERS = {"unscored", "blocked", "unsupported"}
+UNSCORED_REASON_FIELDS = (
+    "unscoredReason",
+    "unscoredReasonDetail",
+    "missingPredictionReason",
+    "scoringSkipReason",
+)
+SCORED_REASON_NOISE = {
+    "missing_prediction",
+    "prediction_join_no_match",
+    "skipped_by_model_scoring",
+    "unsupported_or_unscored_row",
+}
+
+
 @dataclass(frozen=True)
 class PredictionJoinResult:
     rows: list[dict[str, Any]]
@@ -246,7 +261,7 @@ def _apply_prediction(row: dict[str, Any], prediction: dict[str, Any], *, source
             "recommendation": "Research",
         }
     )
-    return enriched
+    return clear_scored_unscored_reasons(enriched)
 
 
 def apply_unscored_trust_defaults(row: dict[str, Any]) -> dict[str, Any]:
@@ -323,6 +338,22 @@ def apply_unscored_trust_defaults(row: dict[str, Any]) -> dict[str, Any]:
             "recommendation": _clean(enriched.get("recommendation")) or "Research",
         }
     )
+    return clear_scored_unscored_reasons(enriched)
+
+
+def clear_scored_unscored_reasons(row: dict[str, Any]) -> dict[str, Any]:
+    """Hide unscored-only metadata once a row is in a scored/trusted tier."""
+    enriched = dict(row)
+    trust_tier = _clean(enriched.get("trustTier")).lower()
+    if trust_tier in UNSCORED_REASON_TRUST_TIERS:
+        return enriched
+
+    for field in UNSCORED_REASON_FIELDS:
+        enriched[field] = ""
+    for field in ("trustReasons", "probabilityGuardrailReasons", "predictionWarnings"):
+        values = _list_value(enriched.get(field))
+        if values:
+            enriched[field] = [value for value in values if _clean(value) not in SCORED_REASON_NOISE]
     return enriched
 
 
