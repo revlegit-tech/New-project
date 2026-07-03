@@ -25,6 +25,7 @@ import {
 import { DetailRailController, renderDetailRailShell } from "./detail-rail";
 import { freshnessSeverity, rowBoardTrustSurface, rowIsTrustedMarket, rowTrustSummary, trustStatusLabel, uniqueBoardTrustValues, uniqueTrustValues } from "./trust";
 import { loadResearchReport, renderResearchReport, renderResearchReportError, renderResearchReportLoading } from "./research-report";
+import { ContextConsumptionEntry, getPlayerboardContextConsumption } from "./data-health";
 
 const appState = createInitialOutlierState();
 const disabledSports = ["NBA", "NHL", "Soccer", "WNBA", "NCAAFB"];
@@ -32,7 +33,7 @@ const SAVE_PICK_LABEL = "Add research pick";
 const SPORTSBOOK_HELP = "Best available uses the best quoted book. Choosing a sportsbook shows that book's quote and falls back to No quote when unavailable.";
 let detailRail: DetailRailController;
 let lastBoardSource = "EdgeBoard";
-let latestStatusExtras: { actionnetwork?: any; runtime?: any; workflow?: any; ml?: any } = {};
+let latestStatusExtras: { actionnetwork?: any; runtime?: any; workflow?: any; ml?: any; dataStatus?: any } = {};
 
 const detailContext = () => ({
   date: appState.date,
@@ -89,6 +90,7 @@ function renderMain() {
       renderFilters(),
     ]),
     h("section", { id: "researchReportPanel", className: "ob-panel ob-report-panel" }),
+    h("section", { id: "contextHealthPanel", className: "ob-panel ob-context-panel", attrs: { "aria-label": "Context health" } }),
     h("section", { id: "marketCoveragePanel", className: "ob-panel ob-coverage-panel" }),
     h("section", { className: "ob-panel" }, [h("div", { id: "boardMeta", className: "ob-board-meta", text: "Loading board…" }), h("div", { id: "boardHost", className: "ob-table-wrap" })]),
   ]);
@@ -327,20 +329,23 @@ function bindEvents() {
 
 async function loadStatus() {
   try {
-    const [{ payload, requestId }, actionnetwork, runtime, workflow, ml] = await Promise.all([
+    const [{ payload, requestId }, actionnetwork, runtime, workflow, ml, dataStatus] = await Promise.all([
       jsonFetch<any>("/api/app/status"),
       optionalJson(`/api/actionnetwork/trust?date=${encodeURIComponent(appState.date)}`),
       optionalJson("/api/runtime/status"),
       optionalJson("/api/workflow/status"),
       optionalJson("/api/ml-models/status"),
+      optionalJson("/api/data/status"),
     ]);
     appState.status = payload;
     appState.requestId = requestId || payload?.meta?.requestId || "";
-    latestStatusExtras = { actionnetwork, runtime, workflow, ml };
+    latestStatusExtras = { actionnetwork, runtime, workflow, ml, dataStatus };
     renderTrustSurface(payload, appState.requestId, latestStatusExtras);
+    renderContextHealth(dataStatus);
     detailRail?.rerender(detailContext());
   } catch (error) {
     clear(document.getElementById("freshnessSurface"), [trustCard("Status", "Unavailable", error instanceof Error ? error.message : "App status could not be loaded.", "unavailable")]);
+    renderContextHealth(null);
   }
 }
 
@@ -382,6 +387,7 @@ async function loadBoard() {
     appState.selectedIndex = -1;
     lastBoardSource = payload?.source?.label || payload?.source?.path || "EdgeBoard";
     renderTrustSurface(payload, appState.requestId, latestStatusExtras);
+    renderContextHealth(latestStatusExtras.dataStatus);
     await loadMarketRegistry();
     renderMarketCoverage();
     syncTrustFilters();
@@ -897,6 +903,94 @@ function renderTrustSurface(payload: any, requestId: string, extras: { actionnet
     trustCard("Model readiness", `${marketsReady} MLB markets`, modelMode, marketsReady ? "fresh" : "aging"),
     trustCard("Schema version", schemaVersion, requestId ? `Request ${requestId}` : "Contract checked", "fresh"),
   ]);
+}
+
+function renderContextHealth(statusPayload: any) {
+  const host = document.getElementById("contextHealthPanel");
+  const entries = getPlayerboardContextConsumption(statusPayload);
+  if (!entries.length) {
+    clear(host, [
+      h("div", { className: "ob-context-head" }, [
+        h("div", {}, [h("h2", { text: "Context health" }), h("span", { text: "DataStatus context consumption is unavailable for this run." })]),
+        h("span", { className: "ob-pill ob-pill-mini", text: "Neutral fallback" }),
+      ]),
+    ]);
+    return;
+  }
+  const used = entries.filter((entry) => entry.usedByCurrentModel).length;
+  const configured = entries.filter((entry) => entry.configuredForCurrentModel).length;
+  const artifactOnly = entries.filter((entry) => entry.status === "artifact_only").length;
+  const noSafeRows = entries.filter((entry) => entry.status === "no_safe_rows").length;
+  clear(host, [
+    h("div", { className: "ob-context-head" }, [
+      h("div", {}, [
+        h("h2", { text: "Context health" }),
+        h("span", { text: "DataStatus view of model consumption, configured fields, artifacts, joins, and local row safety." }),
+      ]),
+      h("div", { className: "ob-coverage-badges" }, [
+        h("span", { className: "ob-pill ob-pill-mini is-good", text: `${used} used by model` }),
+        h("span", { className: "ob-pill ob-pill-mini", text: `${configured} configured` }),
+        h("span", { className: "ob-pill ob-pill-mini is-watch", text: `${artifactOnly} artifact only` }),
+        h("span", { className: "ob-pill ob-pill-mini is-risk", text: `${noSafeRows} no safe local rows` }),
+      ]),
+    ]),
+    h("div", { className: "ob-context-groups" }, contextBuckets(entries).map(([bucket, rows]) => renderContextBucket(bucket, rows))),
+  ]);
+}
+
+function contextBuckets(entries: ContextConsumptionEntry[]): Array<[string, ContextConsumptionEntry[]]> {
+  const order = ["Used by model", "Configured but not used", "Artifact only / join pending", "No safe local rows", "Unavailable / not configured"];
+  return order
+    .map((bucket) => [bucket, entries.filter((entry) => entry.statusBucket === bucket)] as [string, ContextConsumptionEntry[]])
+    .filter(([, rows]) => rows.length > 0);
+}
+
+function renderContextBucket(bucket: string, rows: ContextConsumptionEntry[]) {
+  return h("section", { className: "ob-context-bucket" }, [
+    h("div", { className: "ob-context-bucket-head" }, [h("strong", { text: bucket }), h("span", { text: `${rows.length} groups` })]),
+    h("div", { className: "ob-context-list" }, rows.map(renderContextRow)),
+  ]);
+}
+
+function renderContextRow(entry: ContextConsumptionEntry) {
+  const populated = `${number(entry.populatedPercent, 0).toFixed(0)}% populated`;
+  const fieldCounts = `${entry.populatedFeatureFields.length} populated / ${entry.missingFeatureFields.length} missing fields`;
+  const flow = `${entry.artifactExists ? "Artifact exists" : "No artifact"} (${number(entry.artifactRows, 0)} rows) · ${number(entry.rowsLoaded, 0)} loaded · ${number(entry.rowsJoinedToScoring, 0)} joined`;
+  const reason = entry.reason || contextFallbackReason(entry);
+  const warnings = entry.warnings.length ? ` · ${entry.warnings.join("; ")}` : "";
+  return h("article", { className: "ob-context-row" }, [
+    h("div", { className: "ob-context-main" }, [
+      h("strong", { text: groupLabel(entry.group) }),
+      h("span", { text: flow }),
+      h("em", { text: `${reason}${warnings}` }),
+    ]),
+    h("div", { className: "ob-context-metrics" }, [
+      h("span", { className: `ob-pill ob-pill-mini ${contextToneClass(entry)}`, text: entry.statusLabel }),
+      h("span", { className: `ob-pill ob-pill-mini ${entry.configuredForCurrentModel ? "is-watch" : ""}`, text: entry.configuredForCurrentModel ? "Configured" : "Not configured" }),
+      h("span", { className: `ob-pill ob-pill-mini ${entry.usedByCurrentModel ? "is-good" : ""}`, text: entry.usedByCurrentModel ? "Consumed" : "Not consumed" }),
+      h("span", { className: "ob-context-field-count", text: populated }),
+      h("span", { className: "ob-context-field-count", text: fieldCounts }),
+    ]),
+  ]);
+}
+
+function contextToneClass(entry: ContextConsumptionEntry): string {
+  if (entry.usedByCurrentModel) return "is-good";
+  if (entry.status === "no_safe_rows" || entry.status === "unavailable") return "is-risk";
+  if (entry.configuredForCurrentModel || entry.artifactExists) return "is-watch";
+  return "";
+}
+
+function contextFallbackReason(entry: ContextConsumptionEntry): string {
+  if (entry.usedByCurrentModel) return "Rows joined to scoring and model fields are populated.";
+  if (entry.status === "artifact_only") return "Artifact exists, but model feature join is pending.";
+  if (entry.status === "no_safe_rows") return "No safe local rows are available for pregame scoring.";
+  if (entry.configuredForCurrentModel) return "Configured, not consumed by the current scoring run.";
+  return "Unavailable or not configured for the current model.";
+}
+
+function groupLabel(group: string): string {
+  return group.split("_").filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
 }
 
 async function loadMarketRegistry() {
