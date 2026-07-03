@@ -43,7 +43,7 @@ def test_outlier_rows_and_detail_rail_render_trust_chips() -> None:
     assert "Production gates closed" in trust
     assert "Research only. Production betting gates are closed." in trust
     assert "Gates pass, disabled" in trust
-    assert "Experimental model output. Research only. No staking recommendation." in row
+    assert "Experimental model output. Research only. No action recommendation." in row
     assert "Identity is inferred from board context. Research only." in trust
     assert "Identity inferred" in trust
     assert "Corrected" in trust

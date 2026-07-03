@@ -85,6 +85,7 @@ export interface RowBoardTrustSurface {
   probabilityGuardrailStatus: string;
   contextReadinessStatus: string;
   unscoredReason: string;
+  unscoredReasonDetail: string;
   marketCapabilityStatus: string;
   chips: TrustChip[];
 }
@@ -164,7 +165,7 @@ export function rowActionability(row: OutlierBoardRow): NormalizedActionability 
     label,
     status,
     tone: actionabilityTone(status),
-    suggestedStake: productionEligible ? text(actionability.suggestedStake ?? row.suggestedStake ?? "Research only", "Research only") : "0u until production eligible",
+    suggestedStake: productionEligible ? text(actionability.suggestedStake ?? row.suggestedStake ?? "Research only", "Research only") : "Research only until production eligible",
     stakeUnits,
     reason: text(actionability.reason ?? firstReason(row) ?? "", ""),
   };
@@ -225,6 +226,7 @@ export function rowBoardTrustSurface(row: OutlierBoardRow): RowBoardTrustSurface
     probabilityGuardrailStatus,
     contextReadinessStatus: normalizedStatus(row.contextReadinessStatus ?? context.contextReadinessStatus) || "unknown",
     unscoredReason,
+    unscoredReasonDetail: visibleUnscoredReasonDetail(row, unscoredReason, guardrails),
     marketCapabilityStatus: normalizedStatus(row.marketCapabilityStatus ?? trust.marketCapabilityStatus) || "unknown",
   };
   return {
@@ -313,10 +315,17 @@ export function rowIsTrustedMarket(row: OutlierBoardRow): boolean {
 export function trustStatusLabel(value: unknown): string {
   const raw = normalizedStatus(value);
   if (!raw) return "Any";
+  if (raw === "none" || raw === "not_available" || raw === "not_applicable" || raw === "unavailable") return "Not available";
+  if (raw === "unknown") return "Unknown";
   if (raw === "research_only") return "Research only";
   if (raw === "model_supported") return "Model supported";
   if (raw === "production_candidate") return "Experimental";
   return raw.split("_").filter(Boolean).map((part) => part[0].toUpperCase() + part.slice(1)).join(" ");
+}
+
+export function rowTrustReasonLabel(row: OutlierBoardRow): string {
+  const reason = rowBoardTrustSurface(row).unscoredReason;
+  return reason && reason !== "none" ? trustStatusLabel(reason) : "Not available";
 }
 
 export function uniqueTrustValues(rows: OutlierBoardRow[], getter: (row: OutlierBoardRow) => unknown): string[] {
@@ -387,7 +396,7 @@ function contextReadinessStatusChip(status: string): TrustChip {
 }
 
 function unscoredReasonChip(status: string): TrustChip {
-  if (!status || status === "none") return { label: "Scored", tone: "good", title: "No blocking unscored reason is displayed for this scored row." };
+  if (!status || status === "none") return { label: "Not available", tone: "good", title: "No unscored reason is displayed for this scored row." };
   if (status === "unsupported_market") return { label: "Unsupported market", tone: "risk", title: `Unscored reason: ${trustStatusLabel(status)}.` };
   if (status.includes("invalid") || status.includes("blocked")) return { label: "Blocked", tone: "risk", title: `Unscored reason: ${trustStatusLabel(status)}.` };
   return { label: "Unscored", tone: "watch", title: `Unscored reason: ${trustStatusLabel(status)}.` };
@@ -553,6 +562,11 @@ function visibleUnscoredReason(row: OutlierBoardRow, trustTier: string, guardrai
   }
   if (trustTier === "blocked" || trustTier === "unsupported" || trustTier === "unscored") return raw;
   return guardrailStatus === "blocked" ? raw : "none";
+}
+
+function visibleUnscoredReasonDetail(row: OutlierBoardRow, unscoredReason: string, guardrails: Record<string, unknown>): string {
+  if (!unscoredReason || unscoredReason === "none") return "";
+  return text(row.unscoredReasonDetail ?? guardrails.unscoredReasonDetail, "");
 }
 
 function integer(value: unknown): number {

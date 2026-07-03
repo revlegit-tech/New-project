@@ -59,6 +59,6 @@ def test_board_trust_surface_suppresses_unscored_reasons_for_scored_rows() -> No
 
     assert 'trustTier === "standard" || trustTier === "low" || trustTier === "limited"' in row_trust
     assert 'return guardrailStatus === "blocked" ? raw : "none";' in row_trust
-    assert 'label: "Scored"' in row_trust
+    assert 'label: "Not available"' in row_trust
     assert "missingPredictionReason" not in row_trust
     assert "scoringSkipReason" not in row_trust

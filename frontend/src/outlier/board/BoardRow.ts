@@ -74,7 +74,7 @@ export function renderBoardRow(row: OutlierBoardRow, options: BoardRowRenderOpti
   const sideLine = [identity.side, text(rowLine(row), "")].filter(Boolean).join(" ");
   const isExperimental = readiness.label.toLowerCase().includes("experimental") || readiness.status.includes("experimental");
   const isResearch = actionability.label.toLowerCase().includes("research");
-  const researchTooltip = "Experimental model output. Research only. No staking recommendation.";
+  const researchTooltip = "Experimental model output. Research only. No action recommendation.";
   return h("tr", {
     className: options.index === options.selectedIndex ? "is-selected" : "",
     dataset: { rowIndex: String(options.index), actionability: actionability.status, readiness: readiness.status, freshness: freshness.status },

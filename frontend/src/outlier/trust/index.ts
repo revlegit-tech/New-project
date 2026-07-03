@@ -17,6 +17,7 @@ export {
   rowTrustSummary,
   rowTrustChips,
   rowTrustCopy,
+  rowTrustReasonLabel,
   trustStatusLabel,
   uniqueBoardTrustValues,
   uniqueTrustValues,

@@ -2,7 +2,7 @@ import { jsonFetch } from "../../shared/api/client";
 import { clear, h } from "../../shared/components/dom";
 import { formatOdds, number, percent, signedPercent, text } from "../../shared/formatting";
 import { marketLabel } from "../../shared/markets/markets";
-import { badgeToneClass, freshnessSeverity, rowActionability, rowFreshness, rowPropIdentity, rowReadiness, rowTrustChips, rowTrustCopy, rowTrustSummary, trustStatusLabel } from "../trust";
+import { badgeToneClass, freshnessSeverity, rowActionability, rowBoardTrustSurface, rowFreshness, rowPropIdentity, rowReadiness, rowTrustChips, rowTrustCopy, rowTrustReasonLabel, rowTrustSummary, trustStatusLabel } from "../trust";
 import {
   edgeValue,
   matchup,
@@ -128,7 +128,7 @@ export class DetailRailController {
       renderServerDetail(state),
       h("article", { className: "ob-rail-card" }, [
         h("h3", { text: "Picks & exposure" }),
-        h("p", { text: "Research-only saves default to 0 units and do not alter model backtests." }),
+        h("p", { text: "Research-only saves stay at zero exposure and do not alter model backtests." }),
         h("button", { className: "ob-button is-primary", type: "button", text: text(context.savePickLabel, "Add research pick"), dataset: { action: "save-pick" } }),
         h("p", { id: "savePickStatus", className: "ob-muted", text: exposureCopy(context.exposure) }),
       ]),
@@ -146,12 +146,13 @@ function renderExplainability(row: OutlierBoardRow): HTMLElement {
   const reasons = arrayValue(explainability.primaryReasons);
   const blocks = arrayValue(explainability.blocks);
   const nextChecks = arrayValue(explainability.nextChecks);
-  const tier = text(explainability.trustTier ?? row.trustTier, "unscored");
-  const score = text(explainability.trustScore ?? row.trustScore, "n/a");
+  const boardTrust = rowBoardTrustSurface(row);
+  const trustChip = boardTrust.chips[0];
+  const score = boardTrust.trustScore === null ? "Not available" : String(boardTrust.trustScore);
   return h("article", { className: "ob-rail-card" }, [
     h("h3", { text: "Trust explanation" }),
     h("div", { className: "ob-chip-row is-rail" }, [
-      h("span", { className: `ob-pill ob-pill-mini ${badgeToneClass(tierTone(tier))}`, text: tier }),
+      h("span", { className: `ob-pill ob-pill-mini ${badgeToneClass(trustChip.tone)}`, attrs: { title: trustChip.title }, text: trustChip.label }),
       h("span", { className: "ob-pill ob-pill-mini", text: `Score ${score}` }),
       h("span", { className: `ob-pill ob-pill-mini ${badgeToneClass("risk")}`, text: "Research only" }),
     ]),
@@ -159,10 +160,11 @@ function renderExplainability(row: OutlierBoardRow): HTMLElement {
     h("div", { className: "ob-stat-grid" }, [
       stat("Model", text(model.modelProbabilitySource, "none")),
       stat("Probability", Boolean(model.hasModelProbability) ? percent(model.modelProbabilityPercent) : "Withheld"),
-      stat("Calibration", trustStatusLabel(calibration.calibrationStatus || row.calibrationStatus || "missing")),
-      stat("Context", trustStatusLabel(context.contextReadinessStatus || row.contextReadinessStatus || "unknown")),
-      stat("Guardrail", trustStatusLabel(guardrails.probabilityGuardrailStatus || row.probabilityGuardrailStatus || "unknown")),
-      stat("Unscored", text(guardrails.unscoredReason || row.unscoredReason, "none")),
+      stat("Calibration", trustStatusLabel(boardTrust.calibrationStatus || calibration.calibrationStatus || row.calibrationStatus || "unknown")),
+      stat("Context", trustStatusLabel(boardTrust.contextReadinessStatus || context.contextReadinessStatus || row.contextReadinessStatus || "unknown")),
+      stat("Guardrail", trustStatusLabel(boardTrust.probabilityGuardrailStatus || guardrails.probabilityGuardrailStatus || row.probabilityGuardrailStatus || "unknown")),
+      stat("Reason", rowTrustReasonLabel(row)),
+      stat("Capability", trustStatusLabel(boardTrust.marketCapabilityStatus)),
       stat("Action", text(researchOnly.action || row.action, "Research")),
       stat("No bet action", Boolean(researchOnly.betActionAllowed) ? "Allowed" : "Disabled"),
     ]),
@@ -246,8 +248,8 @@ function stat(label: string, value: unknown): HTMLElement {
 
 function exposureCopy(exposure: unknown): string {
   const source = exposure && typeof exposure === "object" ? (exposure as Record<string, unknown>) : {};
-  const units = number(source.totalStakeUnits, 0).toFixed(2);
-  return `${units}u active exposure. Research-only picks stay at 0u.`;
+  const exposureValue = number(source.totalStakeUnits, 0).toFixed(2);
+  return `${exposureValue} active exposure. Research-only saves stay at zero exposure.`;
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -256,14 +258,6 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 function arrayValue(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => text(item, "")).filter(Boolean) : [];
-}
-
-function tierTone(tier: string): "good" | "watch" | "risk" | "neutral" {
-  const normalized = tier.toLowerCase();
-  if (normalized === "standard") return "good";
-  if (normalized === "low" || normalized === "limited" || normalized === "unscored") return "watch";
-  if (normalized === "blocked" || normalized === "unsupported") return "risk";
-  return "neutral";
 }
 
 export function emptyRail(): HTMLElement {

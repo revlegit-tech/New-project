@@ -712,6 +712,11 @@ def _missing_field_count(rows: list[dict[str, Any]], field: str) -> int:
 def _sample_trust_rows(rows: list[dict[str, Any]], *, limit: int = 10) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     for row in rows:
+        trust_tier = _normalize_status(row.get("trustTier"))
+        guardrail_status = _normalize_status(row.get("probabilityGuardrailStatus"))
+        unscored_reason = _visible_unscored_reason(row, trust_tier=trust_tier, guardrail_status=guardrail_status)
+        unscored_reason_detail = _visible_unscored_reason_detail(row, unscored_reason)
+        market_capability_status = _sample_market_capability_status(row, unscored_reason)
         samples.append(
             {
                 "player": _clean(row.get("player")),
@@ -720,16 +725,19 @@ def _sample_trust_rows(rows: list[dict[str, Any]], *, limit: int = 10) -> list[d
                 "line": _clean(row.get("line")),
                 "book": _clean(row.get("book") or row.get("bookKey") or row.get("bestBook")),
                 "attributionStatus": _clean(row.get("attributionStatus")),
-                "unscoredReason": _clean(row.get("unscoredReason")),
-                "unscoredReasonDetail": _clean(row.get("unscoredReasonDetail")),
-                "scoringSkipReason": _clean(row.get("scoringSkipReason")),
+                "unscoredReason": unscored_reason,
+                "unscoredReasonDetail": unscored_reason_detail,
+                "reasonDisplayLabel": _reason_display_label(unscored_reason),
+                "reasonTaxonomy": _reason_taxonomy(row, unscored_reason),
+                "scoringSkipReason": "" if _scored_tier(trust_tier) else _clean(row.get("scoringSkipReason")),
                 "unsupportedMarketReason": _clean(row.get("unsupportedMarketReason")),
                 "attributionBlockReason": _clean(row.get("attributionBlockReason")),
-                "missingPredictionReason": _clean(row.get("missingPredictionReason")),
-                "trustTier": _clean(row.get("trustTier")),
-                "calibrationStatus": _clean(row.get("calibrationStatus")),
-                "probabilityGuardrailStatus": _clean(row.get("probabilityGuardrailStatus")),
-                "contextReadinessStatus": _clean(row.get("contextReadinessStatus")),
+                "missingPredictionReason": "" if _scored_tier(trust_tier) else _clean(row.get("missingPredictionReason")),
+                "trustTier": trust_tier or "unknown",
+                "calibrationStatus": _normalize_status(row.get("calibrationStatus")) or "unknown",
+                "probabilityGuardrailStatus": guardrail_status or "unknown",
+                "contextReadinessStatus": _normalize_status(row.get("contextReadinessStatus")) or "unknown",
+                "marketCapabilityStatus": market_capability_status,
             }
         )
         if len(samples) >= limit:
@@ -755,6 +763,61 @@ def _unknown_unscored_diagnostics(rows: list[dict[str, Any]], reason_counts: dic
         "diagnostic": "unknown_unscored is used only when existing row metadata cannot identify a safe reason.",
         "sampleRows": _sample_trust_rows(unknown_rows, limit=10),
     }
+
+
+def _normalize_status(value: Any) -> str:
+    return _clean(value).lower().replace("-", "_").replace(" ", "_")
+
+
+def _scored_tier(trust_tier: str) -> bool:
+    return trust_tier in {"standard", "low", "limited"}
+
+
+def _visible_unscored_reason(row: dict[str, Any], *, trust_tier: str, guardrail_status: str) -> str:
+    raw = _normalize_status(row.get("unscoredReason"))
+    if not raw or raw == "none":
+        return ""
+    if _scored_tier(trust_tier):
+        return raw if guardrail_status == "blocked" else ""
+    if trust_tier in {"blocked", "unsupported", "unscored"}:
+        return raw
+    return raw if guardrail_status == "blocked" else ""
+
+
+def _visible_unscored_reason_detail(row: dict[str, Any], unscored_reason: str) -> str:
+    if not unscored_reason:
+        return ""
+    return _clean(row.get("unscoredReasonDetail"))
+
+
+def _sample_market_capability_status(row: dict[str, Any], unscored_reason: str) -> str:
+    status = _normalize_status(row.get("marketCapabilityStatus"))
+    if status:
+        return status
+    if unscored_reason == "unsupported_market" or _normalize_status(row.get("trustTier")) == "unsupported":
+        return "unsupported"
+    market = _clean(row.get("market"))
+    return "unknown" if market else "not_available"
+
+
+def _reason_taxonomy(row: dict[str, Any], unscored_reason: str) -> str:
+    if not unscored_reason:
+        return "not_available" if _scored_tier(_normalize_status(row.get("trustTier"))) else "unknown"
+    if unscored_reason == "unsupported_market" or _normalize_status(row.get("trustTier")) == "unsupported":
+        return "unsupported"
+    if "invalid" in unscored_reason or "blocked" in unscored_reason or _normalize_status(row.get("trustTier")) == "blocked":
+        return "blocked"
+    return "unscored"
+
+
+def _reason_display_label(unscored_reason: str) -> str:
+    if not unscored_reason:
+        return "Not available"
+    if unscored_reason == "unsupported_market":
+        return "Unsupported market"
+    if "invalid" in unscored_reason or "blocked" in unscored_reason:
+        return "Blocked"
+    return "Unscored"
 
 
 def _latest_row_date(rows: list[dict[str, Any]]) -> str:
