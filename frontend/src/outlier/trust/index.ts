@@ -6,6 +6,7 @@ export interface FreshnessSeverity {
 
 export {
   badgeToneClass,
+  rowBoardTrustSurface,
   rowActionability,
   rowAttributionChip,
   rowFreshness,
@@ -17,6 +18,7 @@ export {
   rowTrustChips,
   rowTrustCopy,
   trustStatusLabel,
+  uniqueBoardTrustValues,
   uniqueTrustValues,
 } from "./rowTrust";
 

@@ -78,6 +78,17 @@ export interface RowTrustSummary {
   missingDataSummary: string;
 }
 
+export interface RowBoardTrustSurface {
+  trustTier: string;
+  trustScore: number | null;
+  calibrationStatus: string;
+  probabilityGuardrailStatus: string;
+  contextReadinessStatus: string;
+  unscoredReason: string;
+  marketCapabilityStatus: string;
+  chips: TrustChip[];
+}
+
 export function rowPropIdentity(row: OutlierBoardRow): NormalizedPropIdentity {
   const identity = objectValue(row.trust?.propIdentity);
   return {
@@ -198,6 +209,37 @@ export function rowTrustChips(row: OutlierBoardRow): TrustChip[] {
   ].filter(Boolean) as TrustChip[];
 }
 
+export function rowBoardTrustSurface(row: OutlierBoardRow): RowBoardTrustSurface {
+  const explainability = objectValue(row.explainability);
+  const calibration = objectValue(explainability.calibration);
+  const context = objectValue(explainability.context);
+  const guardrails = objectValue(explainability.guardrails);
+  const trust = objectValue(row.trust);
+  const trustTier = normalizedStatus(row.trustTier ?? explainability.trustTier) || "unknown";
+  const probabilityGuardrailStatus = normalizedStatus(row.probabilityGuardrailStatus ?? guardrails.probabilityGuardrailStatus) || "unknown";
+  const unscoredReason = visibleUnscoredReason(row, trustTier, probabilityGuardrailStatus, guardrails);
+  const surface = {
+    trustTier,
+    trustScore: trustScore(row.trustScore ?? explainability.trustScore),
+    calibrationStatus: normalizedStatus(row.calibrationStatus ?? calibration.calibrationStatus) || "unknown",
+    probabilityGuardrailStatus,
+    contextReadinessStatus: normalizedStatus(row.contextReadinessStatus ?? context.contextReadinessStatus) || "unknown",
+    unscoredReason,
+    marketCapabilityStatus: normalizedStatus(row.marketCapabilityStatus ?? trust.marketCapabilityStatus) || "unknown",
+  };
+  return {
+    ...surface,
+    chips: [
+      trustTierChip(surface.trustTier, surface.trustScore),
+      calibrationStatusChip(surface.calibrationStatus),
+      probabilityGuardrailStatusChip(surface.probabilityGuardrailStatus),
+      contextReadinessStatusChip(surface.contextReadinessStatus),
+      unscoredReasonChip(surface.unscoredReason),
+      marketCapabilityStatusChip(surface.marketCapabilityStatus),
+    ],
+  };
+}
+
 export function rowAttributionChip(row: OutlierBoardRow): TrustChip | null {
   const identity = rowPropIdentity(row);
   if (identity.attributionStatus === "conflict") {
@@ -281,6 +323,10 @@ export function uniqueTrustValues(rows: OutlierBoardRow[], getter: (row: Outlier
   return Array.from(new Set(rows.map((row) => normalizedStatus(getter(row))).filter(Boolean))).sort();
 }
 
+export function uniqueBoardTrustValues(rows: OutlierBoardRow[], getter: (row: RowBoardTrustSurface) => unknown): string[] {
+  return Array.from(new Set(rows.map((row) => normalizedStatus(getter(rowBoardTrustSurface(row)) || "unknown")).filter(Boolean))).sort();
+}
+
 export function modelTrustChip(row: OutlierBoardRow): TrustChip {
   const model = objectValue(row.trust?.model);
   const status = text(model.modelStatus ?? model.status ?? row.modelStatus ?? row.productionStatus, "").toLowerCase();
@@ -306,6 +352,52 @@ function marketCapabilityChip(row: OutlierBoardRow): TrustChip {
   if (status === "unsupported") return { label: "Unsupported market", tone: "risk", title: "No supported model scoring for this market." };
   if (status === "model_supported") return { label: "Model supported", tone: "good", title: "This market has model support." };
   return { label: "Research only", tone: "watch", title: "Market remains research-only." };
+}
+
+function trustTierChip(status: string, score: number | null): TrustChip {
+  const suffix = score === null ? "" : ` ${score}`;
+  if (status === "standard") return { label: `Standard${suffix}`, tone: "good", title: "Trust tier: standard." };
+  if (status === "low" || status === "limited") return { label: trustStatusLabel(status), tone: "watch", title: `Trust tier: ${trustStatusLabel(status)}.` };
+  if (status === "unscored") return { label: "Unscored", tone: "watch", title: "Model unavailable for this row." };
+  if (status === "blocked") return { label: "Blocked", tone: "risk", title: "Trust guardrails blocked this row." };
+  if (status === "unsupported") return { label: "Unsupported market", tone: "risk", title: "Unsupported market." };
+  return { label: "Unknown", tone: "neutral", title: "Trust tier unavailable." };
+}
+
+function calibrationStatusChip(status: string): TrustChip {
+  if (["applied", "ready", "ok", "passed", "calibrated"].includes(status)) return { label: "Calibrated", tone: "good", title: `Calibration: ${trustStatusLabel(status)}.` };
+  if (status === "missing" || status === "not_available" || status === "unavailable") return { label: "Calibration unavailable", tone: "neutral", title: `Calibration: ${trustStatusLabel(status)}.` };
+  if (status === "unknown") return { label: "Unknown", tone: "neutral", title: "Calibration status unavailable." };
+  return { label: trustStatusLabel(status), tone: "watch", title: `Calibration: ${trustStatusLabel(status)}.` };
+}
+
+function probabilityGuardrailStatusChip(status: string): TrustChip {
+  if (["ok", "ready", "passed", "standard"].includes(status)) return { label: "Guardrail ok", tone: "good", title: `Probability guardrail: ${trustStatusLabel(status)}.` };
+  if (status === "blocked" || status === "invalid") return { label: "Blocked", tone: "risk", title: `Probability guardrail: ${trustStatusLabel(status)}.` };
+  if (status === "unknown" || status === "missing") return { label: "Unknown", tone: "neutral", title: "Probability guardrail status unavailable." };
+  return { label: trustStatusLabel(status), tone: "watch", title: `Probability guardrail: ${trustStatusLabel(status)}.` };
+}
+
+function contextReadinessStatusChip(status: string): TrustChip {
+  if (["ready", "ok", "standard"].includes(status)) return { label: "Context ready", tone: "good", title: `Context readiness: ${trustStatusLabel(status)}.` };
+  if (status === "limited" || status === "low" || status === "partial") return { label: "Context limited", tone: "watch", title: `Context readiness: ${trustStatusLabel(status)}.` };
+  if (status === "blocked") return { label: "Blocked", tone: "risk", title: "Context readiness blocked." };
+  if (status === "unknown" || status === "missing") return { label: "Unknown", tone: "neutral", title: "Context readiness unavailable." };
+  return { label: trustStatusLabel(status), tone: "watch", title: `Context readiness: ${trustStatusLabel(status)}.` };
+}
+
+function unscoredReasonChip(status: string): TrustChip {
+  if (!status || status === "none") return { label: "Scored", tone: "good", title: "No blocking unscored reason is displayed for this scored row." };
+  if (status === "unsupported_market") return { label: "Unsupported market", tone: "risk", title: `Unscored reason: ${trustStatusLabel(status)}.` };
+  if (status.includes("invalid") || status.includes("blocked")) return { label: "Blocked", tone: "risk", title: `Unscored reason: ${trustStatusLabel(status)}.` };
+  return { label: "Unscored", tone: "watch", title: `Unscored reason: ${trustStatusLabel(status)}.` };
+}
+
+function marketCapabilityStatusChip(status: string): TrustChip {
+  if (status === "model_supported") return { label: "Model supported", tone: "good", title: "Market capability: model supported." };
+  if (status === "unsupported") return { label: "Unsupported market", tone: "risk", title: "Market capability: unsupported." };
+  if (status === "unknown" || status === "missing") return { label: "Unknown", tone: "neutral", title: "Market capability unavailable." };
+  return { label: trustStatusLabel(status), tone: "watch", title: `Market capability: ${trustStatusLabel(status)}.` };
 }
 
 function productionEligibilityChip(row: OutlierBoardRow): TrustChip {
@@ -445,6 +537,22 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 function normalizedStatus(value: unknown): string {
   return text(value, "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+}
+
+function trustScore(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function visibleUnscoredReason(row: OutlierBoardRow, trustTier: string, guardrailStatus: string, guardrails: Record<string, unknown>): string {
+  const raw = normalizedStatus(row.unscoredReason ?? guardrails.unscoredReason);
+  if (!raw || raw === "none") return "none";
+  if (trustTier === "standard" || trustTier === "low" || trustTier === "limited") {
+    return guardrailStatus === "blocked" ? raw : "none";
+  }
+  if (trustTier === "blocked" || trustTier === "unsupported" || trustTier === "unscored") return raw;
+  return guardrailStatus === "blocked" ? raw : "none";
 }
 
 function integer(value: unknown): number {

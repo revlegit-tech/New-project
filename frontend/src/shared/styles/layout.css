@@ -58,7 +58,7 @@ h1 { margin: 0; font-size: clamp(2rem, 4vw, 4.4rem); line-height: .94; letter-sp
 .ob-board-meta > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ob-build-stamp { flex: 0 0 auto; color: var(--color-dim); font-size: .68rem; border: 1px solid rgba(255,255,255,.09); border-radius: 999px; padding: 4px 8px; background: rgba(255,255,255,.03); }
 .ob-table-wrap { overflow: auto; max-height: calc(100vh - 330px); }
-.ob-table { width: 100%; border-collapse: collapse; min-width: 1320px; }
+.ob-table { width: 100%; border-collapse: collapse; min-width: 2080px; }
 .ob-table th, .ob-table td { padding: 13px 14px; border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: middle; }
 .ob-table th { position: sticky; top: 0; z-index: 2; background: #101212; color: var(--color-muted); font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; }
 .ob-sort-button { width: 100%; border: 0; background: transparent; color: inherit; padding: 0; text-align: left; text-transform: inherit; letter-spacing: inherit; font-weight: 900; }
@@ -140,7 +140,13 @@ body[data-ob-density="research"] .ob-pill { padding: 6px 10px; }
 .ob-table th:nth-child(7), .ob-table td:nth-child(7) { width: 112px; }
 .ob-table th:nth-child(8), .ob-table td:nth-child(8),
 .ob-table th:nth-child(9), .ob-table td:nth-child(9),
-.ob-table th:nth-child(10), .ob-table td:nth-child(10) { width: 140px; }
+.ob-table th:nth-child(10), .ob-table td:nth-child(10),
+.ob-table th:nth-child(11), .ob-table td:nth-child(11),
+.ob-table th:nth-child(12), .ob-table td:nth-child(12),
+.ob-table th:nth-child(13), .ob-table td:nth-child(13) { width: 128px; }
+.ob-table th:nth-child(14), .ob-table td:nth-child(14),
+.ob-table th:nth-child(15), .ob-table td:nth-child(15),
+.ob-table th:nth-child(16), .ob-table td:nth-child(16) { width: 140px; }
 
 /* Productized daily report layer: turns EdgeBoard rows into a sellable MLB research package. */
 .ob-action-row { display: inline-flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; justify-content: flex-end; }

@@ -23,7 +23,7 @@ import {
   rowSelectedOdds,
 } from "./board/utils";
 import { DetailRailController, renderDetailRailShell } from "./detail-rail";
-import { freshnessSeverity, rowIsTrustedMarket, rowTrustSummary, trustStatusLabel, uniqueTrustValues } from "./trust";
+import { freshnessSeverity, rowBoardTrustSurface, rowIsTrustedMarket, rowTrustSummary, trustStatusLabel, uniqueBoardTrustValues, uniqueTrustValues } from "./trust";
 import { loadResearchReport, renderResearchReport, renderResearchReportError, renderResearchReportLoading } from "./research-report";
 
 const appState = createInitialOutlierState();
@@ -111,9 +111,13 @@ function renderFilters() {
   ]);
   const action = h("select", { id: "actionLabelFilter", className: "ob-select", attrs: { "aria-label": "Action label filter" } }, [option("", "Any action")]);
   const capability = h("select", { id: "marketCapabilityFilter", className: "ob-select", attrs: { "aria-label": "Market capability filter" } }, [option("", "Any capability")]);
+  const trustTier = h("select", { id: "trustTierFilter", className: "ob-select", attrs: { "aria-label": "Trust tier filter" } }, [option("", "Any trust")]);
   const production = h("select", { id: "productionEligibleFilter", className: "ob-select", attrs: { "aria-label": "Production eligibility filter" } }, [option("", "Any eligibility"), option("true", "Production eligible"), option("false", "Research only")]);
   const modelState = h("select", { id: "productionStatusFilter", className: "ob-select", attrs: { "aria-label": "Model state filter" } }, [option("", "Any model state")]);
   const calibration = h("select", { id: "calibrationStatusFilter", className: "ob-select", attrs: { "aria-label": "Calibration status filter" } }, [option("", "Any calibration")]);
+  const guardrail = h("select", { id: "probabilityGuardrailStatusFilter", className: "ob-select", attrs: { "aria-label": "Probability guardrail status filter" } }, [option("", "Any guardrail")]);
+  const contextReadiness = h("select", { id: "contextReadinessStatusFilter", className: "ob-select", attrs: { "aria-label": "Context readiness status filter" } }, [option("", "Any context")]);
+  const unscoredReason = h("select", { id: "unscoredReasonFilter", className: "ob-select", attrs: { "aria-label": "Unscored reason filter" } }, [option("", "Any reason")]);
   const backtest = h("select", { id: "backtestStatusFilter", className: "ob-select", attrs: { "aria-label": "Backtest status filter" } }, [option("", "Any backtest")]);
   const freshness = h("select", { id: "freshnessStatusFilter", className: "ob-select", attrs: { "aria-label": "Freshness status filter" } }, [option("", "Any freshness")]);
   return h("section", { className: "ob-filter-panel", attrs: { "aria-label": "Board controls" } }, [
@@ -134,9 +138,13 @@ function renderFilters() {
       filterField("Min quote count", h("input", { id: "minQuoteCountFilter", className: "ob-input", value: "", attrs: { type: "number", min: "0", step: "1", placeholder: "Min quotes", "aria-label": "Minimum quote count" } })),
       filterField("Date", h("input", { id: "dateFilter", className: "ob-input", value: appState.date, attrs: { type: "date", "aria-label": "Slate date" } })),
       filterField("Action", action),
+      filterField("Trust tier", trustTier),
       filterField("Capability", capability),
       filterField("Model state", modelState),
       filterField("Calibration", calibration),
+      filterField("Guardrail", guardrail),
+      filterField("Context", contextReadiness),
+      filterField("Reason", unscoredReason),
       filterField("Backtest", backtest),
       filterField("Freshness", freshness),
       filterField("Eligibility", production),
@@ -233,6 +241,11 @@ function bindEvents() {
       applyFilters();
       renderBoard({ resetScroll: true });
     }
+    if (target.id === "trustTierFilter") {
+      appState.trustTier = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
     if (target.id === "productionEligibleFilter") {
       appState.modelProductionEligible = target.value;
       applyFilters();
@@ -245,6 +258,21 @@ function bindEvents() {
     }
     if (target.id === "calibrationStatusFilter") {
       appState.calibrationStatus = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "probabilityGuardrailStatusFilter") {
+      appState.probabilityGuardrailStatus = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "contextReadinessStatusFilter") {
+      appState.contextReadinessStatus = target.value;
+      applyFilters();
+      renderBoard({ resetScroll: true });
+    }
+    if (target.id === "unscoredReasonFilter") {
+      appState.unscoredReason = target.value;
       applyFilters();
       renderBoard({ resetScroll: true });
     }
@@ -395,6 +423,7 @@ function applyFilters() {
     const marketOk = !appState.market || rowMarketKey(row) === appState.market;
     const marketGroupOk = !appState.marketGroup || rowMarketGroup(row) === appState.marketGroup;
     const trust = rowTrustSummary(row);
+    const boardTrust = rowBoardTrustSurface(row);
     const sideText = String(row.trust?.propIdentity?.side || row.side || row.rawLabel || "").toLowerCase();
     const sideOk = !appState.side || sideText.includes(appState.side) || (!sideText && appState.side === "over");
     const rowBooks = new Set([rowSelectedBook(row), rowBestBook(row), ...rowAvailableBooks(row)].filter(Boolean));
@@ -413,14 +442,18 @@ function applyFilters() {
     const haystack = [row.trust?.propIdentity?.player, row.player, row.playerName, row.trust?.propIdentity?.team, row.team, row.trust?.propIdentity?.opponent, row.opponent, row.marketDisplay, row.trust?.propIdentity?.market, row.market].map((part) => String(part || "").toLowerCase()).join(" ");
     const actionOk = !appState.actionLabel || normalizeFilter(trust.actionLabel) === appState.actionLabel;
     const capabilityOk = !appState.marketCapabilityStatus || trust.marketCapabilityStatus === appState.marketCapabilityStatus;
+    const trustTierOk = !appState.trustTier || boardTrust.trustTier === appState.trustTier;
     const productionOk = !appState.modelProductionEligible || String(trust.modelProductionEligible) === appState.modelProductionEligible;
     const modelOk = !appState.productionStatus || trust.productionStatus === appState.productionStatus;
-    const calibrationOk = !appState.calibrationStatus || trust.calibrationStatus === appState.calibrationStatus;
+    const calibrationOk = !appState.calibrationStatus || boardTrust.calibrationStatus === appState.calibrationStatus;
+    const guardrailOk = !appState.probabilityGuardrailStatus || boardTrust.probabilityGuardrailStatus === appState.probabilityGuardrailStatus;
+    const contextOk = !appState.contextReadinessStatus || boardTrust.contextReadinessStatus === appState.contextReadinessStatus;
+    const unscoredReasonOk = !appState.unscoredReason || boardTrust.unscoredReason === appState.unscoredReason;
     const backtestOk = !appState.backtestStatus || trust.backtestStatus === appState.backtestStatus;
     const freshnessOk = !appState.freshnessStatus || trust.freshnessStatus === appState.freshnessStatus;
     const missingOk = !appState.missingDataOnly || trust.missingDataCount > 0;
     const trustedOk = !appState.trustedMarketsOnly || rowIsTrustedMarket(row);
-    return marketOk && marketGroupOk && sideOk && bookOk && selectedQuoteOk && bestQuoteOk && modelProbabilityOk && edgeOk && quoteCountOk && modeledOk && oddsOnlyOk && altOk && gameOk && unknownOk && actionOk && capabilityOk && productionOk && modelOk && calibrationOk && backtestOk && freshnessOk && missingOk && trustedOk && (!q || haystack.includes(q));
+    return marketOk && marketGroupOk && sideOk && bookOk && selectedQuoteOk && bestQuoteOk && modelProbabilityOk && edgeOk && quoteCountOk && modeledOk && oddsOnlyOk && altOk && gameOk && unknownOk && actionOk && capabilityOk && trustTierOk && productionOk && modelOk && calibrationOk && guardrailOk && contextOk && unscoredReasonOk && backtestOk && freshnessOk && missingOk && trustedOk && (!q || haystack.includes(q));
   });
   appState.filteredRows = sortRows(appState.filteredRows);
   if (appState.selectedIndex >= appState.filteredRows.length) appState.selectedIndex = -1;
@@ -605,6 +638,12 @@ function activeFilterCopy(): string {
     appState.marketGroup ? `Group: ${appState.marketGroup}` : "",
     appState.bookFilter ? `Book: ${appState.bookFilter}` : "",
     appState.side ? `${appState.side[0].toUpperCase()}${appState.side.slice(1)} only` : "",
+    appState.trustTier ? `Trust: ${trustStatusLabel(appState.trustTier)}` : "",
+    appState.calibrationStatus ? `Calibration: ${trustStatusLabel(appState.calibrationStatus)}` : "",
+    appState.probabilityGuardrailStatus ? `Guardrail: ${trustStatusLabel(appState.probabilityGuardrailStatus)}` : "",
+    appState.contextReadinessStatus ? `Context: ${trustStatusLabel(appState.contextReadinessStatus)}` : "",
+    appState.unscoredReason ? `Reason: ${trustStatusLabel(appState.unscoredReason)}` : "",
+    appState.marketCapabilityStatus ? `Capability: ${trustStatusLabel(appState.marketCapabilityStatus)}` : "",
     appState.query ? `Search: ${appState.query}` : "",
     appState.minQuoteCount ? `Min quotes: ${appState.minQuoteCount}` : "",
   ].filter(Boolean);
@@ -683,6 +722,12 @@ function sortValue(row: OutlierBoardRow, key: string): number | string | null {
   if (key === "readiness") return text(row.readinessLabel, "").toLowerCase();
   if (key === "freshness") return text(row.freshness?.status, "").toLowerCase();
   if (key === "action") return text(row.actionLabel || row.action, "").toLowerCase();
+  if (key === "trustTier") return rowBoardTrustSurface(row).trustTier;
+  if (key === "calibrationStatus") return rowBoardTrustSurface(row).calibrationStatus;
+  if (key === "probabilityGuardrailStatus") return rowBoardTrustSurface(row).probabilityGuardrailStatus;
+  if (key === "contextReadinessStatus") return rowBoardTrustSurface(row).contextReadinessStatus;
+  if (key === "unscoredReason") return rowBoardTrustSurface(row).unscoredReason;
+  if (key === "marketCapabilityStatus") return rowBoardTrustSurface(row).marketCapabilityStatus;
   if (key === "line") return numericValue(rowLine(row));
   if (key === "quoteCount") return rowQuoteCount(row);
   if (key === "americanOdds") return numericValue(appState.sportsbook ? rowSelectedOdds(row) : rowBestOdds(row));
@@ -724,9 +769,13 @@ function resetFilters() {
   appState.side = "";
   appState.actionLabel = "";
   appState.marketCapabilityStatus = "";
+  appState.trustTier = "";
   appState.modelProductionEligible = "";
   appState.productionStatus = "";
   appState.calibrationStatus = "";
+  appState.probabilityGuardrailStatus = "";
+  appState.contextReadinessStatus = "";
+  appState.unscoredReason = "";
   appState.backtestStatus = "";
   appState.freshnessStatus = "";
   appState.missingDataOnly = false;
@@ -916,8 +965,12 @@ function normalizeFilter(value: unknown) { return String(value || "").toLowerCas
 function syncTrustFilters() {
   fillSelect("actionLabelFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).actionLabel), "Any action");
   fillSelect("marketCapabilityFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).marketCapabilityStatus), "Any capability");
+  fillSelect("trustTierFilter", uniqueBoardTrustValues(appState.rows, (row) => row.trustTier), "Any trust");
   fillSelect("productionStatusFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).productionStatus), "Any model state");
-  fillSelect("calibrationStatusFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).calibrationStatus), "Any calibration");
+  fillSelect("calibrationStatusFilter", uniqueBoardTrustValues(appState.rows, (row) => row.calibrationStatus), "Any calibration");
+  fillSelect("probabilityGuardrailStatusFilter", uniqueBoardTrustValues(appState.rows, (row) => row.probabilityGuardrailStatus), "Any guardrail");
+  fillSelect("contextReadinessStatusFilter", uniqueBoardTrustValues(appState.rows, (row) => row.contextReadinessStatus), "Any context");
+  fillSelect("unscoredReasonFilter", uniqueBoardTrustValues(appState.rows, (row) => row.unscoredReason), "Any reason");
   fillSelect("backtestStatusFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).backtestStatus), "Any backtest");
   fillSelect("freshnessStatusFilter", uniqueTrustValues(appState.rows, (row) => rowTrustSummary(row).freshnessStatus), "Any freshness");
 }
@@ -932,6 +985,8 @@ function currentEmptyState() {
   if (appState.missingDataOnly) return { title: "No rows with missing data", copy: "Feature matrix and missing-data warnings are clear for the current filter set." };
   if (appState.freshnessStatus === "stale" || appState.freshnessStatus === "missing") return { title: "No stale rows", copy: "Data stale warnings are not present for the current filter set." };
   if (appState.marketCapabilityStatus === "unsupported") return { title: "No unsupported markets", copy: "Unsupported market rows are not present for the current filter set." };
+  if (appState.trustTier === "blocked") return { title: "No blocked rows", copy: "Blocked rows are not present for the current filter set." };
+  if (appState.trustTier === "unscored" || appState.unscoredReason && appState.unscoredReason !== "none") return { title: "No unscored rows", copy: "Unscored rows are not present for the current filter set." };
   if (appState.calibrationStatus === "missing") return { title: "No calibration-missing rows", copy: "Model calibration missing rows are not present for the current filter set." };
   if (appState.backtestStatus === "missing") return { title: "No backtest-missing rows", copy: "Backtest missing rows are not present for the current filter set." };
   return { title: "No props match these filters", copy: "Adjust market, side, date, trust status, or search." };

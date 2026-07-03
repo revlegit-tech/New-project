@@ -1,7 +1,7 @@
 import { h } from "../../shared/components/dom";
 import { formatOdds, percent, signedPercent, text } from "../../shared/formatting";
 import { marketLabel } from "../../shared/markets/markets";
-import { badgeToneClass, rowActionability, rowAttributionChip, rowFreshness, rowModelEdge, rowPropIdentity, rowReadiness, rowTrustChips } from "../trust";
+import { badgeToneClass, rowActionability, rowAttributionChip, rowBoardTrustSurface, rowFreshness, rowModelEdge, rowPropIdentity, rowReadiness, rowTrustChips } from "../trust";
 import {
   matchup,
   OutlierBoardRow,
@@ -25,6 +25,12 @@ export const BOARD_COLUMNS = [
   { key: "modelProbabilityPercent", label: "Model" },
   { key: "impliedProbability", label: "Implied" },
   { key: "edgePercent", label: "Edge" },
+  { key: "trustTier", label: "Trust" },
+  { key: "calibrationStatus", label: "Cal" },
+  { key: "probabilityGuardrailStatus", label: "Guard" },
+  { key: "contextReadinessStatus", label: "Context" },
+  { key: "unscoredReason", label: "Reason" },
+  { key: "marketCapabilityStatus", label: "Capability" },
   { key: "readiness", label: "Readiness" },
   { key: "freshness", label: "Fresh" },
   { key: "action", label: "Action" },
@@ -60,6 +66,7 @@ export function renderBoardRow(row: OutlierBoardRow, options: BoardRowRenderOpti
   const freshness = rowFreshness(row, options.freshnessFallback);
   const actionability = rowActionability(row);
   const attributionChip = rowAttributionChip(row);
+  const boardTrust = rowBoardTrustSurface(row);
   const trustChips = rowTrustChips(row).filter((chip) => !attributionChip || chip.label !== attributionChip.label);
   const prioritizedChips = attributionChip ? [attributionChip, ...trustChips] : trustChips;
   const chips = prioritizedChips.slice(0, 6);
@@ -87,6 +94,7 @@ export function renderBoardRow(row: OutlierBoardRow, options: BoardRowRenderOpti
     h("td", { text: percent(modelEdge.modelProbabilityPercent) }),
     h("td", { text: percent(modelEdge.impliedProbabilityPercent) }),
     h("td", {}, [h("span", { className: `ob-pill ob-pill-edge ${badgeToneClass(modelEdge.tone)}`, text: signedPercent(modelEdge.edgePercent) })]),
+    ...boardTrust.chips.map((chip) => h("td", {}, [h("span", { className: `ob-pill ob-pill-mini ${badgeToneClass(chip.tone)}`, attrs: { title: chip.title }, text: chip.label })])),
     h("td", {}, [h("span", { className: `ob-pill ${badgeToneClass(readiness.tone)}${isExperimental ? " ob-pill-experimental" : ""}`, attrs: { title: isExperimental ? researchTooltip : readiness.warnings[0] || readiness.status }, text: readiness.label })]),
     h("td", {}, [h("span", { className: `ob-pill ${badgeToneClass(freshness.tone)}`, attrs: { title: freshness.source || freshness.status }, text: freshness.label })]),
     h("td", {}, [h("span", { className: `ob-pill ob-pill-action ${badgeToneClass(actionability.tone)}${isResearch ? " ob-pill-research" : ""}`, attrs: { title: isResearch ? researchTooltip : actionability.suggestedStake }, text: actionability.label })]),
