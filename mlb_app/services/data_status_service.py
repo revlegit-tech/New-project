@@ -15,11 +15,12 @@ from mlb_app.repositories.warehouse_db import WarehouseDatabase
 from mlb_app.services.collector_manifest_service import CollectorManifestService
 from mlb_app.services.game_market_feature_lookup_service import GameMarketFeatureLookupService
 from mlb_app.services.ml_feature_export_service import latest_ml_feature_export_status
-from mlb_app.services.player_prop_prediction_repository import apply_unscored_trust_defaults
+from mlb_app.services.player_prop_prediction_repository import PlayerPropPredictionRepository, apply_unscored_trust_defaults
 from mlb_app.services.player_prop_label_builder_service import (
     latest_player_prop_label_status,
     latest_player_prop_training_status,
 )
+from mlb_app.services.playerboard_read_service import PlayerboardReadService
 
 DEFAULT_STALE_AFTER_SECONDS = 36 * 60 * 60
 MAX_ROW_COUNT_BYTES = 20 * 1024 * 1024
@@ -57,6 +58,8 @@ class DataStatusService:
         data_health_repository: DataHealthRepository | None = None,
         historical_game_odds_repository: HistoricalGameOddsRepository | None = None,
         game_market_feature_lookup_service: GameMarketFeatureLookupService | None = None,
+        playerboard_read_service: PlayerboardReadService | None = None,
+        player_prop_prediction_repository: PlayerPropPredictionRepository | None = None,
         now_provider: Callable[[], datetime] | None = None,
         stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
     ) -> None:
@@ -71,6 +74,8 @@ class DataStatusService:
             settings=settings,
         )
         self.game_market_feature_lookup_service = game_market_feature_lookup_service
+        self.playerboard_read_service = playerboard_read_service
+        self.player_prop_prediction_repository = player_prop_prediction_repository or PlayerPropPredictionRepository(settings=settings)
 
     def payload(self, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
         query = query or {}
@@ -104,7 +109,7 @@ class DataStatusService:
             database_status=database_status,
             historical_game_odds=historical_game_odds,
         )
-        playerboard_build_health = self._playerboard_build_health(source_freshness.get("playerboard", {}))
+        playerboard_build_health = self._playerboard_build_health(source_freshness.get("playerboard", {}), season=season)
         ml_feature_exports = self._ml_feature_exports_status(database_status)
         ml_label_exports = self._ml_label_exports_status(database_status)
         ml_training_datasets = self._ml_training_datasets_status(database_status)
@@ -240,7 +245,7 @@ class DataStatusService:
         except Exception:
             return ""
 
-    def _playerboard_build_health(self, playerboard_source: dict[str, Any]) -> dict[str, Any]:
+    def _playerboard_build_health(self, playerboard_source: dict[str, Any], *, season: int) -> dict[str, Any]:
         path = self.data_dir / "status" / "playerboard_build_status.json"
         try:
             latest = json.loads(path.read_text(encoding="utf-8"))
@@ -249,8 +254,30 @@ class DataStatusService:
         if not isinstance(latest, dict):
             latest = {}
         scoring_summary = self._latest_prediction_summary()
-        board_rows = self._latest_playerboard_rows(playerboard_source)
-        trust_coverage = _playerboard_trust_coverage(board_rows)
+        scope = self._playerboard_trust_scope(playerboard_source, season=season)
+        trust_coverage = _playerboard_trust_coverage(
+            scope["active_rows"],
+            scope_name="active_slate",
+            active_date=scope["active_date"],
+            source=scope["source"],
+            generated_at=self._now().isoformat(),
+            season_rows=len(scope["season_rows"]),
+            active_slate_rows=len(scope["active_rows"]),
+            rows_excluded_by_date_scope=scope["rows_excluded_by_date_scope"],
+            rows_excluded_by_season_scope=scope["rows_excluded_by_season_scope"],
+        )
+        season_trust_coverage = _playerboard_trust_coverage(
+            scope["season_rows"],
+            scope_name="season_artifact",
+            active_date=scope["active_date"],
+            source=scope["season_source"],
+            generated_at=self._now().isoformat(),
+            season_rows=len(scope["season_rows"]),
+            active_slate_rows=len(scope["active_rows"]),
+            rows_excluded_by_date_scope=0,
+            rows_excluded_by_season_scope=scope["rows_excluded_by_season_scope"],
+            outside_active_date=scope["active_date"],
+        )
         return {
             "rowsSaved": int(latest.get("rowsSaved") or playerboard_source.get("row_count") or 0),
             "unsupportedMarketCounts": dict(latest.get("unsupportedMarketCounts") or {}),
@@ -264,12 +291,29 @@ class DataStatusService:
             "sampleHighTrustRows": list(scoring_summary.get("sampleHighTrustRows") or [])[:10],
             "sampleUncalibratedRows": list(scoring_summary.get("sampleUncalibratedRows") or [])[:10],
             "trustCoverage": trust_coverage["trustCoverage"],
+            "seasonTrustCoverage": season_trust_coverage["trustCoverage"],
+            "trustCoverageScope": trust_coverage["trustCoverage"]["trustCoverageScope"],
+            "activeDate": scope["active_date"],
+            "activeSlateRows": len(scope["active_rows"]),
+            "seasonRows": len(scope["season_rows"]),
+            "statusRowsEvaluated": len(scope["active_rows"]),
+            "rowsExcludedByDateScope": scope["rows_excluded_by_date_scope"],
+            "rowsExcludedBySeasonScope": scope["rows_excluded_by_season_scope"],
+            "sourceOfTrustCoverage": scope["source"],
+            "trustCoverageGeneratedAt": trust_coverage["trustCoverage"]["trustCoverageGeneratedAt"],
             "unscoredRowCounts": trust_coverage["unscoredRowCounts"],
             "unscoredReasonCounts": trust_coverage["unscoredReasonCounts"],
+            "unscoredReasonCountsByScope": {
+                "active_slate": trust_coverage["unscoredReasonCounts"],
+                "season_artifact": season_trust_coverage["unscoredReasonCounts"],
+            },
             "blankTrustFieldCounts": trust_coverage["blankTrustFieldCounts"],
             "sampleUnscoredRows": trust_coverage["sampleUnscoredRows"],
+            "sampleUnscoredRowsByReason": trust_coverage["sampleUnscoredRowsByReason"],
             "sampleUnsupportedRows": trust_coverage["sampleUnsupportedRows"],
             "sampleBlankTrustRows": trust_coverage["sampleBlankTrustRows"],
+            "sampleOutsideActiveSlateRows": season_trust_coverage["sampleOutsideActiveSlateRows"],
+            "unknownUnscoredDiagnostics": trust_coverage["unknownUnscoredDiagnostics"],
             "rosterEvidenceAvailableRows": int(latest.get("rosterEvidenceAvailableRows") or 0),
             "rosterEvidenceUnavailableRows": int(latest.get("rosterEvidenceUnavailableRows") or 0),
             "lastSnapshotTimestamp": str(latest.get("snapshotAt") or playerboard_source.get("latest_timestamp") or ""),
@@ -280,6 +324,41 @@ class DataStatusService:
             "buildTimingsMs": dict(latest.get("buildTimingsMs") or {}),
             "slowestBuildPhases": list(latest.get("slowestBuildPhases") or []),
             "generatedAt": str(latest.get("generatedAt") or ""),
+        }
+
+    def _playerboard_trust_scope(self, playerboard_source: dict[str, Any], *, season: int) -> dict[str, Any]:
+        season_rows = self._latest_playerboard_rows(playerboard_source)
+        active_rows: list[dict[str, Any]] = []
+        active_date = ""
+        source = "csv_season_artifact"
+        rows_excluded_by_season_scope = 0
+
+        if self.playerboard_read_service is not None:
+            try:
+                snapshot = self.playerboard_read_service.get_snapshot(season=season, date_label="", market="")
+                active_rows = [dict(row) for row in snapshot.rows]
+                active_date = str(snapshot.date or "")
+                source = f"{snapshot.source}_active_snapshot"
+                if not season_rows:
+                    season_rows = [dict(row) for row in snapshot.raw_rows]
+            except Exception:
+                active_rows = []
+
+        if not active_rows:
+            active_date = active_date or _latest_row_date(season_rows)
+            active_rows = _active_rows_from_artifact(season_rows, active_date=active_date)
+        if active_rows and active_date:
+            active_rows = self.player_prop_prediction_repository.join_predictions(active_rows, date_label=active_date).rows
+
+        rows_excluded_by_date_scope = max(0, len(season_rows) - len(active_rows))
+        return {
+            "active_rows": active_rows,
+            "season_rows": season_rows,
+            "active_date": active_date,
+            "source": source,
+            "season_source": str(playerboard_source.get("latest_file") or "data/playerboard/playerboard_<season>.csv"),
+            "rows_excluded_by_date_scope": rows_excluded_by_date_scope,
+            "rows_excluded_by_season_scope": rows_excluded_by_season_scope,
         }
 
     def _latest_playerboard_rows(self, playerboard_source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -530,8 +609,21 @@ TRUST_COVERAGE_FIELDS = (
 )
 
 
-def _playerboard_trust_coverage(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    enriched_rows = [apply_unscored_trust_defaults(row) for row in rows]
+def _playerboard_trust_coverage(
+    rows: list[dict[str, Any]],
+    *,
+    scope_name: str = "active_slate",
+    active_date: str = "",
+    source: str = "",
+    generated_at: str = "",
+    season_rows: int = 0,
+    active_slate_rows: int = 0,
+    rows_excluded_by_date_scope: int = 0,
+    rows_excluded_by_season_scope: int = 0,
+    outside_active_date: str = "",
+) -> dict[str, Any]:
+    prepared_rows = [_annotate_scope(row, scope_name=scope_name, active_date=outside_active_date) for row in rows]
+    enriched_rows = [apply_unscored_trust_defaults(row) for row in prepared_rows]
     blank_counts = {
         "totalRowsMissingTrustTier": _missing_field_count(enriched_rows, "trustTier"),
         "totalRowsMissingGuardrailStatus": _missing_field_count(enriched_rows, "probabilityGuardrailStatus"),
@@ -545,8 +637,23 @@ def _playerboard_trust_coverage(rows: list[dict[str, Any]]) -> dict[str, Any]:
         if str(row.get("unscoredReason") or "") == "unsupported_market" or str(row.get("trustTier") or "") == "unsupported"
     ]
     blank_rows = [row for row in enriched_rows if any(not _clean(row.get(field)) for field in TRUST_COVERAGE_FIELDS)]
+    reason_counts = dict(sorted(Counter(str(row.get("unscoredReason") or "unknown_unscored") for row in unscored_rows).items()))
+    outside_rows = [
+        row
+        for row in enriched_rows
+        if str(row.get("unscoredReason") or "") in {"outside_active_slate", "season_row_not_active_slate"}
+    ]
     return {
         "trustCoverage": {
+            "trustCoverageScope": scope_name,
+            "activeDate": active_date,
+            "activeSlateRows": active_slate_rows or len(enriched_rows),
+            "seasonRows": season_rows or len(enriched_rows),
+            "statusRowsEvaluated": len(enriched_rows),
+            "rowsExcludedByDateScope": rows_excluded_by_date_scope,
+            "rowsExcludedBySeasonScope": rows_excluded_by_season_scope,
+            "sourceOfTrustCoverage": source,
+            "trustCoverageGeneratedAt": generated_at,
             "totalBoardRows": len(enriched_rows),
             "totalRowsWithTrustTier": len(enriched_rows) - blank_counts["totalRowsMissingTrustTier"],
             "totalRowsMissingTrustTier": blank_counts["totalRowsMissingTrustTier"],
@@ -562,12 +669,28 @@ def _playerboard_trust_coverage(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "totalUnsupportedRows": len(unsupported_rows),
             "totalScoredRows": len(enriched_rows) - len(unscored_rows),
         },
-        "unscoredReasonCounts": dict(sorted(Counter(str(row.get("unscoredReason") or "unknown_unscored") for row in unscored_rows).items())),
+        "unscoredReasonCounts": reason_counts,
         "blankTrustFieldCounts": blank_counts,
         "sampleUnscoredRows": _sample_trust_rows(unscored_rows),
+        "sampleUnscoredRowsByReason": _sample_trust_rows_by_reason(unscored_rows),
         "sampleUnsupportedRows": _sample_trust_rows(unsupported_rows),
         "sampleBlankTrustRows": _sample_trust_rows(blank_rows),
+        "sampleOutsideActiveSlateRows": _sample_trust_rows(outside_rows),
+        "unknownUnscoredDiagnostics": _unknown_unscored_diagnostics(unscored_rows, reason_counts),
     }
+
+
+def _annotate_scope(row: dict[str, Any], *, scope_name: str, active_date: str) -> dict[str, Any]:
+    if scope_name != "season_artifact" or not active_date:
+        return dict(row)
+    row_date = _clean(row.get("date"))[:10]
+    if row_date and row_date != active_date:
+        return dict(row) | {
+            "trustCoverageScope": "season_row_not_active_slate",
+            "outsideActiveSlate": True,
+            "unscoredReason": _clean(row.get("unscoredReason")) or "season_row_not_active_slate",
+        }
+    return dict(row)
 
 
 def _missing_field_count(rows: list[dict[str, Any]], field: str) -> int:
@@ -586,6 +709,11 @@ def _sample_trust_rows(rows: list[dict[str, Any]], *, limit: int = 10) -> list[d
                 "book": _clean(row.get("book") or row.get("bookKey") or row.get("bestBook")),
                 "attributionStatus": _clean(row.get("attributionStatus")),
                 "unscoredReason": _clean(row.get("unscoredReason")),
+                "unscoredReasonDetail": _clean(row.get("unscoredReasonDetail")),
+                "scoringSkipReason": _clean(row.get("scoringSkipReason")),
+                "unsupportedMarketReason": _clean(row.get("unsupportedMarketReason")),
+                "attributionBlockReason": _clean(row.get("attributionBlockReason")),
+                "missingPredictionReason": _clean(row.get("missingPredictionReason")),
                 "trustTier": _clean(row.get("trustTier")),
                 "calibrationStatus": _clean(row.get("calibrationStatus")),
                 "probabilityGuardrailStatus": _clean(row.get("probabilityGuardrailStatus")),
@@ -595,6 +723,48 @@ def _sample_trust_rows(rows: list[dict[str, Any]], *, limit: int = 10) -> list[d
         if len(samples) >= limit:
             break
     return samples
+
+
+def _sample_trust_rows_by_reason(rows: list[dict[str, Any]], *, per_reason_limit: int = 5) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        reason = _clean(row.get("unscoredReason")) or "unknown_unscored"
+        bucket = grouped.setdefault(reason, [])
+        if len(bucket) < per_reason_limit:
+            bucket.extend(_sample_trust_rows([row], limit=1))
+    return dict(sorted(grouped.items()))
+
+
+def _unknown_unscored_diagnostics(rows: list[dict[str, Any]], reason_counts: dict[str, int]) -> dict[str, Any]:
+    unknown_rows = [row for row in rows if (_clean(row.get("unscoredReason")) or "unknown_unscored") == "unknown_unscored"]
+    return {
+        "unknownUnscoredRows": int(reason_counts.get("unknown_unscored", 0)),
+        "knownUnscoredRows": max(0, len(rows) - int(reason_counts.get("unknown_unscored", 0))),
+        "diagnostic": "unknown_unscored is used only when existing row metadata cannot identify a safe reason.",
+        "sampleRows": _sample_trust_rows(unknown_rows, limit=10),
+    }
+
+
+def _latest_row_date(rows: list[dict[str, Any]]) -> str:
+    dates = sorted({_clean(row.get("date"))[:10] for row in rows if _clean(row.get("date"))})
+    return dates[-1] if dates else ""
+
+
+def _active_rows_from_artifact(rows: list[dict[str, Any]], *, active_date: str) -> list[dict[str, Any]]:
+    if not active_date:
+        return list(rows)
+    date_rows = [row for row in rows if _clean(row.get("date"))[:10] == active_date]
+    with_snapshot = [row for row in date_rows if _clean(row.get("snapshotAt"))]
+    if not with_snapshot:
+        return date_rows
+    by_market: dict[str, list[dict[str, Any]]] = {}
+    for row in with_snapshot:
+        by_market.setdefault(_clean(row.get("market")) or "unknown", []).append(row)
+    selected: list[dict[str, Any]] = []
+    for market_rows in by_market.values():
+        latest_snapshot = max(_clean(row.get("snapshotAt")) for row in market_rows)
+        selected.extend(row for row in market_rows if _clean(row.get("snapshotAt")) == latest_snapshot)
+    return selected
 
 
 def _truthy(value: Any) -> bool:

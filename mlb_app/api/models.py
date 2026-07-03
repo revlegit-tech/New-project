@@ -171,6 +171,9 @@ class EdgeBoardRow(StrictPayload):
     staleFeatureGroups: list[str] = Field(default_factory=list)
     unsupportedMarketReason: str | None = None
     attributionBlockReason: str | None = None
+    unscoredReasonDetail: str | None = None
+    scoringSkipReason: str | None = None
+    missingPredictionReason: str | None = None
     dataFreshnessStatus: str | None = None
     researchOnlyReason: str | None = None
     unscoredReason: str | None = None

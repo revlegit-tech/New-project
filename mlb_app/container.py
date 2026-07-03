@@ -213,12 +213,6 @@ class AppContainer:
             savant_feature_service=self.baseball_savant_feature_service,
             game_environment_feature_service=self.game_environment_feature_service,
         )
-        self.data_status_service = DataStatusService(
-            settings=self.settings,
-            data_health_repository=self.data_health_repository,
-            historical_game_odds_repository=self.historical_game_odds_repository,
-            game_market_feature_lookup_service=self.game_market_feature_lookup_service,
-        )
         self.model_registry_service = ModelRegistryService(settings=self.settings)
         self.mlb_market_registry_service = MLBMarketRegistryService(settings=self.settings)
         self.model_training_service = ModelTrainingService(settings=self.settings)
@@ -257,6 +251,13 @@ class AppContainer:
             game_market_feature_lookup_service=self.game_market_feature_lookup_service,
             settings=self.settings,
             metrics=self.metrics,
+        )
+        self.data_status_service = DataStatusService(
+            settings=self.settings,
+            data_health_repository=self.data_health_repository,
+            historical_game_odds_repository=self.historical_game_odds_repository,
+            game_market_feature_lookup_service=self.game_market_feature_lookup_service,
+            playerboard_read_service=self.playerboard_read_service,
         )
         self.playerboard_service = PlayerboardService(
             repository=self.playerboard_repository,

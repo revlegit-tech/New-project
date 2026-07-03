@@ -313,6 +313,9 @@ def apply_unscored_trust_defaults(row: dict[str, Any]) -> dict[str, Any]:
             "staleFeatureGroups": _list_value(enriched.get("staleFeatureGroups")),
             "unsupportedMarketReason": _unsupported_market_reason(enriched, reason),
             "attributionBlockReason": _attribution_block_reason(enriched, reason),
+            "unscoredReasonDetail": _unscored_reason_detail(enriched, reason),
+            "scoringSkipReason": _scoring_skip_reason(enriched, reason),
+            "missingPredictionReason": _missing_prediction_reason(enriched, reason),
             "dataFreshnessStatus": _clean(enriched.get("dataFreshnessStatus")) or "unknown",
             "researchOnlyReason": _clean(enriched.get("researchOnlyReason")) or "research_only_unscored_row",
             "unscoredReason": reason,
@@ -324,9 +327,18 @@ def apply_unscored_trust_defaults(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def classify_unscored_reason(row: dict[str, Any]) -> str:
-    existing = _clean(_first(row, "unscoredReason", "scoringSkipReason", "skipReason", "calibrationSkipReason"))
+    existing = _clean(row.get("unscoredReason"))
     if existing:
         return existing
+    if _clean(_first(row, "scoringSkipReason", "skipReason")):
+        return "scoring_skipped"
+    if _clean(row.get("calibrationSkipReason")):
+        return "missing_calibration"
+    scope = _clean(row.get("trustCoverageScope") or row.get("scope")).lower()
+    if scope in {"outside_active_slate", "season_row_not_active_slate"}:
+        return "season_row_not_active_slate"
+    if _clean(row.get("outsideActiveSlate")).lower() in {"1", "true", "yes", "y"}:
+        return "outside_active_slate"
     status = _clean(_first(row, "attributionStatus", "attribution_status")).lower()
     if status in {"invalid_player_label", "conflict", "ambiguous"} or attribution_blocks_context(row):
         return "invalid_attribution"
@@ -350,8 +362,12 @@ def classify_unscored_reason(row: dict[str, Any]) -> str:
     if _clean(row.get("modelPath")).lower() in {"missing", "not_available"}:
         return "missing_model"
     if row.get("predictionMatched") is False:
-        return "scoring_skipped"
-    return "unknown_unscored"
+        if _clean(_first(row, "scoringSkipReason", "skipReason")):
+            return "scoring_skipped"
+        return "missing_prediction"
+    if _clean(row.get("predictionSource")).lower() in {"missing", "not_available", "none"}:
+        return "missing_prediction"
+    return "missing_prediction"
 
 
 def _unscored_trust_tier(reason: str) -> str:
@@ -384,8 +400,11 @@ def _trust_reason_for_unscored(reason: str) -> str:
         "invalid_attribution": "attribution_blocked",
         "inferred_low_confidence": "inferred_low_confidence",
         "missing_model": "missing_model",
+        "missing_prediction": "missing_prediction",
         "missing_calibration": "missing_calibration",
         "scoring_skipped": "skipped_by_model_scoring",
+        "outside_active_slate": "outside_active_slate",
+        "season_row_not_active_slate": "season_row_not_active_slate",
     }
     return mapping.get(reason, "unknown_unscored")
 
@@ -400,6 +419,39 @@ def _context_status_for_unscored(reason: str) -> str:
     if reason == "inferred_low_confidence":
         return "limited"
     return "unknown"
+
+
+def _unscored_reason_detail(row: dict[str, Any], reason: str) -> str:
+    existing = _clean(row.get("unscoredReasonDetail"))
+    if existing:
+        return existing
+    if reason == "missing_prediction":
+        return "No matching model prediction row was found for this board row."
+    if reason == "scoring_skipped":
+        return _clean(_first(row, "scoringSkipReason", "skipReason")) or "Model scoring skipped this row."
+    if reason == "unsupported_market":
+        return _unsupported_market_reason(row, reason)
+    if reason == "invalid_attribution":
+        return _attribution_block_reason(row, reason)
+    if reason in {"outside_active_slate", "season_row_not_active_slate"}:
+        return "Row is outside the active playerboard date/snapshot scope."
+    return reason
+
+
+def _scoring_skip_reason(row: dict[str, Any], reason: str) -> str:
+    existing = _clean(_first(row, "scoringSkipReason", "skipReason"))
+    if existing:
+        return existing
+    return "ambiguous_prediction_match" if reason == "scoring_skipped" else ""
+
+
+def _missing_prediction_reason(row: dict[str, Any], reason: str) -> str:
+    existing = _clean(row.get("missingPredictionReason"))
+    if existing:
+        return existing
+    if reason == "missing_prediction":
+        return "prediction_join_no_match"
+    return ""
 
 
 def _unsupported_market_reason(row: dict[str, Any], reason: str) -> str:
