@@ -2,6 +2,7 @@ import { jsonFetch } from "../../shared/api/client";
 import { clear, h } from "../../shared/components/dom";
 import { formatOdds, number, percent, signedPercent, text } from "../../shared/formatting";
 import { marketLabel } from "../../shared/markets/markets";
+import { getMlModelsStatus, getProductionGates, getShadowReadiness, getShadowSummary } from "../api/client";
 import { badgeToneClass, freshnessSeverity, rowActionability, rowBoardTrustSurface, rowFreshness, rowPropIdentity, rowReadiness, rowTrustChips, rowTrustCopy, rowTrustReasonLabel, rowTrustSummary, trustStatusLabel } from "../trust";
 import {
   edgeValue,
@@ -16,6 +17,7 @@ import {
   rowPlayer,
   rowPropKey,
 } from "../board/utils";
+import { MlModelsStatusResponse, ProductionGatesResponse, ShadowReadinessMarket, ShadowReadinessResponse, ShadowSummaryResponse } from "../types/modelAudit";
 
 export interface DetailRailContext {
   date: string;
@@ -29,6 +31,15 @@ export interface PropDetailPayload {
   status?: string;
   detail?: Record<string, unknown>;
   [key: string]: unknown;
+}
+
+interface ShadowAuditState {
+  status?: MlModelsStatusResponse;
+  summary?: ShadowSummaryResponse;
+  readiness?: ShadowReadinessResponse;
+  gates?: ProductionGatesResponse;
+  error?: string;
+  loading?: boolean;
 }
 
 export function renderDetailRailShell(): HTMLElement {
@@ -71,18 +82,22 @@ export class DetailRailController {
 
   private async hydrate(row: OutlierBoardRow, context: DetailRailContext, sequence: number): Promise<void> {
     this.requestSequence = sequence;
-    try {
-      const query = detailQuery(row, context.date);
-      const { payload } = await jsonFetch<PropDetailPayload>(`/api/prop-detail?${query.toString()}`);
-      if (this.requestSequence !== sequence || this.currentRow !== row) return;
-      this.render(row, context, { detail: payload?.detail || payload, loading: false });
-    } catch (error) {
-      if (this.requestSequence !== sequence || this.currentRow !== row) return;
-      this.render(row, context, { error: error instanceof Error ? error.message : String(error), loading: false });
-    }
+    const query = detailQuery(row, context.date);
+    const [detail, audit] = await Promise.allSettled([
+      jsonFetch<PropDetailPayload>(`/api/prop-detail?${query.toString()}`),
+      loadShadowAudit(rowMarketKey(row)),
+    ]);
+    if (this.requestSequence !== sequence || this.currentRow !== row) return;
+    const detailState = detail.status === "fulfilled"
+      ? { detail: detail.value.payload?.detail || detail.value.payload }
+      : { error: detail.reason instanceof Error ? detail.reason.message : String(detail.reason) };
+    const auditState = audit.status === "fulfilled"
+      ? audit.value
+      : { error: audit.reason instanceof Error ? audit.reason.message : String(audit.reason) };
+    this.render(row, context, { ...detailState, shadowAudit: auditState, loading: false });
   }
 
-  private render(row: OutlierBoardRow, context: DetailRailContext, state: { detail?: Record<string, unknown>; error?: string; loading?: boolean } = {}): void {
+  private render(row: OutlierBoardRow, context: DetailRailContext, state: { detail?: Record<string, unknown>; error?: string; loading?: boolean; shadowAudit?: ShadowAuditState } = {}): void {
     const rail = this.hostProvider();
     if (!rail) return;
     const severity = freshnessSeverity(context.status);
@@ -125,6 +140,7 @@ export class DetailRailController {
       ]),
       renderExplainability(row),
       renderRowTrustDetail(row, context.status),
+      renderShadowModelAudit(row, state.shadowAudit || { loading: Boolean(state.loading) }),
       renderServerDetail(state),
       h("article", { className: "ob-rail-card" }, [
         h("h3", { text: "Picks & exposure" }),
@@ -134,6 +150,26 @@ export class DetailRailController {
       ]),
     ]);
   }
+}
+
+async function loadShadowAudit(market: string): Promise<ShadowAuditState> {
+  const [status, summary, readiness, gates] = await Promise.allSettled([
+    getMlModelsStatus(),
+    getShadowSummary(market),
+    getShadowReadiness(market),
+    getProductionGates(market),
+  ]);
+  const failures = [status, summary, readiness, gates].filter((result) => result.status === "rejected") as PromiseRejectedResult[];
+  const audit: ShadowAuditState = {
+    status: status.status === "fulfilled" ? status.value : undefined,
+    summary: summary.status === "fulfilled" ? summary.value : undefined,
+    readiness: readiness.status === "fulfilled" ? readiness.value : undefined,
+    gates: gates.status === "fulfilled" ? gates.value : undefined,
+  };
+  if (failures.length === 4) {
+    audit.error = failures[0].reason instanceof Error ? failures[0].reason.message : String(failures[0].reason);
+  }
+  return audit;
 }
 
 function renderExplainability(row: OutlierBoardRow): HTMLElement {
@@ -201,6 +237,96 @@ function renderRowTrustDetail(row: OutlierBoardRow, status: unknown): HTMLElemen
   ]);
 }
 
+export function renderShadowModelAudit(row: OutlierBoardRow, audit: ShadowAuditState = {}): HTMLElement {
+  const market = rowMarketKey(row);
+  if (audit.loading) {
+    return h("article", { className: "ob-rail-card ob-shadow-audit" }, [
+      h("h3", { text: "Experimental Shadow Model" }),
+      h("p", { className: "ob-muted", text: "Loading shadow model audit." }),
+    ]);
+  }
+  if (audit.error) {
+    return h("article", { className: "ob-rail-card ob-shadow-audit" }, [
+      h("h3", { text: "Experimental Shadow Model" }),
+      h("p", { className: "ob-muted", text: "Shadow audit unavailable. Backend audit data could not be loaded safely." }),
+    ]);
+  }
+  const summary = findMarket(audit.summary?.markets, market);
+  const readiness = findMarket(audit.readiness?.markets, market);
+  const gates = findMarket(audit.gates?.markets, market);
+  const selected = mergeAuditMarket(summary, readiness, gates);
+  if (!selected) {
+    return h("article", { className: "ob-rail-card ob-shadow-audit" }, [
+      h("h3", { text: "Experimental Shadow Model" }),
+      h("p", { className: "ob-muted", text: "No Sprint 19 shadow model for this market yet." }),
+      h("div", { className: "ob-chip-row is-rail" }, [
+        h("span", { className: "ob-pill ob-pill-mini is-watch", text: "Research only" }),
+        h("span", { className: "ob-pill ob-pill-mini is-risk", text: "Not actionable" }),
+      ]),
+    ]);
+  }
+  const hardBlockers = stringList(selected.hardBlockers).length ? stringList(selected.hardBlockers) : stringList(selected.blockers);
+  const softWarnings = [...stringList(selected.softWarnings), ...stringList(selected.warnings)];
+  const gateStatus = text(selected.productionGateStatus || selected.gateSummary?.status, hardBlockers.length ? "blocked" : "manual_review_required");
+  const manualGovernance = selected.gateSummary?.manualGovernanceRequired || hardBlockers.includes("manual_governance_review_required") || stringList(selected.blockers).includes("manual_governance_review_required");
+  const validation = validationLabel(selected.validationDates);
+  const gateChecks = Array.isArray(selected.gateChecks) ? selected.gateChecks : [];
+  return h("article", { className: "ob-rail-card ob-shadow-audit" }, [
+    h("p", { className: "ob-kicker", text: "Research-only model audit" }),
+    h("h3", { text: "Experimental Shadow Model" }),
+    h("div", { className: "ob-chip-row is-rail" }, [
+      h("span", { className: "ob-pill ob-pill-mini is-watch", text: "Experimental" }),
+      h("span", { className: "ob-pill ob-pill-mini is-watch", text: "Shadow" }),
+      h("span", { className: "ob-pill ob-pill-mini is-risk", text: "Research only" }),
+      h("span", { className: "ob-pill ob-pill-mini is-risk", text: "Not actionable" }),
+      h("span", { className: "ob-pill ob-pill-mini is-risk", text: "Not production eligible" }),
+      manualGovernance ? h("span", { className: "ob-pill ob-pill-mini is-risk", text: "Manual governance required" }) : null,
+    ]),
+    h("div", { className: "ob-stat-grid" }, [
+      stat("Market", marketLabel(market)),
+      stat("Model key", text(selected.modelKey, "calibrated_logistic")),
+      stat("Stage", text(selected.modelStage, "shadow")),
+      stat("Readiness", text(selected.readinessLabel, "Experimental")),
+      stat("Action", text(selected.action, "Research")),
+      stat("Production eligible", selected.productionEligible ? "Yes" : "No"),
+      stat("Gate status", gateStatus),
+      stat("Manual governance", manualGovernance ? "Required" : "Not reported"),
+      stat("Evaluated rows", metricText(selected.evaluatedRows, "Not reported")),
+      stat("AUC", metricText(selected.auc)),
+      stat("Brier", metricText(selected.brierScore)),
+      stat("Log loss", metricText(selected.logLoss)),
+      stat("Expected calibration error", metricText(selected.expectedCalibrationError)),
+      stat("Validation", validation),
+      stat("Stake units", Number(selected.stakeUnits || 0) === 0 ? "0, research only" : "Withheld"),
+      stat("Bet action", selected.betActionAllowed ? "Disabled by research UI" : "Disabled"),
+    ]),
+    hardBlockers.length ? h("p", { className: "ob-muted", text: `Hard blockers: ${hardBlockers.join(", ")}` }) : h("p", { className: "ob-muted", text: "Hard blockers: none reported by audit." }),
+    softWarnings.length ? h("p", { className: "ob-muted", text: `Soft warnings: ${dedupe(softWarnings).join(", ")}` }) : h("p", { className: "ob-muted", text: "Soft warnings: none reported by audit." }),
+    h("p", { className: "ob-muted", text: `Next: ${text(selected.recommendedNextStep, "Manual governance review is required before promotion can be considered.")}` }),
+    selected.artifactStatus && selected.artifactStatus !== "ready" ? h("p", { className: "ob-muted", text: `Artifact warning: ${selected.artifactStatus}. Metrics are not fabricated when artifacts are stale or missing.` }) : null,
+    renderGateChecks(gateChecks),
+  ]);
+}
+
+function renderGateChecks(gateChecks: NonNullable<ShadowReadinessMarket["gateChecks"]>): HTMLElement {
+  if (!gateChecks.length) {
+    return h("p", { className: "ob-muted", text: "Gate checks unavailable for this audit response." });
+  }
+  return h("details", { className: "ob-gate-checks" }, [
+    h("summary", { text: `Gate checks (${gateChecks.length})` }),
+    h("div", { className: "ob-gate-list" }, gateChecks.map((check) => {
+      const key = text(check.label || check.name || check.key, "Gate check");
+      const status = text(check.status || (check.passed ? "pass" : "blocked"), "unknown");
+      const reason = text(check.reason || check.message || check.details, "");
+      return h("div", { className: "ob-gate-row" }, [
+        h("strong", { text: key }),
+        h("span", { text: status }),
+        reason ? h("em", { text: reason }) : null,
+      ]);
+    })),
+  ]);
+}
+
 function renderServerDetail(state: { detail?: Record<string, unknown>; error?: string; loading?: boolean }): HTMLElement {
   if (state.loading) {
     return h("article", { className: "ob-rail-card" }, [h("h3", { text: "Server drilldown" }), h("p", { className: "ob-muted", text: "Loading prop-detail contract…" })]);
@@ -258,6 +384,37 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 function arrayValue(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => text(item, "")).filter(Boolean) : [];
+}
+
+function findMarket<T extends { market?: string }>(markets: T[] | undefined, market: string): T | undefined {
+  return Array.isArray(markets) ? markets.find((item) => item.market === market) : undefined;
+}
+
+function mergeAuditMarket(...markets: Array<Record<string, unknown> | undefined>): ShadowReadinessMarket | null {
+  const selected = markets.filter(Boolean);
+  return selected.length ? Object.assign({}, ...selected) as ShadowReadinessMarket : null;
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => text(item, "")).filter(Boolean) : [];
+}
+
+function metricText(value: unknown, fallback = "--"): string {
+  if (value === null || value === undefined || value === "") return fallback;
+  const parsed = number(value, Number.NaN);
+  if (!Number.isFinite(parsed)) return text(value, fallback);
+  return Number.isInteger(parsed) ? String(parsed) : parsed.toFixed(3);
+}
+
+function validationLabel(dates: unknown): string {
+  const values = stringList(dates);
+  if (!values.length) return "Not reported";
+  if (values.length === 1) return `${values[0]} (1 date)`;
+  return `${values[0]} to ${values[values.length - 1]} (${values.length} dates)`;
+}
+
+function dedupe(values: string[]): string[] {
+  return Array.from(new Set(values));
 }
 
 export function emptyRail(): HTMLElement {
