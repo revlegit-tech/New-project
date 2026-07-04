@@ -3,7 +3,8 @@
   [int]$Season = 2026,
   [string]$Base = "http://127.0.0.1:8765",
   [int]$BoardLimit = 5000,
-  [switch]$SkipGithubImport
+  [switch]$SkipGithubImport,
+  [switch]$ForcePortRelease
 )
 
 $ErrorActionPreference = "Stop"
@@ -71,32 +72,110 @@ function Get-AppPort {
   }
 }
 
+function Get-ListenPortOwners {
+  param([int]$Port = 8765)
+
+  $owners = @()
+
+  try {
+    $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+      Where-Object { $_.OwningProcess -and [int]$_.OwningProcess -ne 0 }
+    foreach ($connection in @($connections)) {
+      $process = Get-Process -Id $connection.OwningProcess -ErrorAction SilentlyContinue
+      $name = if ($process) { $process.ProcessName } else { "unknown" }
+      $owners += [pscustomobject]@{
+        Pid = [int]$connection.OwningProcess
+        ProcessName = $name
+        LocalAddress = $connection.LocalAddress
+        LocalPort = [int]$connection.LocalPort
+      }
+    }
+  } catch {
+  }
+
+  if ($owners.Count -gt 0) {
+    return $owners
+  }
+
+  try {
+    $pattern = "^\s*TCP\s+\S+:$Port\s+\S+\s+LISTENING\s+(\d+)\s*$"
+    foreach ($line in @(netstat -ano | Select-String -Pattern $pattern)) {
+      if ($line.Line -match $pattern) {
+        $pidValue = [int]$matches[1]
+        if ($pidValue -eq 0) {
+          continue
+        }
+        $process = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+        $name = if ($process) { $process.ProcessName } else { "unknown" }
+        $owners += [pscustomobject]@{
+          Pid = $pidValue
+          ProcessName = $name
+          LocalAddress = "unknown"
+          LocalPort = $Port
+        }
+      }
+    }
+  } catch {
+  }
+
+  return $owners
+}
+
 function Get-PortOwnerSummary {
   param([int]$Port = 8765)
 
-  try {
-    $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-    if ($connections) {
-      $lines = @()
-      foreach ($connection in $connections) {
-        $process = Get-Process -Id $connection.OwningProcess -ErrorAction SilentlyContinue
-        $name = if ($process) { $process.ProcessName } else { "unknown" }
-        $lines += "pid=$($connection.OwningProcess) process=$name local=$($connection.LocalAddress):$($connection.LocalPort)"
-      }
-      return ($lines -join "; ")
-    }
-  } catch {
-  }
-
-  try {
-    $owners = netstat -ano | Select-String ":$Port\s"
-    if ($owners) {
-      return (($owners | ForEach-Object { $_.Line.Trim() }) -join "; ")
-    }
-  } catch {
+  $owners = @(Get-ListenPortOwners -Port $Port)
+  if ($owners.Count -gt 0) {
+    return (($owners | ForEach-Object { "pid=$($_.Pid) process=$($_.ProcessName) local=$($_.LocalAddress):$($_.LocalPort)" }) -join "; ")
   }
 
   return "none"
+}
+
+function Get-VenvRepairMessage {
+  param([string]$PythonPath)
+
+  return @"
+Broken or missing virtualenv Python:
+  $PythonPath
+
+Rebuild it from PowerShell:
+  py -3 -m venv .\.venv
+  .\.venv\Scripts\python.exe -m pip install --upgrade pip
+  .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+"@
+}
+
+function Test-VenvReady {
+  $python = Join-Path $Root ".venv\Scripts\python.exe"
+
+  if (-not (Test-Path $python)) {
+    throw (Get-VenvRepairMessage -PythonPath $python)
+  }
+
+  try {
+    $probe = & $python -c "import sys; print(sys.executable)" 2>&1
+    $probeExitCode = $LASTEXITCODE
+  } catch {
+    $probe = $_.Exception.Message
+    $probeExitCode = 1
+  }
+  if ($probeExitCode -ne 0) {
+    throw "$(Get-VenvRepairMessage -PythonPath $python)`nPython probe failed:`n$probe"
+  }
+
+  try {
+    $uvicornProbe = & $python -c "import uvicorn; print(uvicorn.__name__)" 2>&1
+    $uvicornExitCode = $LASTEXITCODE
+  } catch {
+    $uvicornProbe = $_.Exception.Message
+    $uvicornExitCode = 1
+  }
+  if ($uvicornExitCode -ne 0) {
+    throw "$(Get-VenvRepairMessage -PythonPath $python)`nUvicorn import failed:`n$uvicornProbe"
+  }
+
+  return $python
 }
 
 function Invoke-AppHealthProbe {
@@ -147,25 +226,44 @@ function Test-App {
   return (Invoke-AppHealthProbe -AllowDocsFallback:$AllowDocsFallback).healthy
 }
 
+function Invoke-OptionalModelStatusProbe {
+  $uri = "$Base/api/ml-models/status"
+  try {
+    $response = Invoke-WebRequest $uri -TimeoutSec 10 -UseBasicParsing
+    Write-Host "Model status probe ok at $uri (HTTP $([int]$response.StatusCode))."
+  } catch {
+    Write-Host "WARNING: Optional model status probe failed at ${uri}: $($_.Exception.Message)"
+  }
+}
+
 function Start-App-IfNeeded {
   $Port = Get-AppPort
-  $health = Invoke-AppHealthProbe -AllowDocsFallback
+  $python = Test-VenvReady
+  $health = Invoke-AppHealthProbe
   if ($health.healthy) {
     Write-Host "App already healthy at $($health.endpoint) (HTTP $($health.statusCode))."
+    Invoke-OptionalModelStatusProbe
     return
   }
 
   $owner = Get-PortOwnerSummary -Port $Port
   if ($owner -ne "none") {
-    Write-Host "Port $Port is already owned by: $owner"
-    throw "App is not healthy at $Base. Last readiness probe: endpoint=$($health.endpoint) status=$($health.statusCode) error=$($health.error)"
+    if (-not $ForcePortRelease) {
+      Write-Host "Port $Port has active LISTEN process(es): $owner"
+      throw "App is not healthy at $Base and the port has an active listener. Last readiness probe: endpoint=$($health.endpoint) status=$($health.statusCode) error=$($health.error). Use -ForcePortRelease only when you intentionally want this script to stop those listener process(es)."
+    }
+
+    Write-Host "ForcePortRelease set. Stopping active LISTEN process(es) on port ${Port}: $owner"
+    foreach ($listener in @(Get-ListenPortOwners -Port $Port)) {
+      Stop-Process -Id $listener.Pid -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Seconds 2
   }
 
   Write-Host "App not responding. Starting FastAPI directly..."
 
   $outLog = Join-Path $Root "server-8765.log"
   $errLog = Join-Path $Root "server-8765.err.log"
-  $python = Join-Path $Root ".venv\Scripts\python.exe"
   $env:DB_ENABLED = "1"
   $env:DB_FALLBACK_TO_CSV = "1"
   $process = Start-Process -FilePath $python -ArgumentList @(
@@ -181,9 +279,10 @@ function Start-App-IfNeeded {
   for ($i = 1; $i -le 180; $i++) {
     Start-Sleep -Seconds 2
 
-    $health = Invoke-AppHealthProbe -AllowDocsFallback
+    $health = Invoke-AppHealthProbe
     if ($health.healthy) {
       Write-Host "App is healthy at $($health.endpoint) (HTTP $($health.statusCode))."
+      Invoke-OptionalModelStatusProbe
       return
     }
 

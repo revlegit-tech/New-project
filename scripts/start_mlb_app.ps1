@@ -10,8 +10,44 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Python = Join-Path $Root ".venv\Scripts\python.exe"
 
+function Get-VenvRepairMessage {
+    param([string]$PythonPath)
+
+    return @"
+Broken or missing virtualenv Python:
+  $PythonPath
+
+Rebuild it from PowerShell:
+  py -3 -m venv .\.venv
+  .\.venv\Scripts\python.exe -m pip install --upgrade pip
+  .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+"@
+}
+
 if (-not (Test-Path $Python)) {
-    throw "Expected virtualenv Python at $Python"
+    throw (Get-VenvRepairMessage -PythonPath $Python)
+}
+
+try {
+    $PythonProbe = & $Python -c "import sys; print(sys.executable)" 2>&1
+    $PythonProbeExitCode = $LASTEXITCODE
+} catch {
+    $PythonProbe = $_.Exception.Message
+    $PythonProbeExitCode = 1
+}
+if ($PythonProbeExitCode -ne 0) {
+    throw "$(Get-VenvRepairMessage -PythonPath $Python)`nPython probe failed:`n$PythonProbe"
+}
+
+try {
+    $UvicornProbe = & $Python -c "import uvicorn; print(uvicorn.__name__)" 2>&1
+    $UvicornProbeExitCode = $LASTEXITCODE
+} catch {
+    $UvicornProbe = $_.Exception.Message
+    $UvicornProbeExitCode = 1
+}
+if ($UvicornProbeExitCode -ne 0) {
+    throw "$(Get-VenvRepairMessage -PythonPath $Python)`nUvicorn import failed:`n$UvicornProbe"
 }
 
 if (-not $env:PYTHONPATH) { $env:PYTHONPATH = $Root.Path }
