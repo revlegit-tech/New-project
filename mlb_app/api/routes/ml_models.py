@@ -12,6 +12,7 @@ from mlb_app.api.dependencies import (
     get_model_production_gate_service,
     get_model_training_service,
     get_prediction_service,
+    get_shadow_artifact_freshness_service,
     get_shadow_model_readiness_service,
     get_shadow_model_summary_service,
 )
@@ -21,6 +22,7 @@ from mlb_app.api.models import (
     MLModelsMetricsResponse,
     MLModelsPredictionPreviewResponse,
     MLModelsRegistryResponse,
+    MLModelsShadowFreshnessResponse,
     MLModelsShadowReadinessResponse,
     MLModelsShadowSummaryResponse,
     MLModelsStatusResponse,
@@ -33,6 +35,7 @@ from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.model_production_gate_service import ModelProductionGateService
 from mlb_app.services.model_registry_service import ModelRegistryService
 from mlb_app.services.model_training_service import ModelTrainingService
+from mlb_app.services.shadow_artifact_freshness_service import ShadowArtifactFreshnessService
 from mlb_app.services.shadow_model_readiness_service import ShadowModelReadinessService
 from mlb_app.services.shadow_model_summary_service import ShadowModelSummaryService
 
@@ -177,6 +180,20 @@ async def ml_models_shadow_readiness(
 ) -> dict[str, Any]:
     market = str(request.query_params.get("market") or "").strip() or None
     return await limiter.run(service.payload, market=market, route_name="/api/ml-models/shadow-readiness")
+
+
+@router.get(
+    "/ml-models/shadow-freshness",
+    response_model=MLModelsShadowFreshnessResponse,
+    name="native_ml_models_shadow_freshness",
+)
+async def ml_models_shadow_freshness(
+    request: Request,
+    service: Annotated[ShadowArtifactFreshnessService, Depends(get_shadow_artifact_freshness_service)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+) -> dict[str, Any]:
+    market = str(request.query_params.get("market") or "").strip() or None
+    return await limiter.run(service.payload, market=market, route_name="/api/ml-models/shadow-freshness")
 
 
 @router.get(

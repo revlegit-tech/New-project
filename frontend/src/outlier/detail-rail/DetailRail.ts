@@ -2,7 +2,7 @@ import { jsonFetch } from "../../shared/api/client";
 import { clear, h } from "../../shared/components/dom";
 import { formatOdds, number, percent, signedPercent, text } from "../../shared/formatting";
 import { marketLabel } from "../../shared/markets/markets";
-import { getMlModelsStatus, getProductionGates, getShadowReadiness, getShadowSummary } from "../api/client";
+import { getMlModelsStatus, getProductionGates, getShadowFreshness, getShadowReadiness, getShadowSummary } from "../api/client";
 import { badgeToneClass, freshnessSeverity, rowActionability, rowBoardTrustSurface, rowFreshness, rowPropIdentity, rowReadiness, rowTrustChips, rowTrustCopy, rowTrustReasonLabel, rowTrustSummary, trustStatusLabel } from "../trust";
 import {
   edgeValue,
@@ -17,7 +17,7 @@ import {
   rowPlayer,
   rowPropKey,
 } from "../board/utils";
-import { MlModelsStatusResponse, ProductionGatesResponse, ShadowReadinessMarket, ShadowReadinessResponse, ShadowSummaryResponse } from "../types/modelAudit";
+import { MlModelsStatusResponse, ProductionGatesResponse, ShadowFreshnessResponse, ShadowReadinessMarket, ShadowReadinessResponse, ShadowSummaryResponse } from "../types/modelAudit";
 
 export interface DetailRailContext {
   date: string;
@@ -38,6 +38,7 @@ interface ShadowAuditState {
   summary?: ShadowSummaryResponse;
   readiness?: ShadowReadinessResponse;
   gates?: ProductionGatesResponse;
+  freshness?: ShadowFreshnessResponse;
   error?: string;
   loading?: boolean;
 }
@@ -153,20 +154,22 @@ export class DetailRailController {
 }
 
 async function loadShadowAudit(market: string): Promise<ShadowAuditState> {
-  const [status, summary, readiness, gates] = await Promise.allSettled([
+  const [status, summary, readiness, gates, freshness] = await Promise.allSettled([
     getMlModelsStatus(),
     getShadowSummary(market),
     getShadowReadiness(market),
     getProductionGates(market),
+    getShadowFreshness(market),
   ]);
-  const failures = [status, summary, readiness, gates].filter((result) => result.status === "rejected") as PromiseRejectedResult[];
+  const failures = [status, summary, readiness, gates, freshness].filter((result) => result.status === "rejected") as PromiseRejectedResult[];
   const audit: ShadowAuditState = {
     status: status.status === "fulfilled" ? status.value : undefined,
     summary: summary.status === "fulfilled" ? summary.value : undefined,
     readiness: readiness.status === "fulfilled" ? readiness.value : undefined,
     gates: gates.status === "fulfilled" ? gates.value : undefined,
+    freshness: freshness.status === "fulfilled" ? freshness.value : undefined,
   };
-  if (failures.length === 4) {
+  if (failures.length === 5) {
     audit.error = failures[0].reason instanceof Error ? failures[0].reason.message : String(failures[0].reason);
   }
   return audit;
@@ -254,7 +257,8 @@ export function renderShadowModelAudit(row: OutlierBoardRow, audit: ShadowAuditS
   const summary = findMarket(audit.summary?.markets, market);
   const readiness = findMarket(audit.readiness?.markets, market);
   const gates = findMarket(audit.gates?.markets, market);
-  const selected = mergeAuditMarket(summary, readiness, gates);
+  const freshness = findMarket(audit.freshness?.markets, market);
+  const selected = mergeAuditMarket(summary, readiness, gates, freshness);
   if (!selected) {
     return h("article", { className: "ob-rail-card ob-shadow-audit" }, [
       h("h3", { text: "Experimental Shadow Model" }),
@@ -270,6 +274,13 @@ export function renderShadowModelAudit(row: OutlierBoardRow, audit: ShadowAuditS
   const gateStatus = text(selected.productionGateStatus || selected.gateSummary?.status, hardBlockers.length ? "blocked" : "manual_review_required");
   const manualGovernance = selected.gateSummary?.manualGovernanceRequired || hardBlockers.includes("manual_governance_review_required") || stringList(selected.blockers).includes("manual_governance_review_required");
   const validation = validationLabel(selected.validationDates);
+  const freshnessInfo = objectValue(selected.freshness);
+  const freshnessStatus = text(selected.freshnessStatus ?? freshnessInfo.freshnessStatus, "Unknown");
+  const generatedAt = text(selected.generatedAt ?? freshnessInfo.generatedAt, "Not reported");
+  const artifactAge = artifactAgeLabel(selected.artifactAgeHours ?? freshnessInfo.artifactAgeHours);
+  const latestValidationDate = text(selected.latestValidationDate ?? freshnessInfo.latestValidationDate, "Not reported");
+  const freshnessWarnings = dedupe([...stringList(freshnessInfo.warnings), ...stringList(selected.warnings)]);
+  const recommendedNextStep = text(selected.recommendedNextStep ?? freshnessInfo.recommendedNextStep, "Manual governance review is required before any production workflow can be considered.");
   const gateChecks = Array.isArray(selected.gateChecks) ? selected.gateChecks : [];
   return h("article", { className: "ob-rail-card ob-shadow-audit" }, [
     h("p", { className: "ob-kicker", text: "Research-only model audit" }),
@@ -296,13 +307,18 @@ export function renderShadowModelAudit(row: OutlierBoardRow, audit: ShadowAuditS
       stat("Brier", metricText(selected.brierScore)),
       stat("Log loss", metricText(selected.logLoss)),
       stat("Expected calibration error", metricText(selected.expectedCalibrationError)),
+      stat("Freshness status", freshnessStatus),
+      stat("Generated at", generatedAt),
+      stat("Artifact age", artifactAge),
+      stat("Latest validation date", latestValidationDate),
       stat("Validation", validation),
       stat("Stake units", Number(selected.stakeUnits || 0) === 0 ? "0, research only" : "Withheld"),
       stat("Bet action", selected.betActionAllowed ? "Disabled by research UI" : "Disabled"),
     ]),
     hardBlockers.length ? h("p", { className: "ob-muted", text: `Hard blockers: ${hardBlockers.join(", ")}` }) : h("p", { className: "ob-muted", text: "Hard blockers: none reported by audit." }),
     softWarnings.length ? h("p", { className: "ob-muted", text: `Soft warnings: ${dedupe(softWarnings).join(", ")}` }) : h("p", { className: "ob-muted", text: "Soft warnings: none reported by audit." }),
-    h("p", { className: "ob-muted", text: `Next: ${text(selected.recommendedNextStep, "Manual governance review is required before promotion can be considered.")}` }),
+    freshnessWarnings.length ? h("p", { className: "ob-muted", text: `Freshness warnings: ${freshnessWarnings.join(", ")}` }) : h("p", { className: "ob-muted", text: "Freshness warnings: none reported by audit." }),
+    h("p", { className: "ob-muted", text: `Next: ${recommendedNextStep}` }),
     selected.artifactStatus && selected.artifactStatus !== "ready" ? h("p", { className: "ob-muted", text: `Artifact warning: ${selected.artifactStatus}. Metrics are not fabricated when artifacts are stale or missing.` }) : null,
     renderGateChecks(gateChecks),
   ]);
@@ -404,6 +420,13 @@ function metricText(value: unknown, fallback = "--"): string {
   const parsed = number(value, Number.NaN);
   if (!Number.isFinite(parsed)) return text(value, fallback);
   return Number.isInteger(parsed) ? String(parsed) : parsed.toFixed(3);
+}
+
+function artifactAgeLabel(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Not reported";
+  const parsed = number(value, Number.NaN);
+  if (!Number.isFinite(parsed)) return text(value, "Not reported");
+  return `${parsed.toFixed(parsed >= 10 ? 1 : 2)} hours`;
 }
 
 function validationLabel(dates: unknown): string {

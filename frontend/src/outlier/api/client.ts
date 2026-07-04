@@ -2,6 +2,7 @@ import { jsonFetch } from "../../shared/api/client";
 import {
   MlModelsStatusResponse,
   ProductionGatesResponse,
+  ShadowFreshnessResponse,
   ShadowReadinessResponse,
   ShadowSummaryResponse,
 } from "../types/modelAudit";
@@ -25,6 +26,11 @@ export async function getShadowSummary(market?: string): Promise<ShadowSummaryRe
 
 export async function getShadowReadiness(market?: string): Promise<ShadowReadinessResponse> {
   const { payload } = await jsonFetch<ShadowReadinessResponse>(`/api/ml-models/shadow-readiness${marketQuery(market)}`);
+  return payload;
+}
+
+export async function getShadowFreshness(market?: string): Promise<ShadowFreshnessResponse> {
+  const { payload } = await jsonFetch<ShadowFreshnessResponse>(`/api/ml-models/shadow-freshness${marketQuery(market)}`);
   return payload;
 }
 

@@ -54,6 +54,7 @@ from mlb_app.services.picks_service import PicksService
 from mlb_app.services.player_prop_label_builder_service import PlayerPropLabelBuilderService
 from mlb_app.services.prediction_audit_service import PredictionAuditService
 from mlb_app.services.propline_props_service import ProplinePropsService
+from mlb_app.services.shadow_artifact_freshness_service import ShadowArtifactFreshnessService
 from mlb_app.services.shadow_model_readiness_service import ShadowModelReadinessService
 from mlb_app.services.shadow_model_summary_service import ShadowModelSummaryService
 from mlb_app.services.statcast_ingestion_service import StatcastIngestionService
@@ -121,6 +122,7 @@ class AppContainer:
     workflow_health_service: WorkflowHealthService = field(init=False)
     model_card_service: ModelCardService = field(init=False)
     shadow_model_summary_service: ShadowModelSummaryService = field(init=False)
+    shadow_artifact_freshness_service: ShadowArtifactFreshnessService = field(init=False)
     model_production_gate_service: ModelProductionGateService = field(init=False)
     shadow_model_readiness_service: ShadowModelReadinessService = field(init=False)
     playerboard_read_service: PlayerboardReadService = field(init=False)
@@ -247,9 +249,14 @@ class AppContainer:
             readiness_service=self.model_readiness_service,
             registry_service=self.model_registry_service,
         )
+        self.shadow_artifact_freshness_service = ShadowArtifactFreshnessService(
+            self.settings,
+            registry_service=self.model_registry_service,
+        )
         self.shadow_model_summary_service = ShadowModelSummaryService(
             self.settings,
             registry_service=self.model_registry_service,
+            freshness_service=self.shadow_artifact_freshness_service,
         )
         self.model_production_gate_service = ModelProductionGateService(
             self.settings,

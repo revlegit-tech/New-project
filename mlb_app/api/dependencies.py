@@ -35,6 +35,7 @@ from mlb_app.services.propline_props_service import ProplinePropsService
 from mlb_app.services.picks_service import PicksService
 from mlb_app.services.playerboard_service import PlayerboardService
 from mlb_app.services.prop_detail_service import PropDetailService
+from mlb_app.services.shadow_artifact_freshness_service import ShadowArtifactFreshnessService
 from mlb_app.services.shadow_model_readiness_service import ShadowModelReadinessService
 from mlb_app.services.shadow_model_summary_service import ShadowModelSummaryService
 from mlb_app.repositories.historical_game_odds_repository import HistoricalGameOddsRepository
@@ -142,6 +143,10 @@ def get_model_registry_service(container: Annotated[AppContainer, Depends(get_co
 
 def get_shadow_model_summary_service(container: Annotated[AppContainer, Depends(get_container)]) -> ShadowModelSummaryService:
     return container.shadow_model_summary_service
+
+
+def get_shadow_artifact_freshness_service(container: Annotated[AppContainer, Depends(get_container)]) -> ShadowArtifactFreshnessService:
+    return container.shadow_artifact_freshness_service
 
 
 def get_model_production_gate_service(container: Annotated[AppContainer, Depends(get_container)]) -> ModelProductionGateService:

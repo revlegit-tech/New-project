@@ -25,6 +25,7 @@ class ProductionGateResult:
     hardBlockers: list[str]
     softWarnings: list[str]
     gateSummary: dict[str, Any]
+    freshness: dict[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -37,6 +38,7 @@ class ProductionGateResult:
             "hardBlockers": self.hardBlockers,
             "softWarnings": self.softWarnings,
             "gateSummary": self.gateSummary,
+            "freshness": self.freshness,
         }
 
 
@@ -171,6 +173,7 @@ class ModelProductionGateService:
                 "hardBlockerCount": len(hard_blockers),
                 "manualGovernanceRequired": True,
             },
+            freshness=dict(shadow.get("freshness") or {}),
         )
 
     def payload(self, *, market: str | None = None, registry: dict[str, Any] | None = None) -> dict[str, Any]:

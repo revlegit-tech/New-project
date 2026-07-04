@@ -236,6 +236,31 @@ function Invoke-OptionalModelStatusProbe {
   }
 }
 
+function Invoke-ShadowModelAudit {
+  Write-Host "Checking read-only shadow model audit endpoints."
+
+  $health = Invoke-RestMethod "$Base/api/health" -TimeoutSec 15
+  $status = Invoke-RestMethod "$Base/api/ml-models/status" -TimeoutSec 15
+  $summary = Invoke-RestMethod "$Base/api/ml-models/shadow-summary" -TimeoutSec 15
+  $readiness = Invoke-RestMethod "$Base/api/ml-models/shadow-readiness" -TimeoutSec 15
+  $gates = Invoke-RestMethod "$Base/api/ml-models/production-gates" -TimeoutSec 15
+  $freshness = Invoke-RestMethod "$Base/api/ml-models/shadow-freshness" -TimeoutSec 15
+
+  $manualGovernanceRequired = $false
+  foreach ($market in @($readiness.markets)) {
+    if (@($market.blockers) -contains "manual_governance_review_required" -or @($market.hardBlockers) -contains "manual_governance_review_required") {
+      $manualGovernanceRequired = $true
+    }
+  }
+
+  Write-Host "shadowSummaryReady=$($summary.readyMarketCount)/$($summary.marketCount)"
+  Write-Host "readinessBlocked=$($readiness.blockedMarketCount)/$($readiness.marketCount)"
+  Write-Host "freshnessFresh=$($freshness.freshMarketCount) freshnessStale=$($freshness.staleMarketCount) freshnessMissing=$($freshness.missingMarketCount) freshnessUnknown=$($freshness.unknownMarketCount)"
+  Write-Host "manualGovernanceRequired=$manualGovernanceRequired"
+  Write-Host "productionPromotion=false"
+  Write-Host "healthOk=$($health.ok) statusShadow=$($status.modelCounts.shadow) productionGatesBlocked=$($gates.blockedMarketCount)"
+}
+
 function Start-App-IfNeeded {
   $Port = Get-AppPort
   $python = Test-VenvReady
@@ -553,6 +578,10 @@ Invoke-Step "Daily health" {
   Invoke-RestMethod "$Base/api/runtime/daily-health?date=$RunDate&season=$Season" |
     ConvertTo-Json -Depth 12
 }
+
+Invoke-Step "Shadow model audit" {
+  Invoke-ShadowModelAudit
+} -ContinueOnError
 
 Invoke-Step "Row count summary" {
   $propsPath = ".\data\odds\propline_props_$RunDate.csv"

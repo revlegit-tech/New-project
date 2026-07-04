@@ -26,9 +26,11 @@ class ShadowModelSummaryService:
         settings: Settings = default_settings,
         *,
         registry_service: ModelRegistryService | None = None,
+        freshness_service: Any | None = None,
     ) -> None:
         self.settings = settings
         self.registry_service = registry_service or ModelRegistryService(settings=settings)
+        self.freshness_service = freshness_service
 
     def payload(self, *, market: str | None = None) -> dict[str, Any]:
         requested = [normalize_market_key(market)] if market else list(SHADOW_MARKETS)
@@ -88,7 +90,11 @@ class ShadowModelSummaryService:
             artifact_status = "partial"
 
         generated_at = _first_text(backtest, calibration, manifest, "generatedAt")
-        return {
+        fallback_used = _first_bool(backtest, calibration, manifest, "fallbackUsed")
+        provenance = manifest.get("provenance")
+        if fallback_used is None and isinstance(provenance, dict):
+            fallback_used = _bool_value(provenance.get("fallbackUsed"))
+        row = {
             "market": key,
             "modelStage": SHADOW_MODEL_STAGE,
             "modelKey": SHADOW_MODEL_KEY,
@@ -119,11 +125,14 @@ class ShadowModelSummaryService:
                 "artifactFamily": "sprint19_shadow",
                 "artifactModelKey": SHADOW_MODEL_KEY,
                 "prefersSprint19ShadowArtifacts": True,
-                "fallbackUsed": False,
+                "fallbackUsed": bool(fallback_used) if fallback_used is not None else False,
                 "registryShadowPointerPresent": bool(registry_shadow),
             },
             "warnings": _dedupe(warnings),
         }
+        if self.freshness_service is not None:
+            row["freshness"] = self.freshness_service.compact_for_market(key, registry=registry)
+        return row
 
     def artifact_dir(self, market: str) -> Path:
         return self.settings.data_dir / "models" / "artifacts" / "sprint19_shadow" / SHADOW_MODEL_KEY / normalize_market_key(market)
@@ -163,6 +172,31 @@ def _first_text(*payloads_and_key: Any) -> str:
         if isinstance(payload, dict) and payload.get(key):
             return str(payload[key])
     return ""
+
+
+def _first_bool(*payloads_and_key: Any) -> bool | None:
+    *payloads, key = payloads_and_key
+    for payload in payloads:
+        if isinstance(payload, dict):
+            parsed = _bool_value(payload.get(key))
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _bool_value(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value in {None, ""}:
+        return None
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return None
 
 
 def _public_path(root: Path, path: Path) -> str:
