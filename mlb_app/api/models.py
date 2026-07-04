@@ -835,6 +835,18 @@ class MLModelsPredictionPreviewResponse(StrictResponse):
     warnings: list[str] = Field(default_factory=list)
 
 
+class MLModelsShadowSummaryResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    modelStage: str = "shadow"
+    modelKey: str = "calibrated_logistic"
+    markets: list[dict[str, Any]] = Field(default_factory=list)
+    marketCount: int = 0
+    readyMarketCount: int = 0
+    warnings: list[str] = Field(default_factory=list)
+    policy: dict[str, Any] = Field(default_factory=dict)
+
+
 class MLModelsAdminActionResponse(StrictResponse):
     status: str = "ok"
     schemaVersion: str | None = None

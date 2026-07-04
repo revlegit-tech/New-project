@@ -11,6 +11,7 @@ from mlb_app.api.dependencies import (
     get_model_registry_service,
     get_model_training_service,
     get_prediction_service,
+    get_shadow_model_summary_service,
 )
 from mlb_app.api.models import (
     MLModelsAdminActionResponse,
@@ -18,6 +19,7 @@ from mlb_app.api.models import (
     MLModelsMetricsResponse,
     MLModelsPredictionPreviewResponse,
     MLModelsRegistryResponse,
+    MLModelsShadowSummaryResponse,
     MLModelsStatusResponse,
 )
 from mlb_app.api.routes._utils import enforce_native_mutation, with_schema_version
@@ -27,6 +29,7 @@ from mlb_app.repositories.model_store import normalize_market_key
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.model_registry_service import ModelRegistryService
 from mlb_app.services.model_training_service import ModelTrainingService
+from mlb_app.services.shadow_model_summary_service import ShadowModelSummaryService
 
 router = APIRouter(prefix="/api", tags=["ml-models"])
 
@@ -121,6 +124,17 @@ async def ml_models_prediction_preview(
     prediction_request = _prediction_request_from_query(request)
     result = await limiter.run(service.predict, prediction_request, route_name="/api/ml-models/predictions/preview")
     preview = result.as_dict() if hasattr(result, "as_dict") else dict(result)
+    preview.update(
+        {
+            "modelStage": prediction_request["modelStage"] or "shadow",
+            "modelKey": prediction_request["modelKey"] or ("calibrated_logistic" if prediction_request["modelStage"] == "shadow" else ""),
+            "previewLabel": "Experimental/Shadow" if prediction_request["modelStage"] == "shadow" else "Experimental",
+            "readinessLabel": "Experimental",
+            "action": "Research",
+            "stakeUnits": 0,
+            "betActionAllowed": False,
+        }
+    )
     return with_schema_version(
         {
             "status": "ok",
@@ -129,6 +143,21 @@ async def ml_models_prediction_preview(
         },
         SCHEMA_VERSION,
     )
+
+
+@router.get(
+    "/ml-models/shadow-summary",
+    response_model=MLModelsShadowSummaryResponse,
+    name="native_ml_models_shadow_summary",
+)
+async def ml_models_shadow_summary(
+    request: Request,
+    service: Annotated[ShadowModelSummaryService, Depends(get_shadow_model_summary_service)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+) -> dict[str, Any]:
+    market = str(request.query_params.get("market") or "").strip() or None
+    payload = await limiter.run(service.payload, market=market, route_name="/api/ml-models/shadow-summary")
+    return with_schema_version(payload, SCHEMA_VERSION)
 
 
 @router.post("/admin/ml-models/train", response_model=MLModelsAdminActionResponse, name="native_admin_ml_models_train")

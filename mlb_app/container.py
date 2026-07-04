@@ -53,6 +53,7 @@ from mlb_app.services.picks_service import PicksService
 from mlb_app.services.player_prop_label_builder_service import PlayerPropLabelBuilderService
 from mlb_app.services.prediction_audit_service import PredictionAuditService
 from mlb_app.services.propline_props_service import ProplinePropsService
+from mlb_app.services.shadow_model_summary_service import ShadowModelSummaryService
 from mlb_app.services.statcast_ingestion_service import StatcastIngestionService
 from mlb_app.services.playerboard_read_service import PlayerboardReadService
 from mlb_app.services.playerboard_service import PlayerboardService
@@ -117,6 +118,7 @@ class AppContainer:
     model_readiness_service: ModelReadinessService = field(init=False)
     workflow_health_service: WorkflowHealthService = field(init=False)
     model_card_service: ModelCardService = field(init=False)
+    shadow_model_summary_service: ShadowModelSummaryService = field(init=False)
     playerboard_read_service: PlayerboardReadService = field(init=False)
     playerboard_service: PlayerboardService = field(init=False)
     edge_board_service: EdgeBoardService = field(init=False)
@@ -239,6 +241,10 @@ class AppContainer:
             self.settings,
             grading_service=self.grading_service,
             readiness_service=self.model_readiness_service,
+            registry_service=self.model_registry_service,
+        )
+        self.shadow_model_summary_service = ShadowModelSummaryService(
+            self.settings,
             registry_service=self.model_registry_service,
         )
         self.playerboard_read_service = PlayerboardReadService(
