@@ -246,3 +246,11 @@ data/status/
 # Local GitHub collector import staging
 data/github_collector_imports/
 data/local_backup_before_github_import_*/
+
+# Narrow generated Sprint 37/runtime MLB training artifacts.
+data/backtests/player_prop_model_backtest_2026.csv
+data/backtests/player_prop_model_backtest_summary_2026.json
+data/context/
+data/training/historical_props_from_ml_labels_joined.csv
+data/training/historical_props_from_ml_labels_joined_summary.json
+data/training/player_prop_labels_2026.csv

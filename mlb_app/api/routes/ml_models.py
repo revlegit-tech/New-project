@@ -11,6 +11,7 @@ from mlb_app.api.dependencies import (
     get_model_registry_service,
     get_model_training_service,
     get_prediction_service,
+    get_shadow_model_readiness_service,
     get_shadow_model_summary_service,
 )
 from mlb_app.api.models import (
@@ -19,6 +20,7 @@ from mlb_app.api.models import (
     MLModelsMetricsResponse,
     MLModelsPredictionPreviewResponse,
     MLModelsRegistryResponse,
+    MLModelsShadowReadinessResponse,
     MLModelsShadowSummaryResponse,
     MLModelsStatusResponse,
 )
@@ -29,6 +31,7 @@ from mlb_app.repositories.model_store import normalize_market_key
 from mlb_app.services.blocking_work import BlockingWorkLimiter
 from mlb_app.services.model_registry_service import ModelRegistryService
 from mlb_app.services.model_training_service import ModelTrainingService
+from mlb_app.services.shadow_model_readiness_service import ShadowModelReadinessService
 from mlb_app.services.shadow_model_summary_service import ShadowModelSummaryService
 
 router = APIRouter(prefix="/api", tags=["ml-models"])
@@ -158,6 +161,20 @@ async def ml_models_shadow_summary(
     market = str(request.query_params.get("market") or "").strip() or None
     payload = await limiter.run(service.payload, market=market, route_name="/api/ml-models/shadow-summary")
     return with_schema_version(payload, SCHEMA_VERSION)
+
+
+@router.get(
+    "/ml-models/shadow-readiness",
+    response_model=MLModelsShadowReadinessResponse,
+    name="native_ml_models_shadow_readiness",
+)
+async def ml_models_shadow_readiness(
+    request: Request,
+    service: Annotated[ShadowModelReadinessService, Depends(get_shadow_model_readiness_service)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+) -> dict[str, Any]:
+    market = str(request.query_params.get("market") or "").strip() or None
+    return await limiter.run(service.payload, market=market, route_name="/api/ml-models/shadow-readiness")
 
 
 @router.post("/admin/ml-models/train", response_model=MLModelsAdminActionResponse, name="native_admin_ml_models_train")

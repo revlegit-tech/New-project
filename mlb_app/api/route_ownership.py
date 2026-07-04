@@ -52,6 +52,7 @@ ROUTE_OWNERSHIP: tuple[RouteOwnership, ...] = (
     RouteOwnership("GET", "/api/ml-models/feature-coverage", "FastAPI", "native_ml_models_feature_coverage", "none", "no_legacy_handler", "Safe ML model feature coverage endpoint."),
     RouteOwnership("GET", "/api/ml-models/predictions/preview", "FastAPI", "native_ml_models_predictions_preview", "none", "no_legacy_handler", "Shadow-safe model prediction preview endpoint."),
     RouteOwnership("GET", "/api/ml-models/shadow-summary", "FastAPI", "native_ml_models_shadow_summary", "none", "no_legacy_handler", "Read-only Sprint 19 shadow model summary endpoint."),
+    RouteOwnership("GET", "/api/ml-models/shadow-readiness", "FastAPI", "native_ml_models_shadow_readiness", "none", "no_legacy_handler", "Read-only Sprint 19 shadow-vs-baseline production-readiness audit."),
     RouteOwnership("POST", "/api/admin/ml-models/train", "FastAPI", "native_admin_ml_models_train", "none", "no_legacy_handler", "Admin-only ML training runner wrapper."),
     RouteOwnership("POST", "/api/admin/ml-models/evaluate", "FastAPI", "native_admin_ml_models_evaluate", "none", "no_legacy_handler", "Admin-only model gate evaluation wrapper."),
     RouteOwnership("POST", "/api/admin/ml-models/promote", "FastAPI", "native_admin_ml_models_promote", "none", "no_legacy_handler", "Admin-only gated model promotion endpoint."),

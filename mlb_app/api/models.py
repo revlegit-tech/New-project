@@ -847,6 +847,18 @@ class MLModelsShadowSummaryResponse(StrictResponse):
     policy: dict[str, Any] = Field(default_factory=dict)
 
 
+class MLModelsShadowReadinessResponse(StrictResponse):
+    status: str = "ok"
+    schemaVersion: str | None = None
+    marketCount: int = 0
+    readyMarketCount: int = 0
+    blockedMarketCount: int = 0
+    markets: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    promotionCommandPreview: dict[str, Any] = Field(default_factory=dict)
+    policy: dict[str, Any] = Field(default_factory=dict)
+
+
 class MLModelsAdminActionResponse(StrictResponse):
     status: str = "ok"
     schemaVersion: str | None = None
