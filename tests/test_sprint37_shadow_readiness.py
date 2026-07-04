@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from mlb_app.api.app import create_app
 from mlb_app.config import Settings
 from mlb_app.container import AppContainer
-from mlb_app.services.shadow_model_readiness_service import ShadowModelReadinessService
+from mlb_app.services.shadow_model_readiness_service import MANUAL_GOVERNANCE_BLOCKER, ShadowModelReadinessService
 from mlb_app.services.shadow_model_summary_service import SHADOW_MARKETS
 
 
@@ -141,14 +141,28 @@ def test_shadow_readiness_returns_all_four_markets_and_compares_baseline(tmp_pat
 
     assert payload["schemaVersion"] == "shadow-model-readiness.v1"
     assert payload["marketCount"] == 4
+    assert payload["readyMarketCount"] == 0
     assert payload["blockedMarketCount"] == 4
+    assert payload["promotionCommandPreview"]["enabled"] is False
+    assert payload["promotionCommandPreview"]["informationalOnly"] is True
+    assert payload["promotionCommandPreview"]["command"] == ""
     assert {row["market"] for row in payload["markets"]} == set(SHADOW_MARKETS)
+    for row in payload["markets"]:
+        assert row["productionGateStatus"] != "pass"
+        assert row["productionEligible"] is False
+        assert MANUAL_GOVERNANCE_BLOCKER in row["blockers"]
+        assert row["recommendedNextStep"] == (
+            "Manual governance review is required before any separate promotion workflow can be considered."
+        )
+        assert row["action"] == "Research"
+        assert row["readinessLabel"] == "Experimental"
+        assert row["stakeUnits"] == 0
+        assert row["betActionAllowed"] is False
     hits = next(row for row in payload["markets"] if row["market"] == "batter_hits")
     assert hits["shadow"]["source"] == "sprint19_shadow"
     assert hits["baseline"]["source"] == "legacy_production"
     assert hits["baseline"]["metrics"]["evaluatedRows"] == 200
     assert hits["metricDeltas"]["brierScore"] == -0.03
-    assert hits["productionEligible"] is False
     assert "missing_artifact_hash" in hits["blockers"]
 
 
@@ -164,7 +178,9 @@ def test_shadow_readiness_missing_baseline_warns_without_failing(tmp_path: Path)
 
     assert row["baseline"]["source"] == "missing"
     assert row["baseline"]["metrics"] == {}
+    assert row["productionGateStatus"] != "pass"
     assert row["productionEligible"] is False
+    assert MANUAL_GOVERNANCE_BLOCKER in row["blockers"]
     assert any("No comparable baseline" in warning for warning in row["warnings"])
 
 
@@ -182,7 +198,11 @@ def test_shadow_readiness_endpoint_preserves_research_locks_and_status_counts(tm
     assert readiness.status_code == 200
     payload = readiness.json()
     assert payload["marketCount"] == 4
+    assert payload["readyMarketCount"] == 0
+    assert payload["blockedMarketCount"] == 4
     assert payload["promotionCommandPreview"]["enabled"] is False
+    assert payload["promotionCommandPreview"]["informationalOnly"] is True
+    assert payload["promotionCommandPreview"]["command"] == ""
     assert "/api/admin/ml-models/promote" in payload["promotionCommandPreview"]["message"]
     for row in payload["markets"]:
         assert row["action"] == "Research"
@@ -190,6 +210,8 @@ def test_shadow_readiness_endpoint_preserves_research_locks_and_status_counts(tm
         assert row["stakeUnits"] == 0
         assert row["betActionAllowed"] is False
         assert row["productionEligible"] is False
+        assert row["productionGateStatus"] != "pass"
+        assert MANUAL_GOVERNANCE_BLOCKER in row["blockers"]
     assert status.json()["modelCounts"]["shadow"] == 4
     assert summary.json()["marketCount"] == 4
     assert summary.json()["readyMarketCount"] == 4
@@ -210,4 +232,10 @@ def test_shadow_readiness_does_not_call_promote(tmp_path: Path) -> None:
     response = client.get("/api/ml-models/shadow-readiness?market=batter_hits")
 
     assert response.status_code == 200
-    assert response.json()["markets"][0]["productionEligible"] is False
+    payload = response.json()
+    assert payload["readyMarketCount"] == 0
+    assert payload["blockedMarketCount"] == 1
+    assert payload["promotionCommandPreview"]["enabled"] is False
+    assert payload["promotionCommandPreview"]["command"] == ""
+    assert payload["markets"][0]["productionEligible"] is False
+    assert MANUAL_GOVERNANCE_BLOCKER in payload["markets"][0]["blockers"]

@@ -11,6 +11,7 @@ from mlb_app.services.model_registry_service import ModelRegistryService
 from mlb_app.services.shadow_model_summary_service import SHADOW_MARKETS, SHADOW_MODEL_KEY, SHADOW_MODEL_STAGE, ShadowModelSummaryService
 
 READINESS_SCHEMA_VERSION = "shadow-model-readiness.v1"
+MANUAL_GOVERNANCE_BLOCKER = "manual_governance_review_required"
 COMPARABLE_METRICS: tuple[str, ...] = (
     "evaluatedRows",
     "positiveRows",
@@ -200,7 +201,7 @@ class ShadowModelReadinessService:
         if not features_path or not features_path.is_file():
             blockers.append("missing_feature_schema")
 
-        blockers.append("manual_governance_review_required")
+        blockers.append(MANUAL_GOVERNANCE_BLOCKER)
         warnings.append("No automatic production promotion is performed by this readiness endpoint.")
         return {"blockers": _dedupe(blockers), "warnings": warnings}
 
@@ -255,6 +256,8 @@ def _metric_deltas(shadow: dict[str, Any], baseline: dict[str, Any]) -> dict[str
 
 
 def _recommended_next_step(blockers: list[str], baseline: dict[str, Any]) -> str:
+    if MANUAL_GOVERNANCE_BLOCKER in blockers:
+        return "Manual governance review is required before any separate promotion workflow can be considered."
     if "missing_shadow_backtest" in blockers or "missing_shadow_calibration" in blockers:
         return "Generate missing Sprint 19 shadow backtest/calibration artifacts, then rerun readiness."
     if any("hash" in blocker or "feature_schema" in blocker or "registry" in blocker for blocker in blockers):
