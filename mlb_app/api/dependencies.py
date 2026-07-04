@@ -25,6 +25,7 @@ from mlb_app.services.workflow_health_service import WorkflowHealthService
 from mlb_app.observability.metrics import MetricsRegistry
 from mlb_app.services.alert_service import AlertService
 from mlb_app.services.model_card_service import ModelCardService
+from mlb_app.services.model_production_gate_service import ModelProductionGateService
 from mlb_app.services.model_registry_service import ModelRegistryService
 from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryService
 from mlb_app.services.model_training_service import ModelTrainingService
@@ -141,6 +142,10 @@ def get_model_registry_service(container: Annotated[AppContainer, Depends(get_co
 
 def get_shadow_model_summary_service(container: Annotated[AppContainer, Depends(get_container)]) -> ShadowModelSummaryService:
     return container.shadow_model_summary_service
+
+
+def get_model_production_gate_service(container: Annotated[AppContainer, Depends(get_container)]) -> ModelProductionGateService:
+    return container.model_production_gate_service
 
 
 def get_shadow_model_readiness_service(container: Annotated[AppContainer, Depends(get_container)]) -> ShadowModelReadinessService:

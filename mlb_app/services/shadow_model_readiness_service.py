@@ -5,13 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from mlb_app.config import Settings, settings as default_settings
-from mlb_app.ml.market_config import get_market_config
 from mlb_app.repositories.model_store import normalize_market_key
+from mlb_app.services.model_production_gate_service import MANUAL_GOVERNANCE_BLOCKER, ModelProductionGateService
 from mlb_app.services.model_registry_service import ModelRegistryService
 from mlb_app.services.shadow_model_summary_service import SHADOW_MARKETS, SHADOW_MODEL_KEY, SHADOW_MODEL_STAGE, ShadowModelSummaryService
 
 READINESS_SCHEMA_VERSION = "shadow-model-readiness.v1"
-MANUAL_GOVERNANCE_BLOCKER = "manual_governance_review_required"
 COMPARABLE_METRICS: tuple[str, ...] = (
     "evaluatedRows",
     "positiveRows",
@@ -33,12 +32,17 @@ class ShadowModelReadinessService:
         *,
         registry_service: ModelRegistryService | None = None,
         summary_service: ShadowModelSummaryService | None = None,
+        gate_service: ModelProductionGateService | None = None,
     ) -> None:
         self.settings = settings
         self.registry_service = registry_service or ModelRegistryService(settings=settings)
         self.summary_service = summary_service or ShadowModelSummaryService(
             settings,
             registry_service=self.registry_service,
+        )
+        self.gate_service = gate_service or ModelProductionGateService(
+            settings,
+            summary_service=self.summary_service,
         )
 
     def payload(self, *, market: str | None = None) -> dict[str, Any]:
@@ -50,8 +54,8 @@ class ShadowModelReadinessService:
             "schemaVersion": READINESS_SCHEMA_VERSION,
             "status": "ok",
             "marketCount": len(markets),
-            "readyMarketCount": sum(1 for row in markets if row.get("productionGateStatus") == "pass"),
-            "blockedMarketCount": sum(1 for row in markets if row.get("productionGateStatus") != "pass"),
+            "readyMarketCount": sum(1 for row in markets if row.get("productionGateStatus") == "pass" and row.get("productionEligible") is True),
+            "blockedMarketCount": sum(1 for row in markets if row.get("productionGateStatus") != "pass" or row.get("productionEligible") is not True),
             "markets": markets,
             "warnings": warnings,
             "promotionCommandPreview": {
@@ -69,7 +73,7 @@ class ShadowModelReadinessService:
         shadow = self.summary_service.summary_for_market(key, registry=registry)
         shadow_metrics = _shadow_metrics(shadow)
         baseline = self._baseline_comparison(key, registry=registry)
-        gate = self._production_gate(key, shadow=shadow, registry=registry)
+        gate = self.gate_service.evaluate_market(key, shadow=shadow, registry=registry).as_dict()
         warnings = _dedupe(list(shadow.get("warnings", [])) + list(baseline.get("warnings", [])) + gate["warnings"])
         blockers = _dedupe(gate["blockers"])
         return {
@@ -95,10 +99,14 @@ class ShadowModelReadinessService:
             },
             "baseline": baseline,
             "metricDeltas": _metric_deltas(shadow_metrics, baseline.get("metrics") or {}),
-            "productionGateStatus": "blocked",
-            "productionEligible": False,
+            "productionGateStatus": gate["productionGateStatus"],
+            "productionEligible": gate["productionEligible"],
             "blockers": blockers,
             "warnings": warnings,
+            "gateChecks": gate["gateChecks"],
+            "hardBlockers": gate["hardBlockers"],
+            "softWarnings": gate["softWarnings"],
+            "gateSummary": gate["gateSummary"],
             "recommendedNextStep": _recommended_next_step(blockers, baseline),
             "promotionCommandPreview": {
                 "enabled": False,
@@ -133,6 +141,12 @@ class ShadowModelReadinessService:
 
         if not baseline_metrics:
             warnings.append("No comparable baseline or legacy metrics were found; shadow readiness still returns safely.")
+        if source in {"legacy_candidate", "legacy_experimental"}:
+            warnings.append(f"Baseline source {source} is not a production baseline and cannot create production eligibility.")
+        if "random_forest" in str(legacy.get("modelKey") or legacy.get("model_key") or "").lower():
+            warnings.append("Baseline model random_forest is legacy comparison context only and cannot create production eligibility.")
+        if source not in {"legacy_production", "baseline_fallback", "missing"}:
+            warnings.append(f"Baseline source {source} is non-production comparison context only.")
         return {
             "source": source,
             "artifactPath": artifact_path,
@@ -146,65 +160,6 @@ class ShadowModelReadinessService:
             },
             "warnings": warnings,
         }
-
-    def _production_gate(self, market: str, *, shadow: dict[str, Any], registry: dict[str, Any]) -> dict[str, list[str]]:
-        blockers: list[str] = []
-        warnings: list[str] = []
-        artifact_dir = self.summary_service.artifact_dir(market)
-        registry_shadow = _shadow_registry_entry(registry, market)
-        config = None
-        try:
-            config = get_market_config(market)
-        except KeyError:
-            blockers.append("missing_market_config")
-
-        if not artifact_dir.is_dir():
-            blockers.append("missing_shadow_artifact_dir")
-        if not (artifact_dir / "backtest_metrics.json").is_file():
-            blockers.append("missing_shadow_backtest")
-        if not (artifact_dir / "calibration.json").is_file():
-            blockers.append("missing_shadow_calibration")
-        if shadow.get("modelStage") != SHADOW_MODEL_STAGE:
-            blockers.append("shadow_status_required")
-        if shadow.get("modelKey") != SHADOW_MODEL_KEY:
-            blockers.append("calibrated_logistic_shadow_required")
-
-        evaluated_rows = _int(shadow.get("evaluatedRows"))
-        positive_rows = _int(shadow.get("positiveRows"))
-        if config is not None:
-            if evaluated_rows is None or evaluated_rows < config.minimum_training_rows:
-                blockers.append("evaluated_rows_below_market_minimum")
-            if positive_rows is None or positive_rows < config.minimum_positive_rows:
-                blockers.append("positive_rows_below_market_minimum")
-
-        if shadow.get("backtestStatus") != "ready":
-            blockers.append("shadow_backtest_not_ready")
-        if shadow.get("calibrationStatus") != "ready":
-            blockers.append("shadow_calibration_not_ready")
-        if shadow.get("readinessLabel") != "Experimental" or shadow.get("action") != "Research":
-            blockers.append("research_lock_missing")
-        if shadow.get("stakeUnits") != 0 or shadow.get("betActionAllowed") is not False:
-            blockers.append("research_bet_action_lock_missing")
-
-        artifact_hash = _text(_first(registry_shadow, "artifact_sha256", "artifactSha256", "sha256"))
-        features_hash = _text(_first(registry_shadow, "features_sha256", "featuresSha256", "feature_schema_sha256", "featureSchemaSha256"))
-        artifact_path = _resolve_path(_first(registry_shadow, "artifact"), self.settings.root_dir)
-        features_path = _resolve_path(_first(registry_shadow, "features", "feature_schema", "featureSchema"), self.settings.root_dir)
-        if not registry_shadow:
-            blockers.append("missing_registry_shadow_pointer")
-        if not artifact_hash:
-            blockers.append("missing_artifact_hash")
-        if not features_hash:
-            blockers.append("missing_feature_schema_hash")
-        if not artifact_path or not artifact_path.is_file():
-            blockers.append("missing_registry_artifact_file")
-        if not features_path or not features_path.is_file():
-            blockers.append("missing_feature_schema")
-
-        blockers.append(MANUAL_GOVERNANCE_BLOCKER)
-        warnings.append("No automatic production promotion is performed by this readiness endpoint.")
-        return {"blockers": _dedupe(blockers), "warnings": warnings}
-
 
 def _research_policy() -> dict[str, Any]:
     return {

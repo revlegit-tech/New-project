@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from mlb_app.api.dependencies import (
     get_blocking_work_limiter,
     get_model_registry_service,
+    get_model_production_gate_service,
     get_model_training_service,
     get_prediction_service,
     get_shadow_model_readiness_service,
@@ -29,6 +30,7 @@ from mlb_app.ml.evaluation.reports import evaluate_csv
 from mlb_app.ml.inference.prediction_service import PredictionService
 from mlb_app.repositories.model_store import normalize_market_key
 from mlb_app.services.blocking_work import BlockingWorkLimiter
+from mlb_app.services.model_production_gate_service import ModelProductionGateService
 from mlb_app.services.model_registry_service import ModelRegistryService
 from mlb_app.services.model_training_service import ModelTrainingService
 from mlb_app.services.shadow_model_readiness_service import ShadowModelReadinessService
@@ -175,6 +177,22 @@ async def ml_models_shadow_readiness(
 ) -> dict[str, Any]:
     market = str(request.query_params.get("market") or "").strip() or None
     return await limiter.run(service.payload, market=market, route_name="/api/ml-models/shadow-readiness")
+
+
+@router.get(
+    "/ml-models/production-gates",
+    response_model=MLModelsShadowReadinessResponse,
+    name="native_ml_models_production_gates",
+)
+async def ml_models_production_gates(
+    request: Request,
+    service: Annotated[ModelProductionGateService, Depends(get_model_production_gate_service)],
+    registry_service: Annotated[ModelRegistryService, Depends(get_model_registry_service)],
+    limiter: Annotated[BlockingWorkLimiter, Depends(get_blocking_work_limiter)],
+) -> dict[str, Any]:
+    market = str(request.query_params.get("market") or "").strip() or None
+    registry = await limiter.run(registry_service.load_registry, route_name="/api/ml-models/production-gates")
+    return await limiter.run(service.payload, market=market, registry=registry, route_name="/api/ml-models/production-gates")
 
 
 @router.post("/admin/ml-models/train", response_model=MLModelsAdminActionResponse, name="native_admin_ml_models_train")

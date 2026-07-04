@@ -32,6 +32,9 @@ PRODUCTION_STATUSES = {"production_candidate", "production"}
 DISABLED_STATUSES = {"disabled", "blocked"}
 SPRINT19_ALLOWED_MODEL_STATUSES = {"disabled", "candidate", "shadow", "deprecated"}
 TRAINING_RUNNER_STATUSES = {"candidate", "shadow"}
+MANUAL_GOVERNANCE_BLOCKER = "manual_governance_review_required"
+SPRINT19_SHADOW_MARKETS = {"batter_hits", "batter_home_runs", "batter_rbis", "batter_total_bases"}
+SPRINT19_SHADOW_MODEL_KEY = "calibrated_logistic"
 
 
 @dataclass(frozen=True)
@@ -412,7 +415,7 @@ class ModelRegistryService:
         entry.setdefault("market", key)
         resolved = self.artifact_repository.resolve_entry(key, stage=source, entry=entry)
         market_config = get_market_config(key) if is_supported_market(key) else None
-        return validate_promotion_gate(
+        result = validate_promotion_gate(
             market=key,
             entry=entry,
             target_status=target,
@@ -423,6 +426,21 @@ class ModelRegistryService:
             allow_candidate_to_production=allow_candidate_to_production,
             allow_deprecated_to_production=allow_deprecated_to_production,
         )
+        model = str(model_key or entry.get("selected_model") or entry.get("model_key") or entry.get("modelKey") or "").strip()
+        if target == "production" and _is_sprint19_shadow_promotion(key, source, model, entry):
+            reasons = tuple(_dedupe(list(result.reasons) + [MANUAL_GOVERNANCE_BLOCKER, "no_automatic_promotion"]))
+            checks = dict(result.checks)
+            checks["manualGovernanceReviewRequired"] = True
+            checks["automaticPromotionAllowed"] = False
+            return PromotionValidationResult(
+                allowed=False,
+                target_status=result.target_status,
+                reasons=reasons,
+                market=result.market,
+                source_status=result.source_status,
+                checks=checks,
+            )
+        return result
 
 
 def _read_csv_rows_cached(csv_store: Any, path: Path) -> list[dict[str, str]]:
@@ -557,6 +575,26 @@ def _select_model_entry(market_entry: dict[str, Any], *, source_status: str, mod
         selected["selected_model"] = selected_model
         return selected
     return dict(stage_entry)
+
+
+def _is_sprint19_shadow_promotion(market: str, source_status: str, model_key: str | None, entry: dict[str, Any]) -> bool:
+    provenance = " ".join(
+        str(value or "")
+        for value in (
+            entry.get("version"),
+            entry.get("artifact"),
+            entry.get("artifactPath"),
+            entry.get("source"),
+            entry.get("artifact_family"),
+            entry.get("artifactFamily"),
+        )
+    ).lower()
+    return (
+        normalize_market_key(market) in SPRINT19_SHADOW_MARKETS
+        and str(source_status or "").strip().lower() == "shadow"
+        and str(model_key or SPRINT19_SHADOW_MODEL_KEY).strip() == SPRINT19_SHADOW_MODEL_KEY
+        and ("sprint19" in provenance or "sprint_19" in provenance)
+    )
 
 
 def _public_path(root: Path, path: Path | None) -> str:

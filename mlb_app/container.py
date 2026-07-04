@@ -46,6 +46,7 @@ from mlb_app.services.historical_game_odds_import_service import HistoricalGameO
 from mlb_app.services.ml_feature_export_service import MLFeatureExportService
 from mlb_app.services.model_card_service import ModelCardService
 from mlb_app.services.model_readiness_service import ModelReadinessService
+from mlb_app.services.model_production_gate_service import ModelProductionGateService
 from mlb_app.services.model_registry_service import ModelRegistryService
 from mlb_app.services.mlb_market_registry_service import MLBMarketRegistryService
 from mlb_app.services.model_training_service import ModelTrainingService
@@ -120,6 +121,7 @@ class AppContainer:
     workflow_health_service: WorkflowHealthService = field(init=False)
     model_card_service: ModelCardService = field(init=False)
     shadow_model_summary_service: ShadowModelSummaryService = field(init=False)
+    model_production_gate_service: ModelProductionGateService = field(init=False)
     shadow_model_readiness_service: ShadowModelReadinessService = field(init=False)
     playerboard_read_service: PlayerboardReadService = field(init=False)
     playerboard_service: PlayerboardService = field(init=False)
@@ -249,10 +251,15 @@ class AppContainer:
             self.settings,
             registry_service=self.model_registry_service,
         )
+        self.model_production_gate_service = ModelProductionGateService(
+            self.settings,
+            summary_service=self.shadow_model_summary_service,
+        )
         self.shadow_model_readiness_service = ShadowModelReadinessService(
             self.settings,
             registry_service=self.model_registry_service,
             summary_service=self.shadow_model_summary_service,
+            gate_service=self.model_production_gate_service,
         )
         self.playerboard_read_service = PlayerboardReadService(
             repository=self.playerboard_repository,
