@@ -25,7 +25,7 @@ class ModelBacktestService:
         target_date, _ = resolve_date_mode(date_label)
         selected_season = int(season or self.settings.current_season)
         selected_market = _safe_market(market)
-        artifact_path = self.artifact_dir(selected_market) / "backtest_metrics.json"
+        artifact_path = self._status_artifact_path(selected_market, "backtest_metrics.json")
         metrics = _read_json(artifact_path)
         artifact_exists = artifact_path.is_file()
         warnings = []
@@ -123,6 +123,15 @@ class ModelBacktestService:
 
     def artifact_dir(self, market: str) -> Path:
         return self.settings.data_dir / "models" / "baseline" / _safe_market(market)
+
+    def shadow_artifact_dir(self, market: str) -> Path:
+        return self.settings.data_dir / "models" / "artifacts" / "sprint19_shadow" / "calibrated_logistic" / _safe_market(market)
+
+    def _status_artifact_path(self, market: str, filename: str) -> Path:
+        shadow_path = self.shadow_artifact_dir(market) / filename
+        if shadow_path.is_file():
+            return shadow_path
+        return self.artifact_dir(market) / filename
 
     def _label_files(self, season: int) -> list[Path]:
         candidates = [

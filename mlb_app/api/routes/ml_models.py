@@ -206,6 +206,9 @@ async def admin_ml_models_evaluate(
             _resolve_input_path(evaluation_path, service.settings.root_dir),
             min_train_rows=_body_int(payload, "minTrainRows", "min_train_rows") or 20,
             validation_window=_body_int(payload, "validationWindow", "validation_window") or 20,
+            markets=_body_list(payload, "markets"),
+            artifact_root=service.settings.data_dir / "models" / "artifacts" / "sprint19_shadow" / "calibrated_logistic",
+            write_artifacts=_body_bool(payload, "writeArtifacts", "write_artifacts", default=True),
             route_name="POST /api/admin/ml-models/evaluate",
         )
         return with_schema_version(
