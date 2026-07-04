@@ -329,7 +329,9 @@ def _safe_registry_entries(registry: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         if any(key in raw_market for key in ("artifact", "artifact_sha256", "artifactSha256", "status", "version")):
             entries.append(_safe_entry(market, "production", raw_market))
-            continue
+            # Do not continue here: legacy root production entries can coexist
+            # with nested candidate/shadow stages in the Sprint 19 registry.
+
         for stage in REGISTRY_STAGES:
             stage_entry = raw_market.get(stage)
             if not isinstance(stage_entry, dict):
